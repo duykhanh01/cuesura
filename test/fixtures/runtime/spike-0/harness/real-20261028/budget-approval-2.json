@@ -1,0 +1,14 @@
+{
+  "original_limit": 6,
+  "previous_approved_total": 8,
+  "approved_total": 10,
+  "additional_invocations": 2,
+  "allowed_roles": [
+    "codex:coder",
+    "codex:reviewer"
+  ],
+  "required_argv_disable": ["apps", "plugins", "remote_plugin", "plugin_sharing", "skill_mcp_dependency_install"],
+  "parent_ledger_sha256": "edbaf0e4fdb827edbaa291876f68c487afecac1673174ba4bccbc29fcb099436",
+  "parent_ledger_lines": 16,
+  "authorization": "Owner chose 'Duyệt 2 lượt' on 2026-10-28 for exactly two paid Codex runs (coder, reviewer) with the candidate argv that disables apps/plugins, low effort, maximum five minutes each."
+}

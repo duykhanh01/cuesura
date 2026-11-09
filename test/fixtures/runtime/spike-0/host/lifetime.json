@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "kind": "spike-0-runner-lifetime",
+  "checked_at": "2026-10-28T09:31:09.085Z",
+  "scope": "Local fake child in transient systemd --user units. Daemon is a disposable stand-in, not cusrd.service. No model, network, sudo or host policy change.",
+  "user_manager": "degraded",
+  "systemd": "systemd 249 (249.11-0ubuntu3.23)",
+  "kernel": "6.18.54.1-microsoft-standard-WSL2",
+  "node": "v24.22.1",
+  "hashes": {
+    "probe": "65a2c249de45f064d18e4756acba5e6381fc531be0c9cacda41788bc10d5d474",
+    "runner": "aefba34329d97007e5ae67a2aa917a2be6cd61718e8dcdef72451aaa31c4a483",
+    "fake_child": "2268229f08ebe3645340d1bd9934dc08a07349c420a26e8a8868d31354bf178a"
+  },
+  "foreground": {
+    "operation_id": "spike-lifetime-fg-199257-1793179865698",
+    "unit": "cusr-op-spike-lifetime-fg-199257-1793179865698.service",
+    "unit_argv": [
+      "/usr/bin/systemd-run",
+      "--user",
+      "--unit=cusr-op-spike-lifetime-fg-199257-1793179865698.service",
+      "--property=Restart=no",
+      "--property=KillMode=control-group",
+      "--property=TimeoutStopSec=15s",
+      "--property=SendSIGKILL=yes",
+      "--quiet",
+      "--",
+      "/bin/sh",
+      "-c",
+      "trap \"\" TERM; exec \"$@\"",
+      "sh",
+      "/usr/bin/flock",
+      "--exclusive",
+      "--nonblock",
+      "--conflict-exit-code",
+      "75",
+      "/tmp/cusr-lifetime-Zt2OCk/locks/spike-lifetime-fg-199257-1793179865698.lock",
+      "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "/home/dev/Personal/cuesura/scripts/spike-002/runner.ts",
+      "exec",
+      "--spec",
+      "/tmp/cusr-lifetime-Zt2OCk/spike-lifetime-fg-199257-1793179865698.spec.json",
+      "--root",
+      "/tmp/cusr-lifetime-Zt2OCk"
+    ],
+    "steps": [
+      {
+        "step": "runner unit started",
+        "at": "2026-10-28T09:31:05.900Z",
+        "launcher_pid": 199265,
+        "descendants": {
+          "in_group": 199282,
+          "escaped": 199283
+        },
+        "unit": {
+          "ActiveState": "active",
+          "SubState": "running",
+          "InvocationID": "8fea818a67c34919ab56f0339f9611c8",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-fg-199257-1793179865698.service",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        }
+      },
+      {
+        "step": "SIGKILL foreground launcher",
+        "at": "2026-10-28T09:31:05.906Z",
+        "launcher_exit": null,
+        "launcher_signal": "SIGKILL",
+        "unit": {
+          "ActiveState": "active",
+          "SubState": "running",
+          "InvocationID": "8fea818a67c34919ab56f0339f9611c8",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-fg-199257-1793179865698.service",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        },
+        "in_group_alive": true,
+        "escaped_alive": true
+      },
+      {
+        "step": "stop runner unit",
+        "at": "2026-10-28T09:31:06.926Z",
+        "systemctl_stop_exit": 0,
+        "cgroup_procs_before_stop": [
+          199267,
+          199268,
+          199275,
+          199282,
+          199283
+        ],
+        "in_group_alive": false,
+        "escaped_alive": false,
+        "unit_after": {
+          "ActiveState": "failed",
+          "SubState": "failed",
+          "InvocationID": "8fea818a67c34919ab56f0339f9611c8",
+          "ControlGroup": "",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        }
+      }
+    ],
+    "pid_json": {
+      "schema_version": 1,
+      "pid": 199275,
+      "pgid": 199275,
+      "start_ticks": "1789284",
+      "boot_id": "febc4b75-bdcc-44af-adf0-e1a13dfcd921",
+      "runner_pid": 199268,
+      "runner_start_ticks": "1789270",
+      "invocation_id": "8fea818a67c34919ab56f0339f9611c8",
+      "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-fg-199257-1793179865698.service",
+      "launch_nonce": "320eb279adc5202428cb885a0e5e027c"
+    },
+    "exit_json": {
+      "schema_version": 1,
+      "operation_id": "spike-lifetime-fg-199257-1793179865698",
+      "attempt_id": null,
+      "launch_nonce": "320eb279adc5202428cb885a0e5e027c",
+      "outcome": "cancelled",
+      "exit_code": null,
+      "signal": "SIGTERM",
+      "started_at": "2026-10-28T09:31:05.830Z",
+      "ended_at": "2026-10-28T09:31:05.919Z",
+      "duration_ms": 65,
+      "termination": {
+        "term_sent": true,
+        "kill_sent": false,
+        "group_empty_verified": true,
+        "descendant_scope": "unit_cgroup",
+        "descendants_killed": 0
+      },
+      "usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "artifacts": {
+        "events": {
+          "records": 1,
+          "bytes": 174,
+          "generations": 1,
+          "truncated_records": 0
+        },
+        "stderr": {
+          "bytes": 0,
+          "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "error": null
+    },
+    "descendants_dead": true,
+    "exit_written": true,
+    "invocation_stable": true,
+    "survived_launcher": true,
+    "stopped_all_descendants": true
+  },
+  "daemon_unit": {
+    "operation_id": "spike-lifetime-svc-199257-1793179865698",
+    "unit": "cusr-op-spike-lifetime-svc-199257-1793179865698.service",
+    "daemon_unit": "cusr-spike-daemon-199257-1793179865698.service",
+    "steps": [
+      {
+        "step": "runner unit started by daemon unit",
+        "at": "2026-10-28T09:31:07.166Z",
+        "systemd_run_exit": 0,
+        "descendants": {
+          "in_group": 199319,
+          "escaped": 199320
+        },
+        "unit": {
+          "ActiveState": "active",
+          "SubState": "running",
+          "InvocationID": "01f2bab026314ec5962e670583b03fdf",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-svc-199257-1793179865698.service",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        }
+      },
+      {
+        "step": "restart daemon unit",
+        "at": "2026-10-28T09:31:07.189Z",
+        "systemctl_exit": 0,
+        "unit": {
+          "ActiveState": "active",
+          "SubState": "running",
+          "InvocationID": "01f2bab026314ec5962e670583b03fdf",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-svc-199257-1793179865698.service",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        },
+        "in_group_alive": true,
+        "escaped_alive": true
+      },
+      {
+        "step": "stop daemon unit",
+        "at": "2026-10-28T09:31:07.200Z",
+        "systemctl_exit": 0,
+        "unit": {
+          "ActiveState": "active",
+          "SubState": "running",
+          "InvocationID": "01f2bab026314ec5962e670583b03fdf",
+          "ControlGroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-svc-199257-1793179865698.service",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        },
+        "in_group_alive": true,
+        "escaped_alive": true
+      },
+      {
+        "step": "stop runner unit",
+        "at": "2026-10-28T09:31:09.077Z",
+        "systemctl_stop_exit": 0,
+        "cgroup_procs_before_stop": [
+          199304,
+          199305,
+          199312,
+          199319,
+          199320
+        ],
+        "in_group_alive": false,
+        "escaped_alive": false,
+        "unit_after": {
+          "ActiveState": "failed",
+          "SubState": "failed",
+          "InvocationID": "01f2bab026314ec5962e670583b03fdf",
+          "ControlGroup": "",
+          "KillMode": "",
+          "Restart": "",
+          "NRestarts": ""
+        }
+      }
+    ],
+    "pid_json": {
+      "schema_version": 1,
+      "pid": 199312,
+      "pgid": 199312,
+      "start_ticks": "1789409",
+      "boot_id": "febc4b75-bdcc-44af-adf0-e1a13dfcd921",
+      "runner_pid": 199305,
+      "runner_start_ticks": "1789396",
+      "invocation_id": "01f2bab026314ec5962e670583b03fdf",
+      "cgroup": "/user.slice/user-1000.slice/user@1000.service/app.slice/cusr-op-spike-lifetime-svc-199257-1793179865698.service",
+      "launch_nonce": "0d74c7572b010e70bb6191ddf80d0eb6"
+    },
+    "exit_json": {
+      "schema_version": 1,
+      "operation_id": "spike-lifetime-svc-199257-1793179865698",
+      "attempt_id": null,
+      "launch_nonce": "0d74c7572b010e70bb6191ddf80d0eb6",
+      "outcome": "cancelled",
+      "exit_code": null,
+      "signal": "SIGTERM",
+      "started_at": "2026-10-28T09:31:07.089Z",
+      "ended_at": "2026-10-28T09:31:07.216Z",
+      "duration_ms": 121,
+      "termination": {
+        "term_sent": true,
+        "kill_sent": false,
+        "group_empty_verified": true,
+        "descendant_scope": "unit_cgroup",
+        "descendants_killed": 0
+      },
+      "usage": {
+        "status": "unavailable",
+        "reason": "runner does not parse harness usage"
+      },
+      "artifacts": {
+        "events": {
+          "records": 1,
+          "bytes": 175,
+          "generations": 1,
+          "truncated_records": 0
+        },
+        "stderr": {
+          "bytes": 0,
+          "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "error": null
+    },
+    "descendants_dead": true,
+    "exit_written": true,
+    "invocation_stable": true,
+    "survived_daemon": true,
+    "stopped_all_descendants": true
+  },
+  "passed": true
+}

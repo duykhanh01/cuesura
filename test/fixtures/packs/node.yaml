@@ -1,0 +1,13 @@
+# Node toolchain presets for project-owned keys only.
+setup: "npm install"
+log_digest:
+  keep: ["error", "FAIL", "AssertionError"]
+  tail: 50
+signature:
+  test_name: "^\\s*✗ (.+)$"
+ci_rules:
+  - match: { log_pattern: "ETIMEDOUT|ECONNRESET" }
+    class: flaky_or_infra
+  - match: { job: format }
+    class: autofix
+conventions: [CONTRIBUTING.md]

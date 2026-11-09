@@ -1,0 +1,49 @@
+# Semantically identical to user.yaml, with different key order and formatting.
+profiles:
+  heavy:
+    escalation:
+      auto_up_to_tier: 3
+    allow_models:
+      - sonnet
+      - sol
+      - opus
+    extends: standard
+  standard:
+    overridable: [roles.reviewer.binding, gates.lint, escalation.max_escalations_per_task]
+    escalation: {max_escalations_per_task: 2, above: ask_human, auto_up_to_tier: 2}
+    allow_models: [sonnet, sol, haiku]
+    allow_roles: [scout, coder, reviewer, fixer]
+    workflow: impl
+projects: {acme: {base_branch: main}}
+workflows:
+  impl:
+    base: "software_dev@1"
+roles:
+  scout: {binding: [{model: sol}], permissions: read_only, prompt: prompts/scout.md}
+  reviewer:
+    escalation: {ladder: [{effort: high}]}
+    binding: [{model: sol}]
+    permissions: read_only
+    prompt: prompts/reviewer.md
+  fixer:
+    escalation:
+      ladder: [{effort: high}, {effort: high, model: opus}]
+    binding: [{model: sonnet}]
+    prompt: prompts/fixer.md
+  coder:
+    escalation:
+      ladder: [{effort: high}, {effort: high, model: opus}]
+    limits: {wall_timeout: 45m, stall_timeout: 10m, max_turns: 80}
+    binding: [{model: opus, when: {size: [L, XL]}}, {model: sonnet}]
+    context: [task_brief, conventions]
+    prompt: prompts/coder.md
+models:
+  sol: {tier: 2, id: sol-1, harness: codex}
+  opus: {tier: 3, id: opus, harness: claude}
+  sonnet: {tier: 2, id: sonnet, harness: claude}
+  haiku: {tier: 1, id: haiku, harness: claude}
+pools: {build: 1, codex: 2, claude: 2}
+harnesses:
+  codex: {pool: codex, auth: subscription, cmd: codex}
+  claude: {pool: claude, auth: subscription, cmd: claude}
+version: 1

@@ -1,0 +1,13 @@
+{
+  "project": "python-sandbox",
+  "title": "Add slugify to the strings module",
+  "base_branch": "main",
+  "description": "src/slugs/strings.py has capitalize only. Add slugify(text) and cover it in tests/test_strings.py.",
+  "acceptance": [
+    "slugify('Hello, World!') returns 'hello-world'",
+    "slugify('  a  b  ') returns 'a-b'",
+    "slugify('') returns ''",
+    "the build, unit and lint gates pass"
+  ],
+  "depends_on": []
+}

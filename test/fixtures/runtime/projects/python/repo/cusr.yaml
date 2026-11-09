@@ -1,0 +1,10 @@
+version: 1
+gates:
+  build: "python3 -B -c \"import ast, pathlib; ast.parse(pathlib.Path('src/slugs/strings.py').read_text())\""
+  unit: "PYTHONPATH=src python3 -B -m unittest discover -s tests"
+  lint: "python3 -B scripts/lint.py"
+autofix:
+  format_fix: "true"
+ci:
+  required_checks: [build, test]
+profile: smoke

@@ -1,0 +1,235 @@
+[
+  {
+    "case": 1,
+    "title": "classic any-app",
+    "snapshot": [
+      "ci/a"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-1.json",
+      "ci/a",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/a",
+          "app": "any",
+          "source": "classic",
+          "enforcement": "classic",
+          "ruleset_id": null
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "covered",
+      "github": [
+        "ci/a"
+      ]
+    },
+    "expect": "covered; ci/a app any, source classic",
+    "evidence_file": "case-1.json",
+    "evidence_sha256": "5bc3a13100a98c5ba916a76d99cdea7179e17d22ec924c520ee10de45ec1dc0d"
+  },
+  {
+    "case": 2,
+    "title": "classic app-pinned",
+    "snapshot": [
+      "ci/a",
+      "ci/b"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-2.json",
+      "ci/a,ci/b",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/a",
+          "app": "any",
+          "source": "classic",
+          "enforcement": "classic",
+          "ruleset_id": null
+        },
+        {
+          "name": "ci/b",
+          "app": 15368,
+          "source": "classic",
+          "enforcement": "classic",
+          "ruleset_id": null
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "required_checks_mismatch",
+      "missing_from_snapshot": [],
+      "app_pinned": [
+        "ci/b@app:15368"
+      ]
+    },
+    "expect": "required_checks_mismatch; app_pinned ci/b@app:15368",
+    "evidence_file": "case-2.json",
+    "evidence_sha256": "26b82a29faf563da6a157d3580a90c97090ba1781451aa2de3ee853cf2be65de"
+  },
+  {
+    "case": 7,
+    "title": "reader without Administration permission",
+    "snapshot": [
+      "ci/a"
+    ],
+    "client": "anonymous (no token)",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-7.json",
+      "ci/a",
+      "gh-anonymous.sh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "unknown",
+      "checks": [],
+      "basis": "classic protection unreadable: HTTP 401"
+    },
+    "comparison": {
+      "verdict": "unknown",
+      "basis": "classic protection unreadable: HTTP 401"
+    },
+    "expect": "unknown; protection unreadable",
+    "evidence_file": "case-7.json",
+    "evidence_sha256": "bdfa43fe68648406aa513613ad955c96e5196419b350bb5a457f61b6b20e1509"
+  },
+  {
+    "case": 3,
+    "title": "ruleset active any-app",
+    "snapshot": [
+      "ci/c"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-3.json",
+      "ci/c",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "unknown",
+      "checks": [],
+      "basis": "classic protection unreadable: HTTP 404"
+    },
+    "comparison": {
+      "verdict": "unknown",
+      "basis": "classic protection unreadable: HTTP 404"
+    },
+    "expect": "covered; ci/c source rules enforcement active",
+    "evidence_file": "case-3.json",
+    "evidence_sha256": "6ee9f29bc333a9c12969cac970b2f593fec860c94d93fcc94f61d75f4ecd4b96"
+  },
+  {
+    "case": 4,
+    "title": "ruleset active, snapshot missing check",
+    "snapshot": [
+      "ci/x"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-4.json",
+      "ci/x",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "unknown",
+      "checks": [],
+      "basis": "classic protection unreadable: HTTP 404"
+    },
+    "comparison": {
+      "verdict": "unknown",
+      "basis": "classic protection unreadable: HTTP 404"
+    },
+    "expect": "required_checks_mismatch; missing_from_snapshot ci/c",
+    "evidence_file": "case-4.json",
+    "evidence_sha256": "63bd1fc579f337883385db041abd3882223b8cba202a197001b5cb9259b49414"
+  },
+  {
+    "case": 5,
+    "title": "ruleset app-pinned",
+    "snapshot": [
+      "ci/c",
+      "ci/d"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-5.json",
+      "ci/c,ci/d",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "unknown",
+      "checks": [],
+      "basis": "classic protection unreadable: HTTP 404"
+    },
+    "comparison": {
+      "verdict": "unknown",
+      "basis": "classic protection unreadable: HTTP 404"
+    },
+    "expect": "required_checks_mismatch; app_pinned ci/d@app:15368",
+    "evidence_file": "case-5.json",
+    "evidence_sha256": "0496d87700beb0f09c158148760ba3ac1d14e24345e0d03b1b4c51ba4dcd6514"
+  },
+  {
+    "case": 6,
+    "title": "ruleset disabled",
+    "snapshot": [
+      "ci/c"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-6.json",
+      "ci/c",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "none",
+      "checks": [],
+      "basis": "unprotected, no enforced required-check rules"
+    },
+    "comparison": {
+      "verdict": "covered",
+      "github": []
+    },
+    "expect": "not enforced; covered with no required checks",
+    "evidence_file": "case-6.json",
+    "evidence_sha256": "8850563722f7ef7cf3037c93ed8d13f7a7befc2fa7511e319bd46c8d02bbae5f"
+  }
+]

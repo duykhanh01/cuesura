@@ -1,0 +1,418 @@
+{
+  "kind": "spike-0-t008-admin-ledger",
+  "scope": "Owner-approved writes on the sandbox repo only: visibility and master protection/rulesets. No merge, push, branch or PR change.",
+  "pre": {
+    "private": true,
+    "visibility": "private"
+  },
+  "post": {
+    "private": true,
+    "visibility": "private",
+    "rulesets": []
+  },
+  "writes": [
+    {
+      "at": "2026-10-28T09:57:25.469513+00:00",
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "body": null,
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 1436664345,
+        "name": "cuesura-spike-002-sandbox",
+        "enforcement": null,
+        "private": true,
+        "visibility": "private",
+        "required_status_checks": null,
+        "rules": null,
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:57:27.209429+00:00",
+      "method": "PATCH",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "body": {
+        "visibility": "public"
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 1436664345,
+        "name": "cuesura-spike-002-sandbox",
+        "enforcement": null,
+        "private": false,
+        "visibility": "public",
+        "required_status_checks": null,
+        "rules": null,
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:57:28.279494+00:00",
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection",
+      "body": {
+        "required_status_checks": {
+          "strict": false,
+          "checks": [
+            {
+              "context": "ci/a"
+            }
+          ]
+        },
+        "enforce_admins": false,
+        "required_pull_request_reviews": null,
+        "restrictions": null
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": null,
+        "name": null,
+        "enforcement": null,
+        "private": null,
+        "visibility": null,
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_status_checks",
+          "strict": false,
+          "contexts": [
+            "ci/a"
+          ],
+          "contexts_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "ci/a",
+              "app_id": null
+            }
+          ]
+        },
+        "rules": null,
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:57:35.971651+00:00",
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection",
+      "body": {
+        "required_status_checks": {
+          "strict": false,
+          "checks": [
+            {
+              "context": "ci/a"
+            },
+            {
+              "context": "ci/b",
+              "app_id": 15368
+            }
+          ]
+        },
+        "enforce_admins": false,
+        "required_pull_request_reviews": null,
+        "restrictions": null
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": null,
+        "name": null,
+        "enforcement": null,
+        "private": null,
+        "visibility": null,
+        "required_status_checks": {
+          "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_status_checks",
+          "strict": false,
+          "contexts": [
+            "ci/a",
+            "ci/b"
+          ],
+          "contexts_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_status_checks/contexts",
+          "checks": [
+            {
+              "context": "ci/a",
+              "app_id": null
+            },
+            {
+              "context": "ci/b",
+              "app_id": 15368
+            }
+          ]
+        },
+        "rules": null,
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:57:52.878251+00:00",
+      "method": "DELETE",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection",
+      "body": null,
+      "exit": 0,
+      "stderr": "",
+      "response": null
+    },
+    {
+      "at": "2026-10-28T09:57:54.170770+00:00",
+      "method": "POST",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rulesets",
+      "body": {
+        "name": "cusr-spike-required-checks",
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci/c"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 26029351,
+        "name": "cusr-spike-required-checks",
+        "enforcement": "active",
+        "private": null,
+        "visibility": null,
+        "required_status_checks": null,
+        "rules": [
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci/c"
+                }
+              ]
+            }
+          }
+        ],
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:58:16.591700+00:00",
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rulesets/26029351",
+      "body": {
+        "name": "cusr-spike-required-checks",
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci/c"
+                },
+                {
+                  "context": "ci/d",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 26029351,
+        "name": "cusr-spike-required-checks",
+        "enforcement": "active",
+        "private": null,
+        "visibility": null,
+        "required_status_checks": null,
+        "rules": [
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci/c"
+                },
+                {
+                  "context": "ci/d",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ],
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:58:24.721471+00:00",
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rulesets/26029351",
+      "body": {
+        "name": "cusr-spike-required-checks",
+        "target": "branch",
+        "enforcement": "disabled",
+        "conditions": {
+          "ref_name": {
+            "include": [
+              "~DEFAULT_BRANCH"
+            ],
+            "exclude": []
+          }
+        },
+        "rules": [
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci/c"
+                },
+                {
+                  "context": "ci/d",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 26029351,
+        "name": "cusr-spike-required-checks",
+        "enforcement": "disabled",
+        "private": null,
+        "visibility": null,
+        "required_status_checks": null,
+        "rules": [
+          {
+            "type": "required_status_checks",
+            "parameters": {
+              "strict_required_status_checks_policy": false,
+              "do_not_enforce_on_create": false,
+              "required_status_checks": [
+                {
+                  "context": "ci/c"
+                },
+                {
+                  "context": "ci/d",
+                  "integration_id": 15368
+                }
+              ]
+            }
+          }
+        ],
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:58:33.158685+00:00",
+      "method": "DELETE",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rulesets/26029351",
+      "body": null,
+      "exit": 0,
+      "stderr": "",
+      "response": null
+    },
+    {
+      "at": "2026-10-28T09:58:33.974253+00:00",
+      "method": "DELETE",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection",
+      "body": null,
+      "exit": 1,
+      "stderr": "gh: Branch not protected (HTTP 404)",
+      "response": {
+        "id": null,
+        "name": null,
+        "enforcement": null,
+        "private": null,
+        "visibility": null,
+        "required_status_checks": null,
+        "rules": null,
+        "message": "Branch not protected"
+      }
+    },
+    {
+      "at": "2026-10-28T09:58:35.107879+00:00",
+      "method": "PATCH",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "body": {
+        "visibility": "private"
+      },
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 1436664345,
+        "name": "cuesura-spike-002-sandbox",
+        "enforcement": null,
+        "private": true,
+        "visibility": "private",
+        "required_status_checks": null,
+        "rules": null,
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:58:36.096832+00:00",
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "body": null,
+      "exit": 0,
+      "stderr": "",
+      "response": {
+        "id": 1436664345,
+        "name": "cuesura-spike-002-sandbox",
+        "enforcement": null,
+        "private": true,
+        "visibility": "private",
+        "required_status_checks": null,
+        "rules": null,
+        "message": null
+      }
+    },
+    {
+      "at": "2026-10-28T09:58:36.844013+00:00",
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rulesets",
+      "body": null,
+      "exit": 0,
+      "stderr": "",
+      "response": []
+    }
+  ]
+}

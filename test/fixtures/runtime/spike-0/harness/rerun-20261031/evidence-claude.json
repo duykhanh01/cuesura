@@ -1,0 +1,97 @@
+{
+  "kind": "harness-proof",
+  "checked_at": "2026-10-31T13:09:55.314Z",
+  "vendors": {
+    "claude": {
+      "vendor": "claude",
+      "binary": {
+        "realpath": "/home/dev/.local/share/claude/versions/2.1.316",
+        "version": "2.1.316 (Claude Code)",
+        "sha256": "fd13c70000fec3f2116dfbcbb6121210b4a29328bf0e46210a59dd594a67d824"
+      },
+      "role_schemas": {
+        "coder": {
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "fixer": {
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "reviewer": {
+          "digest": "sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e"
+        }
+      },
+      "selected_inner_mode": "internal_required",
+      "native_result": "passed",
+      "outer_proof_hash": "sha256:3be8ba15f6c0265265fdd9a1fe6befa4ca3465d5dfd05a2ccf53360ea5d854cd",
+      "permission_policy_hash": "sha256:aff2045f3d5f162c9bfbcccfbb03f01dc484fdd211de494194f229e7b24e6381",
+      "capabilities": {
+        "structured_output": {
+          "status": "proven",
+          "evidence": "valid results: 87937a54-5a90-4daa-b37a-399a2b56e942, 3f5d985f-656c-4895-9915-c74cbcce12a0, 4bdbb9f7-4b3f-4e7c-99f7-9ebdee653d62"
+        },
+        "permission_denial_kept": {
+          "status": "proven",
+          "evidence": "probe refused, marker absent: 87937a54-5a90-4daa-b37a-399a2b56e942, 3f5d985f-656c-4895-9915-c74cbcce12a0, 4bdbb9f7-4b3f-4e7c-99f7-9ebdee653d62"
+        },
+        "private_home_auth": {
+          "status": "proven",
+          "evidence": "authenticated from the private home, auth removed after: 87937a54-5a90-4daa-b37a-399a2b56e942, 3f5d985f-656c-4895-9915-c74cbcce12a0, 4bdbb9f7-4b3f-4e7c-99f7-9ebdee653d62"
+        },
+        "usage_report": {
+          "status": "proven",
+          "evidence": "usage reported: 87937a54-5a90-4daa-b37a-399a2b56e942, 3f5d985f-656c-4895-9915-c74cbcce12a0, 4bdbb9f7-4b3f-4e7c-99f7-9ebdee653d62"
+        },
+        "session_resume": {
+          "status": "unknown",
+          "evidence": "this proof runs no resume"
+        },
+        "cost_limit": {
+          "status": "unknown",
+          "evidence": "no hard USD cap is exercised"
+        },
+        "schema_acceptance_coder": {
+          "status": "proven",
+          "evidence": "valid result: 87937a54-5a90-4daa-b37a-399a2b56e942"
+        },
+        "schema_acceptance_fixer": {
+          "status": "proven",
+          "evidence": "valid result: 3f5d985f-656c-4895-9915-c74cbcce12a0"
+        },
+        "schema_acceptance_reviewer": {
+          "status": "proven",
+          "evidence": "valid result: 4bdbb9f7-4b3f-4e7c-99f7-9ebdee653d62"
+        }
+      },
+      "attested": {
+        "settings_hash": "sha256:1cac1036a4c36e94155c7928dfe961086b2727ac6d4923afecc68ed26ca523e2",
+        "environment_hash": "sha256:5530144bd078ca42bc710ffd667ae740b759fcaebcc7c9c1a25862e99b50b95b",
+        "host_policy_hash": "sha256:290f9c2b21a0fbf680df8b8e542aab7485e3241fa8ba6d26db9b65740ba95d0a",
+        "layout_shapes": {
+          "coder": "sha256:4ec8d8a29b46e98a2bf6fa9d22a49d0c33c512552aaa60cafd0fd272af972c08",
+          "fixer": "sha256:f32f0fc0b4482b8e19650da1ba8baf831423e00499ae806927d03f7079c5b4f7",
+          "reviewer": "sha256:f55e9b6299ee399037aa7e2428bee906bdcb45457730780699a58bc976efdfb4"
+        }
+      },
+      "runs": [
+        {
+          "role": "coder",
+          "attempt_id": "87937a54-5a90-4daa-b37a-399a2b56e942",
+          "kind": "result",
+          "nested_pid_namespaces": true
+        },
+        {
+          "role": "fixer",
+          "attempt_id": "3f5d985f-656c-4895-9915-c74cbcce12a0",
+          "kind": "result",
+          "nested_pid_namespaces": true
+        },
+        {
+          "role": "reviewer",
+          "attempt_id": "4bdbb9f7-4b3f-4e7c-99f7-9ebdee653d62",
+          "kind": "result",
+          "nested_pid_namespaces": true
+        }
+      ]
+    }
+  }
+}

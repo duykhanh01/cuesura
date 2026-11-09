@@ -1,0 +1,494 @@
+{
+  "kind": "spike-0-isolation-record",
+  "derived_at": "2026-10-28T09:44:31.511Z",
+  "scope": "Offline T006 record from archived invocation argv, Claude settings and harness manifest rows; no model call. Policy hash is per role because role args differ (reviewer read-only/disallowed tools).",
+  "outer_proof": {
+    "path": "test/fixtures/runtime/spike-0/host/manifest.json",
+    "sha256": "906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079"
+  },
+  "rules": {
+    "path": "/tmp/cusr-spike-002-owner-c6_um8ih/spike.rules",
+    "sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd",
+    "content": "prefix_rule(pattern=[\"/usr/bin/touch\", \"/cusr/scratch/permission-denied-by-rule\"], decision=\"forbidden\")\nprefix_rule(pattern=[\"touch\", \"/cusr/scratch/permission-denied-by-rule\"], decision=\"forbidden\")\n"
+  },
+  "vendors": {
+    "claude": {
+      "baseline_config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "baseline_policy_hash_consistent_by_role": {
+        "coder": [
+          "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6"
+        ],
+        "fixer": [
+          "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6"
+        ],
+        "reviewer": [
+          "sha256:64a2df2cf9453a2ada42e53b7233679cbab8a5fecb7612d8e7d19fec85bb4f29"
+        ]
+      },
+      "attempts_off_baseline": [],
+      "native_result": "passed",
+      "native_result_scope": "Shell tool executed inside a child pid namespace under internal_required for coder/fixer/reviewer. Reviewer write attempts (s0-*-reviewer-17931803*): worktree blocked with EROFS identical to the outer-only control; Claude inner sandbox allows /cusr/scratch; Codex scratch write left no file but has no runtime event (see summary.json)."
+    },
+    "codex": {
+      "baseline_config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "baseline_policy_hash_consistent_by_role": {
+        "coder": [
+          "sha256:bac453cf6ec1a6ff4fd8594187a7cc9b93c58cbe4199dfaeeaad5c6f08267dac"
+        ],
+        "fixer": [
+          "sha256:bac453cf6ec1a6ff4fd8594187a7cc9b93c58cbe4199dfaeeaad5c6f08267dac"
+        ],
+        "reviewer": [
+          "sha256:b33ad41c005803ce1dc52e4707fef53c1a8556fc0155f909cc0dccfa005f82f8"
+        ]
+      },
+      "attempts_off_baseline": [
+        "s0-codex-coder-1793172285",
+        "s0-codex-coder-1793172447",
+        "s0-codex-reviewer-1793172662"
+      ],
+      "native_result": "passed",
+      "native_result_scope": "Shell tool executed inside a child pid namespace under internal_required for coder/fixer/reviewer. Reviewer write attempts (s0-*-reviewer-17931803*): worktree blocked with EROFS identical to the outer-only control; Claude inner sandbox allows /cusr/scratch; Codex scratch write left no file but has no runtime event (see summary.json)."
+    }
+  },
+  "rows": [
+    {
+      "attempt": "s0-claude-coder-1793170522",
+      "vendor": "claude",
+      "role": "coder",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "permission_policy": {
+        "vendor": "claude",
+        "permissions": {
+          "defaultMode": "dontAsk",
+          "allow": [
+            "Bash",
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep"
+          ],
+          "deny": [
+            "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+            "Read(//cusr/scratch/permission-denied.txt)"
+          ]
+        },
+        "sandbox": {
+          "enabled": true,
+          "failIfUnavailable": true,
+          "allowUnsandboxedCommands": false,
+          "filesystem": {
+            "allowWrite": [
+              "/cusr/scratch",
+              "/cusr/home",
+              "/tmp"
+            ]
+          }
+        },
+        "tools": "Bash,Read,Edit,Write,Glob,Grep",
+        "disallowed_tools": null,
+        "setting_sources": "",
+        "safe_mode": true,
+        "strict_mcp_config": true,
+        "mcp_config": "{\"mcpServers\":{}}"
+      },
+      "permission_policy_hash": "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6",
+      "native": {
+        "tool_ran_in_child_pid_namespace": false,
+        "observed_pid_namespaces": 2,
+        "result_validation": "process_failed",
+        "result_status": null
+      }
+    },
+    {
+      "attempt": "s0-claude-coder-1793172185",
+      "vendor": "claude",
+      "role": "coder",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "permission_policy": {
+        "vendor": "claude",
+        "permissions": {
+          "defaultMode": "dontAsk",
+          "allow": [
+            "Bash",
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep"
+          ],
+          "deny": [
+            "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+            "Read(//cusr/scratch/permission-denied.txt)"
+          ]
+        },
+        "sandbox": {
+          "enabled": true,
+          "failIfUnavailable": true,
+          "allowUnsandboxedCommands": false,
+          "filesystem": {
+            "allowWrite": [
+              "/cusr/scratch",
+              "/cusr/home",
+              "/tmp"
+            ]
+          }
+        },
+        "tools": "Bash,Read,Edit,Write,Glob,Grep",
+        "disallowed_tools": null,
+        "setting_sources": "",
+        "safe_mode": true,
+        "strict_mcp_config": true,
+        "mcp_config": "{\"mcpServers\":{}}"
+      },
+      "permission_policy_hash": "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 4,
+        "result_validation": "valid",
+        "result_status": "done"
+      }
+    },
+    {
+      "attempt": "s0-codex-coder-1793172285",
+      "vendor": "codex",
+      "role": "coder",
+      "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "workspace-write",
+        "add_dirs": [
+          "/cusr/scratch"
+        ],
+        "disabled_features": [],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:9a957c50fcd941106924db6281d367821e2083c262497b4f2bc30ce19d5f4948",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 2,
+        "result_validation": "valid",
+        "result_status": "blocked"
+      }
+    },
+    {
+      "attempt": "s0-codex-coder-1793172447",
+      "vendor": "codex",
+      "role": "coder",
+      "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "workspace-write",
+        "add_dirs": [
+          "/cusr/scratch"
+        ],
+        "disabled_features": [],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:9a957c50fcd941106924db6281d367821e2083c262497b4f2bc30ce19d5f4948",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 6,
+        "result_validation": "valid",
+        "result_status": "done"
+      }
+    },
+    {
+      "attempt": "s0-claude-reviewer-1793172547",
+      "vendor": "claude",
+      "role": "reviewer",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "permission_policy": {
+        "vendor": "claude",
+        "permissions": {
+          "defaultMode": "dontAsk",
+          "allow": [
+            "Bash",
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep"
+          ],
+          "deny": [
+            "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+            "Read(//cusr/scratch/permission-denied.txt)"
+          ]
+        },
+        "sandbox": {
+          "enabled": true,
+          "failIfUnavailable": true,
+          "allowUnsandboxedCommands": false,
+          "filesystem": {
+            "allowWrite": [
+              "/cusr/scratch",
+              "/cusr/home",
+              "/tmp"
+            ]
+          }
+        },
+        "tools": "Bash,Read,Edit,Write,Glob,Grep",
+        "disallowed_tools": "Edit,Write",
+        "setting_sources": "",
+        "safe_mode": true,
+        "strict_mcp_config": true,
+        "mcp_config": "{\"mcpServers\":{}}"
+      },
+      "permission_policy_hash": "sha256:64a2df2cf9453a2ada42e53b7233679cbab8a5fecb7612d8e7d19fec85bb4f29",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 4,
+        "result_validation": "valid",
+        "result_status": "approve"
+      }
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793172662",
+      "vendor": "codex",
+      "role": "reviewer",
+      "config_sha256": "caff1431586b91db5818a02f9a56b408dd70789afeaf275f371adbe05f3f8ff5",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "read-only",
+        "add_dirs": [],
+        "disabled_features": [],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:d3cf65440b7ff45077c4d607c36146f7b602a20811edb63508e839db06e3bb8c",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 3,
+        "result_validation": "valid",
+        "result_status": "approve"
+      }
+    },
+    {
+      "attempt": "s0-claude-fixer-1793173414",
+      "vendor": "claude",
+      "role": "fixer",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "permission_policy": {
+        "vendor": "claude",
+        "permissions": {
+          "defaultMode": "dontAsk",
+          "allow": [
+            "Bash",
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep"
+          ],
+          "deny": [
+            "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+            "Read(//cusr/scratch/permission-denied.txt)"
+          ]
+        },
+        "sandbox": {
+          "enabled": true,
+          "failIfUnavailable": true,
+          "allowUnsandboxedCommands": false,
+          "filesystem": {
+            "allowWrite": [
+              "/cusr/scratch",
+              "/cusr/home",
+              "/tmp"
+            ]
+          }
+        },
+        "tools": "Bash,Read,Edit,Write,Glob,Grep",
+        "disallowed_tools": null,
+        "setting_sources": "",
+        "safe_mode": true,
+        "strict_mcp_config": true,
+        "mcp_config": "{\"mcpServers\":{}}"
+      },
+      "permission_policy_hash": "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 4,
+        "result_validation": "valid",
+        "result_status": "done"
+      }
+    },
+    {
+      "attempt": "s0-codex-fixer-1793173505",
+      "vendor": "codex",
+      "role": "fixer",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "workspace-write",
+        "add_dirs": [
+          "/cusr/scratch"
+        ],
+        "disabled_features": [
+          "apps",
+          "plugin_sharing",
+          "plugins",
+          "remote_plugin",
+          "skill_mcp_dependency_install"
+        ],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:bac453cf6ec1a6ff4fd8594187a7cc9b93c58cbe4199dfaeeaad5c6f08267dac",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 9,
+        "result_validation": "valid",
+        "result_status": "done"
+      }
+    },
+    {
+      "attempt": "s0-codex-coder-1793178479",
+      "vendor": "codex",
+      "role": "coder",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "workspace-write",
+        "add_dirs": [
+          "/cusr/scratch"
+        ],
+        "disabled_features": [
+          "apps",
+          "plugin_sharing",
+          "plugins",
+          "remote_plugin",
+          "skill_mcp_dependency_install"
+        ],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:bac453cf6ec1a6ff4fd8594187a7cc9b93c58cbe4199dfaeeaad5c6f08267dac",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 3,
+        "result_validation": "valid",
+        "result_status": "done"
+      }
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793178514",
+      "vendor": "codex",
+      "role": "reviewer",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "read-only",
+        "add_dirs": [],
+        "disabled_features": [
+          "apps",
+          "plugin_sharing",
+          "plugins",
+          "remote_plugin",
+          "skill_mcp_dependency_install"
+        ],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:b33ad41c005803ce1dc52e4707fef53c1a8556fc0155f909cc0dccfa005f82f8",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 4,
+        "result_validation": "valid",
+        "result_status": "approve"
+      }
+    },
+    {
+      "attempt": "s0-claude-reviewer-1793180331",
+      "vendor": "claude",
+      "role": "reviewer",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "permission_policy": {
+        "vendor": "claude",
+        "permissions": {
+          "defaultMode": "dontAsk",
+          "allow": [
+            "Bash",
+            "Read",
+            "Edit",
+            "Write",
+            "Glob",
+            "Grep"
+          ],
+          "deny": [
+            "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+            "Read(//cusr/scratch/permission-denied.txt)"
+          ]
+        },
+        "sandbox": {
+          "enabled": true,
+          "failIfUnavailable": true,
+          "allowUnsandboxedCommands": false,
+          "filesystem": {
+            "allowWrite": [
+              "/cusr/scratch",
+              "/cusr/home",
+              "/tmp"
+            ]
+          }
+        },
+        "tools": "Bash,Read,Edit,Write,Glob,Grep",
+        "disallowed_tools": "Edit,Write",
+        "setting_sources": "",
+        "safe_mode": true,
+        "strict_mcp_config": true,
+        "mcp_config": "{\"mcpServers\":{}}"
+      },
+      "permission_policy_hash": "sha256:64a2df2cf9453a2ada42e53b7233679cbab8a5fecb7612d8e7d19fec85bb4f29",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 4,
+        "result_validation": "valid",
+        "result_status": "approve"
+      }
+    },
+    {
+      "attempt": "s0-codex-reviewer-1793180367",
+      "vendor": "codex",
+      "role": "reviewer",
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "permission_policy": {
+        "vendor": "codex",
+        "approval_policy": "approval_policy=\"never\"",
+        "sandbox": "read-only",
+        "add_dirs": [],
+        "disabled_features": [
+          "apps",
+          "plugin_sharing",
+          "plugins",
+          "remote_plugin",
+          "skill_mcp_dependency_install"
+        ],
+        "ignore_user_config": true,
+        "ephemeral": true,
+        "rules_sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+      },
+      "permission_policy_hash": "sha256:b33ad41c005803ce1dc52e4707fef53c1a8556fc0155f909cc0dccfa005f82f8",
+      "native": {
+        "tool_ran_in_child_pid_namespace": true,
+        "observed_pid_namespaces": 3,
+        "result_validation": "valid",
+        "result_status": "approve"
+      }
+    }
+  ]
+}

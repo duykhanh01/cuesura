@@ -1,0 +1,14 @@
+{
+  "project": "python-sandbox",
+  "title": "Add the release banner",
+  "base_branch": "main",
+  "description": "Create these two files by copying each block verbatim. Do not change either of them in this step, even if you see a problem.\n\nsrc/slugs/banner.py:\n\ndef banner():\n    return 'Cuesura smoke'\n\n\ntests/test_banner.py:\n\nimport unittest\n\nfrom slugs.banner import banner\n\n\nclass BannerTest(unittest.TestCase):\n    def test_banner(self):\n        self.assertEqual(banner(), 'Cuesura smoke\\n')\n\nA later step fixes whatever the gates report: then change the code, never the test.",
+  "constraints": [
+    "Cuesura runs the gates after your step; do not run them yourself."
+  ],
+  "acceptance": [
+    "banner() returns 'Cuesura smoke' followed by a line break",
+    "the build, unit and lint gates pass"
+  ],
+  "depends_on": []
+}

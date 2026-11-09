@@ -1,0 +1,24 @@
+import { spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { join, dirname } from 'node:path';
+import { buildSandbox, probeLayout } from '/home/dev/Personal/cuesura/scripts/spike-002/sandbox.ts';
+const owner='/tmp/cusr-spike-002-owner-c6_um8ih';
+const state=JSON.parse(readFileSync(join(owner,'state.json'),'utf8'));
+const pnpm='/home/dev/.nvm/versions/node/v24.22.1/lib/node_modules/corepack/dist/pnpm.js';
+const node=process.execPath;
+writeFileSync(join(state.fx.worktree,'package.json'),JSON.stringify({private:true,packageManager:'pnpm@12.15.0'})+'\n');
+const rows=[];
+for(const [role,name,command] of [
+ ['setup','pnpm',[node,pnpm,'add','--ignore-scripts','--store-dir','/cusr/scratch/store','is-number@7.0.0']],
+ ['gate','pip',['/usr/bin/python3','-m','pip','download','--no-deps','--no-cache-dir','--dest','/cusr/scratch','six==1.17.0']],
+]) {
+ const scratch=join(state.base,`network-${name}`); mkdirSync(scratch,{recursive:true});
+ const plan=buildSandbox({...probeLayout(role,state.fx),scratch,toolchain:[dirname(node),dirname(dirname(pnpm))],env:{COREPACK_ENABLE_DOWNLOAD_PROMPT:'0'}});
+ const start=Date.now();const result=spawnSync('/usr/bin/bwrap',[...plan.argv,'--',...command],{env:{},encoding:'utf8',timeout:90000,maxBuffer:65536});
+ const files=readdirSync(scratch).filter(f=>statSync(join(scratch,f)).isFile()).map(f=>({name:f,sha256:createHash('sha256').update(readFileSync(join(scratch,f))).digest('hex'),bytes:statSync(join(scratch,f)).size}));
+ rows.push({role,package_manager:name,command,exit:result.status,duration_ms:Date.now()-start,layout_digest:plan.layout_digest,model_auth_mounted:plan.mounts.some(m=>m.purpose==='private-home'),stdout:result.stdout?.trim()??'',stderr:result.stderr?.trim()??result.error?.message??'',downloaded_files:files,package_installed_in_fixture:name==='pnpm'&&statSync(join(state.fx.worktree,'node_modules/is-number/package.json'),{throwIfNoEntry:false})?.isFile()===true});
+}
+const report={kind:'spike-0-package-network',scope:'Setup/gate outer sandbox with empty home, no model/admin/GitHub/SSH credentials. pnpm installs only into the disposable fixture with lifecycle scripts disabled; pip downloads only. No package installation on the host or execution of downloaded package code; not full workflow SC-002.',checked_at:new Date().toISOString(),rows,passed:rows.every(r=>r.exit===0&&(r.downloaded_files.length>0||r.package_installed_in_fixture)&&!r.model_auth_mounted)};
+writeFileSync(join(owner,'network.json'),JSON.stringify(report,null,2)+'\n');
+console.log(JSON.stringify(report,null,2));

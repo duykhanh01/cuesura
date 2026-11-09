@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "vendor": "claude",
+  "binary": {
+    "path": "/home/dev/.local/share/claude/versions/2.1.306",
+    "sha256": "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe",
+    "version_argv": [
+      "--version"
+    ],
+    "expected_version": "2.1.306 (Claude Code)"
+  },
+  "model": "claude-haiku-5-5",
+  "effort": "low",
+  "argv": [
+    "-p",
+    "--verbose",
+    "--max-turns",
+    "16",
+    "--tools",
+    "Bash,Read,Edit,Write,Glob,Grep",
+    "--output-format",
+    "stream-json",
+    "--json-schema",
+    "{schema_inline}",
+    "--model",
+    "{model}",
+    "--effort",
+    "{effort}",
+    "--settings",
+    "{settings_file}",
+    "--no-session-persistence",
+    "--setting-sources",
+    "",
+    "--safe-mode",
+    "--strict-mcp-config",
+    "--mcp-config",
+    "{\"mcpServers\":{}}",
+    "{role_args}"
+  ],
+  "role_args": {
+    "reviewer": [
+      "--disallowedTools",
+      "Edit,Write"
+    ]
+  },
+  "prompt_via": "stdin",
+  "result_source": {
+    "kind": "stdout_json",
+    "pointer": [
+      "structured_output"
+    ]
+  },
+  "settings": {
+    "file_name": "claude-settings.json",
+    "content": {
+      "sandbox": {
+        "enabled": true,
+        "failIfUnavailable": true,
+        "allowUnsandboxedCommands": false,
+        "filesystem": {
+          "allowWrite": [
+            "/cusr/scratch",
+            "/cusr/home",
+            "/tmp"
+          ]
+        }
+      },
+      "permissions": {
+        "defaultMode": "dontAsk",
+        "allow": [
+          "Bash",
+          "Read",
+          "Edit",
+          "Write",
+          "Glob",
+          "Grep"
+        ],
+        "deny": [
+          "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+          "Read(//cusr/scratch/permission-denied.txt)"
+        ]
+      }
+    }
+  },
+  "auth_files": [
+    {
+      "from": "/home/dev/.claude/.credentials.json",
+      "to": ".claude/.credentials.json"
+    }
+  ],
+  "isolation": {
+    "requested_inner_mode": "internal_required",
+    "owner_allows_external_verified": false,
+    "native_result": "passed",
+    "outer_proof_hash": "sha256:906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079",
+    "permission_policy_hash": "sha256:90f5ebe8b95a77f458ffa45938318acbca21db2088248da38e6ff594ae834618"
+  },
+  "capabilities": {
+    "structured_output": {
+      "status": "proven",
+      "evidence": "stdout_json structured_output; valid results s0-claude-coder-1793172185, s0-claude-fixer-1793173414, s0-claude-reviewer-1793172547, s0-claude-reviewer-1793180331"
+    },
+    "schema_acceptance_coder": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-claude-coder-1793172185"
+    },
+    "schema_acceptance_fixer": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-claude-fixer-1793173414"
+    },
+    "schema_acceptance_reviewer": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-claude-reviewer-1793172547, s0-claude-reviewer-1793180331"
+    },
+    "native_inner_sandbox": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/isolation-record.json vendors.claude.native_result=passed (shell tool in child pid namespace for coder/fixer/reviewer)"
+    },
+    "permission_denial_kept": {
+      "status": "proven",
+      "evidence": "system/permission_denied events: s0-claude-coder-1793172185, s0-claude-fixer-1793173414, s0-claude-reviewer-1793172547 (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+    },
+    "private_home_auth": {
+      "status": "proven",
+      "evidence": "selected auth only in private home, removed after archive; test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json temporary_auth_cleanup"
+    },
+    "usage_report": {
+      "status": "proven",
+      "evidence": "tokens and total_cost_usd in 4 attempts (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+    },
+    "wall_limit": {
+      "status": "proven",
+      "evidence": "runner-enforced: deadline_ms 300000 + unit RuntimeMaxSec=330s; timeout path covered by test/integration/spike-002/harness-run.test.ts; vendor-independent"
+    },
+    "cost_limit": {
+      "status": "unknown",
+      "evidence": "no hard USD cap exercised; total_cost_usd is a report, not a limit"
+    },
+    "session_resume": {
+      "status": "unknown",
+      "evidence": "owner did not approve resume runs (2026-10-28); runs used --no-session-persistence"
+    }
+  },
+  "wall_ms": 300000,
+  "env": {
+    "LD_LIBRARY_PATH": "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu"
+  }
+}

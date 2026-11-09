@@ -1,0 +1,104 @@
+{
+  "kind": "spike-0-host-local",
+  "checked_at": "2026-10-28T05:52:49.766977+00:00",
+  "scope": "Approved execution outside tool sandbox on current WSL2 host. No policy changes, model or GitHub in these host probes. User-unit create/query/stop and lifetime are recorded in manifest.json; restricted-tool observations remain separately in host-tool-sandbox.json.",
+  "kernel": "6.18.54.1-microsoft-standard-WSL2",
+  "uid": 1000,
+  "commands": [
+    {
+      "argv": [
+        "node",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "v24.22.1",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "pnpm",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "12.15.0",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bwrap",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "bubblewrap 0.6.1",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "bwrap",
+        "--unshare-user",
+        "--ro-bind",
+        "/",
+        "/",
+        "/usr/bin/true"
+      ],
+      "exit": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "systemctl",
+        "--user",
+        "is-system-running"
+      ],
+      "exit": 0,
+      "stdout": "running",
+      "stderr": ""
+    },
+    {
+      "argv": [
+        "systemd-run",
+        "--version"
+      ],
+      "exit": 0,
+      "stdout": "systemd 249 (249.11-0ubuntu3.23)\n+PAM +AUDIT +SELINUX +APPARMOR +IMA +SMACK +SECCOMP +GCRYPT +GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBFDISK +PCRE2 -PWQUALITY -P11KIT -QRENCODE +BZIP2 +LZ4 +XZ +ZLIB +ZSTD -XKBCOMMON +UTMP +SYSVINIT default-hierarchy=unified",
+      "stderr": ""
+    }
+  ],
+  "observations": {
+    "/etc/os-release": "PRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"22.04\"\nVERSION=\"22.04.5 LTS (Jammy Jellyfish)\"\nVERSION_CODENAME=jammy\nID=ubuntu\nID_LIKE=debian\nHOME_URL=\"https://www.ubuntu.com/\"\nSUPPORT_URL=\"https://help.ubuntu.com/\"\nBUG_REPORT_URL=\"https://bugs.launchpad.net/ubuntu/\"\nPRIVACY_POLICY_URL=\"https://www.ubuntu.com/legal/terms-and-policies/privacy-policy\"\nUBUNTU_CODENAME=jammy",
+    "/sys/module/apparmor/parameters/enabled": "Y",
+    "/sys/kernel/security/lsm": "capability,landlock,yama,safesetid,apparmor,bpf,ima",
+    "/proc/self/attr/current": "unconfined",
+    "/proc/sys/kernel/apparmor_restrict_unprivileged_userns": {
+      "unavailable": "No such file or directory"
+    }
+  },
+  "binaries": {
+    "node": {
+      "path": "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "realpath": "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "sha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb"
+    },
+    "bwrap": {
+      "path": "/usr/bin/bwrap",
+      "realpath": "/usr/bin/bwrap",
+      "sha256": "bf6cf3d4456665f5d80c14eb79a76e0ce87b39a0883e614a161658b4ec33492c"
+    },
+    "systemctl": {
+      "path": "/usr/bin/systemctl",
+      "realpath": "/usr/bin/systemctl",
+      "sha256": "de4c5cdd03758593036da105a57f959b76bd1ad6e0d1e567d29d16458aeaddf6"
+    },
+    "systemd-run": {
+      "path": "/usr/bin/systemd-run",
+      "realpath": "/usr/bin/systemd-run",
+      "sha256": "132133b730684e848dac376b16b43316285cb9302c209ed0777569e4e39f809f"
+    },
+    "flock": {
+      "path": "/usr/bin/flock",
+      "realpath": "/usr/bin/flock",
+      "sha256": "fbef805080cbb981559ba978ce36731189308ab1da2cd3fbd706691b2b6dafbe"
+    }
+  }
+}

@@ -1,0 +1,74 @@
+import subprocess,json,pathlib,datetime,hashlib,base64,urllib.parse,re
+root=pathlib.Path('/home/dev/Personal/cuesura')
+out=root/'test/fixtures/runtime/spike-0/github/real-20261028'
+out.mkdir(parents=True,exist_ok=True)
+fixture=json.loads((root/'specs/002-task-to-green-pr/evidence/github-manual-prs.json').read_text())
+repo=fixture['repository']; rid=fixture['repository_id']
+previous=out/'post-merge.json'
+if previous.exists():
+ (out/'initial-api-schema-failure.json').write_bytes(previous.read_bytes())
+ for raw in out.glob('response-*.json'): raw.rename(out/('initial-'+raw.name))
+report={'kind':'spike-0-github-post-merge-proof','checked_at':datetime.datetime.now(datetime.timezone.utc).isoformat(),'repository':repo,'repository_id':rid,'api_version':'2026-03-10','gh_version':subprocess.check_output(['gh','--version'],text=True).splitlines()[0],'pull_requests':[],'request_ledger':[],'merge_requests_sent':0,'scope':'Only owner-authorized merged fixture branches; no merge endpoint mutation, default branch write, rules/protection mutation, model calls or production repository.'}
+def save():
+ (out/'post-merge.json').write_text(json.dumps(report,indent=2)+'\n')
+def api(path,method='GET',body=None,allow404=False):
+ args=['gh','api','--method',method,'-H','X-GitHub-Api-Version: 2026-03-10',path]
+ if body is not None:
+  bodyfile=pathlib.Path('/tmp/cusr-spike-002-post-merge/request.json');bodyfile.write_text(json.dumps(body));args+=['--input',str(bodyfile)]
+ p=subprocess.run(args,capture_output=True,text=True,timeout=30)
+ try: data=json.loads(p.stdout) if p.stdout.strip() else None
+ except ValueError: data={'unparsed':p.stdout}
+ seq=len(report['request_ledger'])+1
+ redacted=re.sub(r'([?&]token=)[^&\s\x22\x27<>\\#]+',r'\1[REDACTED]',json.dumps(data,indent=2),flags=re.I)
+ raw=out/f'response-{seq:02d}.json';raw.write_text(redacted+'\n')
+ entry={'sequence':seq,'method':method,'path':path,'exit':p.returncode,'response':raw.name,'sha256':hashlib.sha256(raw.read_bytes()).hexdigest()}
+ if body is not None: entry['request_body_sha256']=hashlib.sha256(json.dumps(body,sort_keys=True).encode()).hexdigest()
+ report['request_ledger'].append(entry);save()
+ if p.returncode and not (allow404 and isinstance(data,dict) and str(data.get('status'))=='404'): raise RuntimeError(f'{method} {path}: {p.stderr}')
+ return data
+repo_info=api(f'repos/{repo}')
+assert repo_info['id']==rid and repo_info['private'] is True
+report['private']=True; report['default_branch']=repo_info['default_branch']
+for f in fixture['pull_requests']:
+ n=f['number']; mode=f['mode']; branch=f['branch']; expected=f['head_sha']; prefix=f'repos/{repo}'
+ pr=api(f'{prefix}/pulls/{n}')
+ assert pr['merged'] is True and pr['base']['repo']['id']==rid and pr['head']['sha']==expected and pr['head']['ref']==branch and branch!=report['default_branch']
+ events=api(f'{prefix}/issues/{n}/events?per_page=100')
+ merged_events=[e for e in events if e.get('event')=='merged']
+ assert len(merged_events)==1 and merged_events[0].get('commit_id'), 'missing or ambiguous merged event'
+ merge_sha=pr.get('merge_commit_sha') or merged_events[0]['commit_id']
+ row={'merge_commit_source':'pulls.merge_commit_sha' if pr.get('merge_commit_sha') else 'issues.events.merged.commit_id','pinned_pull_merge_commit_sha_present':'merge_commit_sha' in pr,'number':n,'requested_merge_mode':mode,'pr_id':pr['id'],'node_id':pr['node_id'],'branch':branch,'expected_head_at_merge':expected,'merged_at':pr['merged_at'],'merge_commit_sha':merge_sha,'before_push_head':pr['head']['sha']}
+ report['pull_requests'].append(row);save()
+ commit=api(f"{prefix}/commits/{merge_sha}")
+ original=api(f'{prefix}/commits/{expected}')
+ row['merged_commit']={'sha':commit['sha'],'parents':[p['sha'] for p in commit['parents']],'message':commit['commit']['message'],'author':commit['commit']['author'],'committer':commit['commit']['committer']}
+ row['original_commit']={'sha':original['sha'],'parents':[p['sha'] for p in original['parents']],'message':original['commit']['message'],'author':original['commit']['author'],'committer':original['commit']['committer']}
+ row['merge_mode_evidence']='two-parent commit containing original head' if len(commit['parents'])==2 and expected in [p['sha'] for p in commit['parents']] else 'one-parent commit; requested squash/rebase mode is not uniquely identifiable from graph alone'
+ refpath=f'{prefix}/git/ref/heads/{branch}'
+ ref=api(refpath,allow404=True)
+ if str(ref.get('status'))=='404':
+  row.update({'source_already_deleted':True,'push_probe':'not_run_source_missing','after_delete_head':pr['head']['sha'],'delete_head_preserved':pr['head']['sha']==expected});save();continue
+ assert ref['object']['sha']==expected, 'source advanced outside fixture; stopping'
+ path=f'spike/{mode}.txt'
+ content=api(f'{prefix}/contents/{path}?ref='+urllib.parse.quote(branch,safe=''))
+ before=base64.b64decode(content['content'])
+ after=before+b'\nS0.3 post-merge source push probe, 2026-10-28.\n'
+ pushed=api(f'{prefix}/contents/{path}','PUT',{'message':f'test: post-merge {mode} source proof','branch':branch,'sha':content['sha'],'content':base64.b64encode(after).decode()})
+ newsha=pushed['commit']['sha'];row['post_merge_source_sha']=newsha;save()
+ again=api(f'{prefix}/pulls/{n}')
+ newref=api(refpath)
+ assert newref['object']['sha']==newsha
+ row.update({'after_push_head':again['head']['sha'],'push_head_preserved':again['head']['sha']==expected,'push_probe':'completed','post_push_still_merged':again['merged'],'post_push_pull_merge_sha':again.get('merge_commit_sha')});save()
+ assert again['merged'] is True, 'PR unexpectedly unmerged; stopping before delete'
+ api(f'{prefix}/git/refs/heads/{branch}','DELETE')
+ absent=api(refpath,allow404=True)
+ assert str(absent.get('status'))=='404'
+ deleted=api(f'{prefix}/pulls/{n}')
+ row.update({'source_deleted':True,'after_delete_head':deleted['head']['sha'],'delete_head_preserved':deleted['head']['sha']==expected,'post_delete_still_merged':deleted['merged'],'post_delete_pull_merge_sha':deleted.get('merge_commit_sha')});save()
+ print(json.dumps({'pr':n,'mode':mode,'push_head_preserved':row['push_head_preserved'],'delete_head_preserved':row['delete_head_preserved'],'source_deleted':True}),flush=True)
+report['pinned_api_schema_gap']='REST 2026-03-10 omits merge_commit_sha; merged event commit_id used only as diagnostic evidence, not implemented by gh-port prototype'
+report['head_source']='pulls.head.sha'
+report['head_source_cases_passed']=len(report['pull_requests'])==3 and all(p.get('push_head_preserved') is True and p.get('delete_head_preserved') is True for p in report['pull_requests'])
+report['required_check_configuration_coverage']='not established by these merged PRs; no rules/protection changes were authorized or sent'
+save()
+print(json.dumps({'head_source_cases_passed':report['head_source_cases_passed'],'requests':len(report['request_ledger']),'evidence':str(out/'post-merge.json')}))

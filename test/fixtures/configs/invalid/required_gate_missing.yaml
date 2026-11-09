@@ -1,0 +1,7 @@
+# expect: required_gate_missing 4 1
+# role: project
+version: 1
+gates:
+  build: make
+  lint: make lint
+profile: standard

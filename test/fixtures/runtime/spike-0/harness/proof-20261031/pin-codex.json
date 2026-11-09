@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "vendor": "codex",
+  "binary": {
+    "realpath": "/home/dev/.nvm/versions/node/v24.22.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "version": "codex-cli 0.165.0",
+    "sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5"
+  },
+  "toolchain": [
+    "/home/dev/.local/share/cuesura-t126/tools/node/bin"
+  ],
+  "env": {},
+  "home_files": [
+    {
+      "credential": "codex-0",
+      "to": ".codex/auth.json"
+    },
+    {
+      "credential": "codex-1",
+      "to": ".codex/rules/spike.rules",
+      "sha256": "dab36c87271eecfa8bcf946ef557baf62ef861d45205257eaa3ebc735403d3bd"
+    }
+  ],
+  "settings": null,
+  "max_turns": null,
+  "tools": null
+}

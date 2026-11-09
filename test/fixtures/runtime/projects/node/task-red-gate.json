@@ -1,0 +1,14 @@
+{
+  "project": "node-sandbox",
+  "title": "Add the release banner",
+  "base_branch": "main",
+  "description": "Create these two files by copying each block verbatim. Do not change either of them in this step, even if you see a problem.\n\nsrc/banner.js:\n\nexport const banner = () => 'Cuesura smoke';\n\n\ntest/banner.test.js:\n\nimport assert from 'node:assert/strict';\nimport { test } from 'node:test';\nimport { banner } from '../src/banner.js';\n\ntest('banner', () => {\n  assert.equal(banner(), 'Cuesura smoke\\n');\n});\n\nA later step fixes whatever the gates report: then change the code, never the test.",
+  "constraints": [
+    "Cuesura runs the gates after your step; do not run them yourself."
+  ],
+  "acceptance": [
+    "banner() returns 'Cuesura smoke' followed by a line break",
+    "the build, unit and lint gates pass"
+  ],
+  "depends_on": []
+}

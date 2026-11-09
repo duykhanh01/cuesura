@@ -1,0 +1,63 @@
+# T008 live required-check coverage on the sandbox repo. Owner approved 2026-10-28: make public,
+# toggle classic protection/rulesets on master, read required checks with the GET-only gh port (readRequiredChecks + compareRequired), then remove all
+# rules and restore private. Every write is recorded; cleanup always runs.
+import json, subprocess, sys, time, datetime, pathlib, hashlib
+REPO = 'duykhanh01/cuesura-spike-002-sandbox'; REPO_ID = 1436664345; APP = 15368  # GitHub Actions
+ROOT = pathlib.Path('/home/dev/Personal/cuesura'); OUT = ROOT / 'test/fixtures/runtime/spike-0/github/live-rules'
+OUT.mkdir(parents=True, exist_ok=True)
+ANON = sys.argv[1]; READ = sys.argv[2]
+ledger, cases = [], []
+now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+def api(method, path, body=None, allow=()):
+    args = ['gh', 'api', '--method', method, '-H', 'Accept: application/vnd.github+json', '-H', 'X-GitHub-Api-Version: 2026-03-10', path]
+    if body is not None: args += ['--input', '-']
+    r = subprocess.run(args, input=json.dumps(body) if body is not None else None, capture_output=True, text=True, timeout=60)
+    try: resp = json.loads(r.stdout) if r.stdout.strip() else None
+    except ValueError: resp = r.stdout[:300]
+    ledger.append({'at': now(), 'method': method, 'path': path, 'body': body, 'exit': r.returncode, 'stderr': r.stderr.strip()[:300],
+                   'response': {k: resp.get(k) for k in ('id', 'name', 'enforcement', 'private', 'visibility', 'required_status_checks', 'rules', 'message')} if isinstance(resp, dict) else resp})
+    if r.returncode != 0 and not any(a in r.stderr for a in allow): raise RuntimeError(f'{method} {path}: {r.stderr.strip()}')
+    return resp
+
+def observe(n, title, snapshot, expect, gh='gh'):
+    time.sleep(3)
+    out = OUT / f'case-{n}.json'
+    cmd = ['node', READ, str(out), ','.join(snapshot), gh]
+    r = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=120)
+    obs = json.loads(out.read_text()) if out.exists() else None
+    cases.append({'case': n, 'title': title, 'snapshot': snapshot, 'client': 'anonymous (no token)' if gh != 'gh' else 'gh owner token',
+                  'command': ['node', 'read-required.mjs', out.name, ','.join(snapshot), 'gh-anonymous.sh' if gh != 'gh' else 'gh'], 'exit': r.returncode, 'stderr': r.stderr.strip()[:300],
+                  'required': obs and obs.get('required'), 'comparison': obs and obs.get('comparison'), 'expect': expect,
+                  'evidence_file': out.name, 'evidence_sha256': hashlib.sha256(out.read_bytes()).hexdigest() if out.exists() else None})
+    print(n, title, '->', json.dumps(obs and obs.get('comparison'))[:200], flush=True)
+
+pc = lambda checks: {'required_status_checks': {'strict': False, 'checks': checks}, 'enforce_admins': False, 'required_pull_request_reviews': None, 'restrictions': None}
+rs = lambda checks, enf: {'name': 'cusr-spike-required-checks', 'target': 'branch', 'enforcement': enf, 'conditions': {'ref_name': {'include': ['~DEFAULT_BRANCH'], 'exclude': []}},
+                          'rules': [{'type': 'required_status_checks', 'parameters': {'strict_required_status_checks_policy': False, 'do_not_enforce_on_create': False, 'required_status_checks': checks}}]}
+ruleset_ids = []
+pre = api('GET', f'repos/{REPO}')
+try:
+    api('PATCH', f'repos/{REPO}', {'visibility': 'public'})
+    api('PUT', f'repos/{REPO}/branches/master/protection', pc([{'context': 'ci/a'}]))
+    observe(1, 'classic any-app', ['ci/a'], 'covered; ci/a app any, source classic')
+    api('PUT', f'repos/{REPO}/branches/master/protection', pc([{'context': 'ci/a'}, {'context': 'ci/b', 'app_id': APP}]))
+    observe(2, 'classic app-pinned', ['ci/a', 'ci/b'], f'required_checks_mismatch; app_pinned ci/b@app:{APP}')
+    observe(7, 'reader without Administration permission', ['ci/a'], 'unknown; protection unreadable', gh=ANON)
+    api('DELETE', f'repos/{REPO}/branches/master/protection')
+    rid = api('POST', f'repos/{REPO}/rulesets', rs([{'context': 'ci/c'}], 'active'))['id']; ruleset_ids.append(rid)
+    observe(3, 'ruleset active any-app', ['ci/c'], 'covered; ci/c source rules enforcement active')
+    observe(4, 'ruleset active, snapshot missing check', ['ci/x'], 'required_checks_mismatch; missing_from_snapshot ci/c')
+    api('PUT', f'repos/{REPO}/rulesets/{rid}', rs([{'context': 'ci/c'}, {'context': 'ci/d', 'integration_id': APP}], 'active'))
+    observe(5, 'ruleset app-pinned', ['ci/c', 'ci/d'], f'required_checks_mismatch; app_pinned ci/d@app:{APP}')
+    api('PUT', f'repos/{REPO}/rulesets/{rid}', rs([{'context': 'ci/c'}, {'context': 'ci/d', 'integration_id': APP}], 'disabled'))
+    observe(6, 'ruleset disabled', ['ci/c'], 'not enforced; covered with no required checks')
+finally:
+    for rid in ruleset_ids: api('DELETE', f'repos/{REPO}/rulesets/{rid}', allow=('404',))
+    api('DELETE', f'repos/{REPO}/branches/master/protection', allow=('404', 'Branch not protected'))
+    api('PATCH', f'repos/{REPO}', {'visibility': 'private'})
+    post = api('GET', f'repos/{REPO}')
+    remaining = api('GET', f'repos/{REPO}/rulesets')
+    (OUT / 'admin-ledger.json').write_text(json.dumps({'kind': 'spike-0-t008-admin-ledger', 'scope': 'Owner-approved writes on the sandbox repo only: visibility and master protection/rulesets. No merge, push, branch or PR change.', 'pre': {'private': pre.get('private'), 'visibility': pre.get('visibility')}, 'post': {'private': post.get('private'), 'visibility': post.get('visibility'), 'rulesets': remaining}, 'writes': ledger}, indent=2) + '\n')
+    (OUT / 'cases.json').write_text(json.dumps(cases, indent=2) + '\n')
+    print('restored private:', post.get('private'), 'rulesets left:', remaining)

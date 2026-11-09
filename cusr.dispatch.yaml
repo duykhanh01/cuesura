@@ -1,0 +1,25 @@
+version: 1
+profile: dogfood
+rules:
+  - when: 'Sensitive areas: src/runner, src/daemon, src/adapters, cusr.yaml, .github, deploy, or permissions, tokens, sandbox.'
+    why: 'High risk; 16 tests skip themselves in the gate, so the user runs pnpm test on the host before merging.'
+    use: { harness: claude, model: opus, effort: medium }
+    reviewer: { harness: codex, model: sol, effort: high }
+  - when: 'Nearly mechanical work: renaming, changing messages, formatting, fixing fixtures.'
+    why: 'Little ambiguity, and the gate and CI check it fully. Gemini 3.8 Flash cannot run through cusr yet; run agy manually.'
+    use: { harness: codex, model: luna, effort: high }
+  - when: 'Small change, clear scope, touches logic in src/.'
+    why: 'Narrow work that still needs review; Sonnet first so the reviewer is from a different vendor.'
+    use:
+      - { harness: claude, model: sonnet, effort: medium }
+      - { harness: codex, model: terra, effort: medium }
+    reviewer: { harness: codex, model: sol, effort: high }
+  - when: 'Small change, clear scope, does not touch logic in src/; has tests or tests are easy to add.'
+    why: 'The gate and CI check it fully.'
+    use:
+      - { harness: codex, model: terra, effort: medium }
+      - { harness: claude, model: sonnet, effort: medium }
+default:
+  use: { harness: claude, model: opus, effort: medium }
+  reviewer: { harness: codex, model: sol, effort: high }
+  why: 'Regular code, branching logic, multi-file edits, or unsure which tier applies.'

@@ -1,0 +1,73 @@
+// Offline T007 capability manifest per vendor, built only from archived evidence; no model call.
+import { readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { hashCanonical } from '/home/dev/Personal/cuesura/src/shared/hash.ts';
+import { HarnessConfigSchema, checkConfig, CAPABILITIES } from '/home/dev/Personal/cuesura/scripts/spike-002/harness.ts';
+const repo = '/home/dev/Personal/cuesura';
+const owner = '/tmp/cusr-spike-002-owner-c6_um8ih';
+const fxRel = 'test/fixtures/runtime/spike-0/harness/real-20261028';
+const fx = join(repo, fxRel);
+const sha = (b) => createHash('sha256').update(b).digest('hex');
+const json = (p) => JSON.parse(readFileSync(p, 'utf8'));
+const manifest = json(join(fx, 'manifest.json'));
+const iso = json(join(fx, 'isolation-record.json'));
+const stream = json(join(fx, 'stream-summary.json'));
+const schemas = json(join(repo, 'test/fixtures/runtime/spike-0/schema/manifest.json'));
+const hostManifest = readFileSync(join(repo, 'test/fixtures/runtime/spike-0/host/manifest.json'));
+const ref = (f) => `${fxRel}/${f}`;
+
+const valid = (vendor, role) => manifest.rows.filter((r) => r.vendor === vendor && r.role === role && r.result_validation === 'valid' && iso.vendors[vendor].attempts_off_baseline.indexOf(r.attempt) < 0).map((r) => r.attempt);
+const P = (evidence) => ({ status: 'proven', evidence });
+const U = (evidence) => ({ status: 'unknown', evidence });
+
+function capabilities(vendor) {
+  const roles = Object.fromEntries(['coder', 'fixer', 'reviewer'].map((role) => [role, valid(vendor, role)]));
+  const usage = stream.rows.filter((r) => r.vendor === vendor && r.derived.usage.status === 'reported');
+  const denials = stream.rows.filter((r) => r.vendor === vendor && r.derived.permission_denials.length > 0).map((r) => r.attempt);
+  return {
+    structured_output: P(`${vendor === 'claude' ? 'stdout_json structured_output' : 'file via --output-last-message'}; valid results ${Object.values(roles).flat().join(', ')}`),
+    schema_acceptance_coder: P(`${ref('manifest.json')} rows ${roles.coder.join(', ')}`),
+    schema_acceptance_fixer: P(`${ref('manifest.json')} rows ${roles.fixer.join(', ')}`),
+    schema_acceptance_reviewer: P(`${ref('manifest.json')} rows ${roles.reviewer.join(', ')}`),
+    native_inner_sandbox: P(`${ref('isolation-record.json')} vendors.${vendor}.native_result=passed (shell tool in child pid namespace for coder/fixer/reviewer)`),
+    permission_denial_kept: P(`${vendor === 'claude' ? 'system/permission_denied events' : 'codex_core::tools::router Rejected on stderr; no --json event'}: ${denials.join(', ')} (${ref('stream-summary.json')})`),
+    private_home_auth: P(`selected auth only in private home, removed after archive; ${ref('manifest.json')} temporary_auth_cleanup`),
+    usage_report: P(`${vendor === 'claude' ? 'tokens and total_cost_usd' : 'tokens only, no cost field'} in ${usage.length} attempts (${ref('stream-summary.json')})`),
+    wall_limit: P('runner-enforced: deadline_ms 300000 + unit RuntimeMaxSec=330s; timeout path covered by test/integration/spike-002/harness-run.test.ts; vendor-independent'),
+    cost_limit: U(vendor === 'claude' ? 'no hard USD cap exercised; total_cost_usd is a report, not a limit' : 'no cost reported or capped'),
+    session_resume: U('owner did not approve resume runs (2026-10-28); runs used ' + (vendor === 'claude' ? '--no-session-persistence' : '--ephemeral')),
+  };
+}
+
+const out = { kind: 'spike-0-capability-manifest', checked_at: new Date().toISOString(), scope: 'T007 CapabilityManifest per vendor (data-model.md), derived offline from archived evidence. Valid only for the pinned binary/config/harness/host hashes below; any change re-runs the affected spike part.', vendors: {} };
+for (const vendor of ['claude', 'codex']) {
+  const cfgText = readFileSync(join(owner, `${vendor}.json`), 'utf8');
+  const cfg = JSON.parse(cfgText);
+  const policyByRole = iso.vendors[vendor].baseline_policy_hash_consistent_by_role;
+  const pinned = { ...cfg, isolation: { ...cfg.isolation, native_result: 'passed', outer_proof_hash: `sha256:${sha(hostManifest)}`, permission_policy_hash: hashCanonical(policyByRole) }, capabilities: capabilities(vendor) };
+  const parsed = HarnessConfigSchema.parse(pinned);
+  const readiness = checkConfig(parsed);
+  if (!readiness.ready) throw Error(`${vendor}: ${readiness.blockers.join('; ')}`);
+  const missing = CAPABILITIES.filter((c) => !(c in parsed.capabilities));
+  if (missing.length) throw Error(`${vendor}: missing ${missing}`);
+  writeFileSync(join(fx, `pinned-${vendor}.json`), JSON.stringify(parsed, null, 2) + '\n');
+  const body = {
+    vendor,
+    binary: { realpath: cfg.binary.path, version: cfg.binary.expected_version, sha256: cfg.binary.sha256 },
+    model: cfg.model, effort: cfg.effort,
+    effective_model_source: vendor === 'claude' ? 'runtime: system/init and result.modelUsage report the model; effort from argv only' : 'argv only: exec --json reports neither model nor effort',
+    role_schemas: Object.fromEntries(Object.entries(schemas.roles).map(([r, s]) => [r, { schema_id: s.schema_id, digest: s.digest }])),
+    isolation_mode: 'isolated', provider: 'bwrap', selected_inner_mode: 'internal_required', native_result: 'passed',
+    outer_proof_hash: pinned.isolation.outer_proof_hash, permission_policy_hash: pinned.isolation.permission_policy_hash, permission_policy_hash_by_role: policyByRole,
+    settings_hash: cfg.settings ? hashCanonical(cfg.settings.content) : null,
+    config_sha256: sha(cfgText), pinned_config: ref(`pinned-${vendor}.json`), pinned_config_ready: readiness.ready,
+    harness_sha256: { attempts_1_10: manifest.source_sha256['scripts/spike-002/harness.ts'], current: manifest.source_sha256_current['scripts/spike-002/harness.ts'] },
+    host: { deployment_host: 'WSL2 worker (owner decision 2026-10-28)', manifest: 'test/fixtures/runtime/spike-0/host/manifest.json' },
+    capabilities: parsed.capabilities,
+    capability_missing: Object.entries(parsed.capabilities).filter(([, c]) => c.status !== 'proven').map(([k]) => k),
+  };
+  out.vendors[vendor] = { ...body, manifest_hash: hashCanonical(body) };
+}
+writeFileSync(join(fx, 'capability-manifest.json'), JSON.stringify(out, null, 2) + '\n');
+for (const [v, b] of Object.entries(out.vendors)) console.log(v, 'ready', b.pinned_config_ready, 'missing', b.capability_missing, b.manifest_hash);

@@ -1,0 +1,132 @@
+{
+  "api_version": "2026-03-10",
+  "snapshot": [
+    "ci/a",
+    "ci/b"
+  ],
+  "required": {
+    "status": "required",
+    "checks": [
+      {
+        "name": "ci/a",
+        "app": "any",
+        "source": "classic",
+        "enforcement": "classic",
+        "ruleset_id": null
+      },
+      {
+        "name": "ci/b",
+        "app": 15368,
+        "source": "classic",
+        "enforcement": "classic",
+        "ruleset_id": null
+      }
+    ],
+    "basis": "classic and/or active rules"
+  },
+  "comparison": {
+    "verdict": "required_checks_mismatch",
+    "missing_from_snapshot": [],
+    "app_pinned": [
+      "ci/b@app:15368"
+    ]
+  },
+  "ledger": [
+    {
+      "seq": 0,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master",
+      "send": 1,
+      "started_ms": 0,
+      "duration_ms": 788,
+      "bytes": 5426,
+      "status": 200,
+      "outcome": "ok",
+      "evidence_digest": "sha256:b55e4403b2e230ff78dfe2bfd835a5f56ec5f5c9d1ae874ace883e777ca35191"
+    },
+    {
+      "seq": 1,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection",
+      "send": 1,
+      "started_ms": 791,
+      "duration_ms": 724,
+      "bytes": 2508,
+      "status": 200,
+      "outcome": "ok",
+      "evidence_digest": "sha256:12134f677dab4e09164c7fa5ced36b7d462fa2f8b9b4cc013a686b8e9b36f2a0"
+    },
+    {
+      "seq": 2,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rules/branches/master?per_page=100&page=1",
+      "send": 1,
+      "started_ms": 1516,
+      "duration_ms": 634,
+      "bytes": 1425,
+      "status": 200,
+      "outcome": "ok",
+      "evidence_digest": "sha256:6027268d0cced4aefc15664eb4edb518ca7a0e123a69591dc73f9ffefc5bd0dc"
+    }
+  ],
+  "evidence": [
+    {
+      "seq": 0,
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master",
+      "status": 200,
+      "headers": {
+        "date": "Wed, 28 Oct 2026 10:01:21 GMT",
+        "etag": "W/\"1caf2f1bf9e9d3cf07311344e693294dc3a4f8abf0e429b97c52df8f6e116462\"",
+        "x-github-api-version-selected": "2026-03-10",
+        "x-github-request-id": "FD14:15A13A:22B36D3:34B10FA:6AE1C7F1",
+        "x-ratelimit-remaining": "4946",
+        "x-ratelimit-reset": "1793184543",
+        "x-ratelimit-resource": "core"
+      },
+      "body_redacted": "{\"name\":\"master\",\"commit\":{\"sha\":\"9ad1de32594287e475b91ba61f4063dc20de9aa8\",\"node_id\":\"C_kwDOVaHCGdoAKDlhZDFkZTMyNTk0Mjg3ZTQ3NWI5MWJhNjFmNDA2M2RjMjBkZTlhYTg\",\"commit\":{\"author\":{\"name\":\"Ngô Duy Khánh\",\"email\":\"80962056+duykhanh01@users.noreply.github.com\",\"date\":\"2026-10-28T07:57:51Z\"},\"committer\":{\"name\":\"Ngô Duy Khánh\",\"email\":\"80962056+duykhanh01@users.noreply.github.com\",\"date\":\"2026-10-28T08:33:10Z\"},\"message\":\"test: add rebase head-at-merge fixture\",\"tree\":{\"sha\":\"666e9864729a4697dd57d39a666e4da528081231\",\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/trees/666e9864729a4697dd57d39a666e4da528081231\"},\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/9ad1de32594287e475b91ba61f4063dc20de9aa8\",\"comment_count\":0,\"verification\":{\"verified\":false,\"reason\":\"unsigned\",\"signature\":null,\"payload\":null,\"verified_at\":null}},\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/9ad1de32594287e475b91ba61f4063dc20de9aa8\",\"html_url\":\"https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/9ad1de32594287e475b91ba61f4063dc20de9aa8\",\"comments_url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/9ad1de32594287e475b91ba61f4063dc20de9aa8/comments\",\"author\":{\"login\":\"duykhanh01\",\"id\":80962056,\"node_id\":\"MDQ6VXNlcjgwOTYyMDU2\",\"avatar_url\":\"https://avatars.githubusercontent.com/u/80962056?v=4\",\"gravatar_id\":\"\",\"url\":\"https://api.github.com/users/duykhanh01\",\"html_url\":\"https://github.com/duykhanh01\",\"followers_url\":\"https://api.github.com/users/duykhanh01/followers\",\"following_url\":\"https://api.github.com/users/duykhanh01/following{/other_user}\",\"gists_url\":\"https://api.github.com/users/duykhanh01/gists{/gist_id}\",\"starred_url\":\"https://api.github.com/users/duykhanh01/starred{/owner}{/repo}\",\"subscriptions_url\":\"https://api.github.com/users/duykhanh01/subscriptions\",\"organizations_url\":\"https://api.github.com/users/duykhanh01/orgs\",\"repos_url\":\"https://api.github.com/users/duykhanh01/repos\",\"events_url\":\"https://api.github.com/users/duykhanh01/events{/privacy}\",\"received_events_url\":\"https://api.github.com/users/duykhanh01/received_events\",\"type\":\"User\",\"user_view_type\":\"public\",\"site_admin\":false},\"committer\":{\"login\":\"duykhanh01\",\"id\":80962056,\"node_id\":\"MDQ6VXNlcjgwOTYyMDU2\",\"avatar_url\":\"https://avatars.githubusercontent.com/u/80962056?v=4\",\"gravatar_id\":\"\",\"url\":\"https://api.github.com/users/duykhanh01\",\"html_url\":\"https://github.com/duykhanh01\",\"followers_url\":\"https://api.github.com/users/duykhanh01/followers\",\"following_url\":\"https://api.github.com/users/duykhanh01/following{/other_user}\",\"gists_url\":\"https://api.github.com/users/duykhanh01/gists{/gist_id}\",\"starred_url\":\"https://api.github.com/users/duykhanh01/starred{/owner}{/repo}\",\"subscriptions_url\":\"https://api.github.com/users/duykhanh01/subscriptions\",\"organizations_url\":\"https://api.github.com/users/duykhanh01/orgs\",\"repos_url\":\"https://api.github.com/users/duykhanh01/repos\",\"events_url\":\"https://api.github.com/users/duykhanh01/events{/privacy}\",\"received_events_url\":\"https://api.github.com/users/duykhanh01/received_events\",\"type\":\"User\",\"user_view_type\":\"public\",\"site_admin\":false},\"parents\":[{\"sha\":\"d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1\",\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1\",\"html_url\":\"https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1\"}]},\"_links\":{\"self\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master\",\"html\":\"https://github.com/duykhanh01/cuesura-spike-002-sandbox/tree/master\"},\"protected\":true,\"protection\":{\"enabled\":true,\"required_status_checks\":{\"enforcement_level\":\"non_admins\",\"contexts\":[\"ci/a\",\"ci/b\"],\"checks\":[{\"context\":\"ci/a\",\"app_id\":null},{\"context\":\"ci/b\",\"app_id\":15368}]}},\"protection_url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection\"}",
+      "digest": "sha256:b55e4403b2e230ff78dfe2bfd835a5f56ec5f5c9d1ae874ace883e777ca35191"
+    },
+    {
+      "seq": 1,
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection",
+      "status": 200,
+      "headers": {
+        "date": "Wed, 28 Oct 2026 10:01:22 GMT",
+        "etag": "W/\"af3c6aeefd470bd635f4325ea2bedaeb6acc0d2cb4a03c51425d21fcdac6756d\"",
+        "x-github-api-version-selected": "2026-03-10",
+        "x-github-request-id": "FD18:EF558:2320EC3:351E92C:6AE1C7F2",
+        "x-ratelimit-remaining": "4945",
+        "x-ratelimit-reset": "1793184543",
+        "x-ratelimit-resource": "core"
+      },
+      "body_redacted": "{\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection\",\"required_status_checks\":{\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_status_checks\",\"strict\":false,\"contexts\":[\"ci/a\",\"ci/b\"],\"contexts_url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_status_checks/contexts\",\"checks\":[{\"context\":\"ci/a\",\"app_id\":null},{\"context\":\"ci/b\",\"app_id\":15368}]},\"required_signatures\":{\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/required_signatures\",\"enabled\":false},\"enforce_admins\":{\"url\":\"https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/branches/master/protection/enforce_admins\",\"enabled\":false},\"required_linear_history\":{\"enabled\":false},\"allow_force_pushes\":{\"enabled\":false},\"allow_deletions\":{\"enabled\":false},\"block_creations\":{\"enabled\":false},\"required_conversation_resolution\":{\"enabled\":false},\"lock_branch\":{\"enabled\":false},\"allow_fork_syncing\":{\"enabled\":false}}",
+      "digest": "sha256:12134f677dab4e09164c7fa5ced36b7d462fa2f8b9b4cc013a686b8e9b36f2a0"
+    },
+    {
+      "seq": 2,
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/rules/branches/master?per_page=100&page=1",
+      "status": 200,
+      "headers": {
+        "date": "Wed, 28 Oct 2026 10:01:23 GMT",
+        "etag": "\"8e97a2e54168cd0d8474f110f42f893c127de82eb0b8d9708c2293ab9d6b078d\"",
+        "x-github-api-version-selected": "2026-03-10",
+        "x-github-request-id": "FD56:C22E0:22C8D12:34C972E:6AE1C7F2",
+        "x-ratelimit-remaining": "4944",
+        "x-ratelimit-reset": "1793184543",
+        "x-ratelimit-resource": "core"
+      },
+      "body_redacted": "[]",
+      "digest": "sha256:6027268d0cced4aefc15664eb4edb518ca7a0e123a69591dc73f9ffefc5bd0dc"
+    }
+  ],
+  "limits": {
+    "call_timeout_ms": 30000,
+    "round_ms": 60000,
+    "max_calls": 100,
+    "max_pages": 20,
+    "per_page": 100,
+    "max_response_bytes": 2097152,
+    "max_sends": 3
+  },
+  "mode": "live"
+}

@@ -1,0 +1,57 @@
+// Offline T006 record: native result and effective permission policy hash per attempt, from archived evidence.
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { hashCanonical } from '/home/dev/Personal/cuesura/src/shared/hash.ts';
+const repo = '/home/dev/Personal/cuesura';
+const fx = join(repo, 'test/fixtures/runtime/spike-0/harness/real-20261028');
+const rulesPath = process.argv[2];
+const sha = (b) => createHash('sha256').update(b).digest('hex');
+const rules = readFileSync(rulesPath, 'utf8');
+const manifest = JSON.parse(readFileSync(join(fx, 'manifest.json'), 'utf8'));
+const inputs = JSON.parse(readFileSync(join(repo, 'specs/002-task-to-green-pr/evidence/spike-inputs.json'), 'utf8'));
+const hostManifest = readFileSync(join(repo, 'test/fixtures/runtime/spike-0/host/manifest.json'));
+const flag = (argv, name) => { const i = argv.indexOf(name); return i < 0 ? null : argv[i + 1]; };
+const all = (argv, name) => argv.flatMap((x, i) => (x === name ? [argv[i + 1]] : []));
+
+function policy(vendor, argv, dir) {
+  if (vendor === 'claude') {
+    const settings = JSON.parse(readFileSync(join(dir, 'context', 'claude-settings.json'), 'utf8'));
+    return { vendor, permissions: settings.permissions, sandbox: settings.sandbox, tools: flag(argv, '--tools'), disallowed_tools: flag(argv, '--disallowedTools'),
+      setting_sources: flag(argv, '--setting-sources'), safe_mode: argv.includes('--safe-mode'), strict_mcp_config: argv.includes('--strict-mcp-config'), mcp_config: flag(argv, '--mcp-config') };
+  }
+  return { vendor, approval_policy: argv.find((x) => x.startsWith('approval_policy=')) ?? null, sandbox: flag(argv, '--sandbox'), add_dirs: all(argv, '--add-dir'),
+    disabled_features: all(argv, '--disable').sort(), ignore_user_config: argv.includes('--ignore-user-config'), ephemeral: argv.includes('--ephemeral'), rules_sha256: sha(rules) };
+}
+
+const rows = manifest.rows.map((r) => {
+  const dir = join(fx, r.attempt);
+  const inv = JSON.parse(readFileSync(join(dir, 'invocation.json'), 'utf8'));
+  const cmd = inv.spec.command; const argv = cmd.slice(cmd.indexOf('--') + 1);
+  const p = policy(r.vendor, argv, dir);
+  const valid = r.result_validation === 'valid';
+  return { attempt: r.attempt, vendor: r.vendor, role: r.role, config_sha256: r.config_sha256, permission_policy: p, permission_policy_hash: hashCanonical(p),
+    native: { tool_ran_in_child_pid_namespace: valid && r.native_observed_pid_namespaces.length > 1, observed_pid_namespaces: r.native_observed_pid_namespaces.length, result_validation: r.result_validation, result_status: r.result_status } };
+});
+const baseline = Object.fromEntries(['claude', 'codex'].map((v) => [v, inputs.harnesses[v].candidate_config_sha256]));
+const byVendor = (v) => rows.filter((x) => x.vendor === v);
+const vendors = Object.fromEntries(['claude', 'codex'].map((v) => {
+  const base = byVendor(v).filter((x) => x.config_sha256 === baseline[v]);
+  const ok = base.filter((x) => x.result_validation !== 'process_failed');
+  return [v, {
+    baseline_config_sha256: baseline[v],
+    baseline_policy_hash_consistent_by_role: Object.fromEntries(['coder', 'fixer', 'reviewer'].map((role) => [role, [...new Set(base.filter((x) => x.role === role).map((x) => x.permission_policy_hash))]])),
+    attempts_off_baseline: byVendor(v).filter((x) => x.config_sha256 !== baseline[v]).map((x) => x.attempt),
+    native_result: base.filter((x) => x.native.result_validation === 'valid').every((x) => x.native.tool_ran_in_child_pid_namespace) && ['coder', 'fixer', 'reviewer'].every((role) => base.some((x) => x.role === role && x.native.tool_ran_in_child_pid_namespace)) ? 'passed' : 'not_proven',
+    native_result_scope: 'Shell tool executed inside a child pid namespace under internal_required for coder/fixer/reviewer. Reviewer write attempts (s0-*-reviewer-17931803*): worktree blocked with EROFS identical to the outer-only control; Claude inner sandbox allows /cusr/scratch; Codex scratch write left no file but has no runtime event (see summary.json).',
+  }];
+}));
+const out = {
+  kind: 'spike-0-isolation-record', derived_at: new Date().toISOString(),
+  scope: 'Offline T006 record from archived invocation argv, Claude settings and harness manifest rows; no model call. Policy hash is per role because role args differ (reviewer read-only/disallowed tools).',
+  outer_proof: { path: 'test/fixtures/runtime/spike-0/host/manifest.json', sha256: sha(hostManifest) },
+  rules: { path: rulesPath, sha256: sha(rules), content: rules },
+  vendors, rows,
+};
+writeFileSync(join(fx, 'isolation-record.json'), JSON.stringify(out, null, 2) + '\n');
+for (const [v, s] of Object.entries(vendors)) console.log(v, s.native_result, JSON.stringify(s.baseline_policy_hash_consistent_by_role).slice(0, 300), 'off', s.attempts_off_baseline);

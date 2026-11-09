@@ -1,0 +1,14 @@
+{
+  "original_limit": 6,
+  "previous_approved_total": 10,
+  "approved_total": 12,
+  "additional_invocations": 2,
+  "allowed_roles": [
+    "claude:reviewer",
+    "codex:reviewer"
+  ],
+  "required_argv_disable": {"codex": ["apps", "plugins", "remote_plugin", "plugin_sharing", "skill_mcp_dependency_install"]},
+  "parent_ledger_sha256": "dff67acb6fce209c2bbd9e79412400150b018a6351d7760c13da8d331623371e",
+  "parent_ledger_lines": 20,
+  "authorization": "Owner chose 'Reviewer thử ghi: 2 lượt' on 2026-10-28: exactly one Claude reviewer and one Codex reviewer write-attempt run, low effort, maximum five minutes each. Session resume runs were not approved."
+}

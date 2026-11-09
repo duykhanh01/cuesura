@@ -1,0 +1,92 @@
+{
+  "attempt": "s0-claude-reviewer-1793172547",
+  "vendor": "claude",
+  "role": "reviewer",
+  "result_validation": "valid",
+  "result_status": "approve",
+  "process_outcome": "exited",
+  "process_exit": 0,
+  "duration_ms": 24385,
+  "descendant_scope": "unit_cgroup",
+  "permission_marker_absent": true,
+  "outer_positive_touch": true,
+  "claude_permission_denials": [
+    {
+      "tool_name": "Bash",
+      "tool_use_id": "toolu_01DjtWHKF2qPzgYvumy2yWMr",
+      "tool_input": {
+        "command": "/usr/bin/touch /cusr/scratch/permission-denied-by-rule",
+        "description": "Negative test: touch marker file expected to be denied"
+      }
+    }
+  ],
+  "native_observed_pid_namespaces": [
+    "pid:[4026532212]",
+    "pid:[4026532486]",
+    "pid:[4026532491]",
+    "pid:[4026532564]"
+  ],
+  "native_observed_mount_namespaces": [
+    "mnt:[4026532210]",
+    "mnt:[4026532483]",
+    "mnt:[4026532490]",
+    "mnt:[4026532563]"
+  ],
+  "reported_usage": {
+    "input_tokens": 6,
+    "cache_creation_input_tokens": 11517,
+    "cache_read_input_tokens": 21536,
+    "output_tokens": 1224,
+    "output_tokens_details": {
+      "thinking_tokens": 382
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11517,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 319,
+        "cache_read_input_tokens": 11190,
+        "cache_creation_input_tokens": 327,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 327
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "reported_cost_usd": 0.0031313599999999997,
+  "cost_basis": {
+    "claude-haiku-5-5": {
+      "inputTokens": 6,
+      "outputTokens": 1224,
+      "cacheReadInputTokens": 21536,
+      "cacheCreationInputTokens": 11517,
+      "webSearchRequests": 0,
+      "costUSD": 0.0031313599999999997,
+      "contextWindow": 1000000,
+      "maxOutputTokens": 128000,
+      "thinkingTokens": 382,
+      "canonicalModel": "claude-haiku-5-5",
+      "provider": "firstParty",
+      "costBasis": "list"
+    }
+  },
+  "wire_schema_dialect": "declaration omitted; portable keyword body",
+  "wire_schema_file_sha256": "1cf1192fe477543cc7b1f3fdc9be8e6c73c3c0e0b495238ed5424ea7399540a5",
+  "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately."
+}

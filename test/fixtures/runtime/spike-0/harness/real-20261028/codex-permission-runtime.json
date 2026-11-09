@@ -1,0 +1,178 @@
+{
+  "kind": "spike-0-codex-permission-runtime",
+  "scope": "S0.1 Codex: runtime evidence that the execpolicy prefix_rule blocked the command, from existing run artifacts only. No model call (budget 8/8 used).",
+  "rule": "prefix_rule(pattern=[\"/usr/bin/touch\", \"/cusr/scratch/permission-denied-by-rule\"], decision=\"forbidden\") mounted at /cusr/home/.codex/rules/spike.rules",
+  "codex": {
+    "binary": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+    "version": "codex-cli 0.165.0",
+    "sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5"
+  },
+  "source": "Codex tracing output on stderr (stderr.log in each run dir), emitted by codex_core::tools::router when exec_command is refused before process creation; codex exec --json emits no item for the refused call.",
+  "runs": {
+    "s0-codex-coder-1793172285": {
+      "role": "coder",
+      "argv_disable_flags": [],
+      "stderr_log_sha256": "03602ab593c49976322aa3ca6b4e9d1d55bf0b32b1f0b4df5621a1c7d1fee88c",
+      "runtime_rejections": [],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "error"
+      ],
+      "rule_target_created": false,
+      "scratch_listing": [
+        "final-response.json",
+        "permission-denied.txt"
+      ]
+    },
+    "s0-codex-coder-1793172447": {
+      "role": "coder",
+      "argv_disable_flags": [],
+      "stderr_log_sha256": "367a8a27b569abc8c003c4a00752591dcfcb446229b5727a4f69a453f292cbd0",
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T07:27:40.653875Z",
+          "target": "codex_core::tools::router",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution",
+        "file_change"
+      ],
+      "rule_target_created": false,
+      "scratch_listing": [
+        "final-response.json",
+        "permission-denied.txt"
+      ]
+    },
+    "s0-codex-fixer-1793173505": {
+      "role": "fixer",
+      "argv_disable_flags": [
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "plugin_sharing",
+        "skill_mcp_dependency_install"
+      ],
+      "stderr_log_sha256": "1174e2dbf71e66fad4216921c8491f50bcb59fe87f85dbaa962a80f0b640171c",
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T07:45:19.867716Z",
+          "target": "codex_core::tools::router",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution",
+        "file_change"
+      ],
+      "rule_target_created": false,
+      "scratch_listing": [
+        "final-response.json",
+        "permission-denied.txt"
+      ]
+    },
+    "s0-codex-reviewer-1793172662": {
+      "role": "reviewer",
+      "argv_disable_flags": [],
+      "stderr_log_sha256": "0dade09e659e5a95bb0ec954ad86f029f00a612fd47694351bb339315cee7e58",
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T07:31:11.872714Z",
+          "target": "codex_core::tools::router",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution"
+      ],
+      "rule_target_created": false,
+      "scratch_listing": [
+        "final-response.json",
+        "permission-denied.txt"
+      ]
+    }
+  },
+  "feature_state": {
+    "command": "env -i HOME=<empty> PATH=/usr/bin:/bin codex features [--disable apps --disable plugins --disable remote_plugin --disable plugin_sharing --disable skill_mcp_dependency_install] list -c approval_policy=\"never\"",
+    "exit": 0,
+    "managed_config_/etc/codex": "absent",
+    "baseline_argv (coder 1793172447, reviewer 1793172662)": {
+      "apps": true,
+      "plugins": true,
+      "remote_plugin": true,
+      "plugin_sharing": true,
+      "skill_mcp_dependency_install": true
+    },
+    "candidate_argv (fixer 1793173505)": {
+      "apps": false,
+      "plugins": false,
+      "remote_plugin": false,
+      "plugin_sharing": false,
+      "skill_mcp_dependency_install": false
+    }
+  },
+  "limits": [
+    "Runtime rejection evidence comes from tracing text on stderr, not a structured --json event; the adapter must capture stderr to record denials.",
+    "s0-codex-coder-1793172285 is the preserved failure (missing code-mode host) and has no rejection line.",
+    "Earlier coder 1793172447 and reviewer 1793172662 ran with apps/plugins enabled and stay as separate snapshots; candidate coverage for all three roles is fixer 1793173505, coder 1793178479, reviewer 1793178514 (budget-approval-2.json, ledger 10/10)."
+  ],
+  "candidate_profile_runs": {
+    "s0-codex-coder-1793178479": {
+      "role": "coder",
+      "result_status": "done",
+      "argv_disable_flags": [
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "plugin_sharing",
+        "skill_mcp_dependency_install"
+      ],
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T09:08:09.396789Z",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution",
+        "file_change"
+      ]
+    },
+    "s0-codex-reviewer-1793178514": {
+      "role": "reviewer",
+      "result_status": "approve",
+      "argv_disable_flags": [
+        "apps",
+        "plugins",
+        "remote_plugin",
+        "plugin_sharing",
+        "skill_mcp_dependency_install"
+      ],
+      "runtime_rejections": [
+        {
+          "at": "2026-10-28T09:08:43.387444Z",
+          "line": "ERROR codex_core::tools::router: error=exec_command failed: CreateProcess { message: \"Rejected(\\\"`/usr/bin/zsh -lc '/usr/bin/touch /cusr/scratch/permission-denied-by-rule'` rejected: policy forbids commands starting with `/usr/bin/touch /cusr/scratch/permission-denied-by-rule`\\\")\" }"
+        }
+      ],
+      "json_stream_has_item_for_rejected_command": false,
+      "permission_marker_absent": true,
+      "outer_positive_touch": true,
+      "json_completed_item_types": [
+        "agent_message",
+        "command_execution"
+      ]
+    }
+  }
+}

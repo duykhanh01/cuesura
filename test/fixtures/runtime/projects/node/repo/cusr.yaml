@@ -1,0 +1,10 @@
+version: 1
+gates:
+  build: "node --check src/strings.js"
+  unit: "node --test"
+  lint: "node scripts/lint.js"
+autofix:
+  format_fix: "true"
+ci:
+  required_checks: [build, test]
+profile: smoke

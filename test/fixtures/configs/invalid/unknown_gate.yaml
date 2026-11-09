@@ -1,0 +1,17 @@
+# expect: unknown_gate 15 54
+version: 1
+harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
+pools: { claude: 1 }
+models: { sonnet: { harness: claude, id: sonnet, tier: 2 } }
+roles:
+  coder: { binding: [{ model: sonnet }] }
+  fixer: { binding: [{ model: sonnet }] }
+  reviewer: { permissions: read_only, binding: [{ model: sonnet }] }
+  scout: { permissions: read_only, binding: [{ model: sonnet }] }
+workflows:
+  impl:
+    base: software_dev@1
+    steps:
+      gates: { run: [build, unit], required: [build, e2e] }
+profiles:
+  standard: { workflow: impl }

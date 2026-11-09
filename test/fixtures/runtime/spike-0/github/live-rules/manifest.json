@@ -1,0 +1,153 @@
+{
+  "kind": "spike-0-t008-live-required-checks",
+  "captured_at": "2026-10-28T10:01:06.897234+00:00",
+  "repository": "duykhanh01/cuesura-spike-002-sandbox",
+  "repository_id": 1436664345,
+  "api_version": "2026-03-10",
+  "gh_version": "gh version 2.103.3 (2026-10-26)",
+  "authorization": "Owner approved 2026-10-28: temporarily public, toggle master protection/rulesets, GET-only port reads, then remove rules and restore private.",
+  "public_windows": "Three runs, each about one minute public: run1 (observe on merged PR skipped required checks), run2 (port bug: ruleset-only branch read as unknown), final run after the fix. Repo restored private after each; final read: private, 0 rulesets, master unprotected.",
+  "reader": "scripts/spike-002/gh.ts readRequiredChecks + compareRequired (GET-only port) via read-required.mjs; observePull skips required checks for merged PRs and all fixture PRs are merged.",
+  "results": {
+    "1": {
+      "title": "classic any-app",
+      "client": "gh owner token",
+      "snapshot": [
+        "ci/a"
+      ],
+      "required_status": "required",
+      "comparison": {
+        "verdict": "covered",
+        "github": [
+          "ci/a"
+        ]
+      },
+      "expect": "covered; ci/a app any, source classic"
+    },
+    "2": {
+      "title": "classic app-pinned",
+      "client": "gh owner token",
+      "snapshot": [
+        "ci/a",
+        "ci/b"
+      ],
+      "required_status": "required",
+      "comparison": {
+        "verdict": "required_checks_mismatch",
+        "missing_from_snapshot": [],
+        "app_pinned": [
+          "ci/b@app:15368"
+        ]
+      },
+      "expect": "required_checks_mismatch; app_pinned ci/b@app:15368"
+    },
+    "7": {
+      "title": "reader without Administration permission",
+      "client": "anonymous (no token)",
+      "snapshot": [
+        "ci/a"
+      ],
+      "required_status": "unknown",
+      "comparison": {
+        "verdict": "unknown",
+        "basis": "classic protection unreadable: HTTP 401"
+      },
+      "expect": "unknown; protection unreadable"
+    },
+    "3": {
+      "title": "ruleset active any-app",
+      "client": "gh owner token",
+      "snapshot": [
+        "ci/c"
+      ],
+      "required_status": "required",
+      "comparison": {
+        "verdict": "covered",
+        "github": [
+          "ci/c"
+        ]
+      },
+      "expect": "covered; ci/c source rules enforcement active"
+    },
+    "4": {
+      "title": "ruleset active, snapshot missing check",
+      "client": "gh owner token",
+      "snapshot": [
+        "ci/x"
+      ],
+      "required_status": "required",
+      "comparison": {
+        "verdict": "required_checks_mismatch",
+        "missing_from_snapshot": [
+          "ci/c"
+        ],
+        "app_pinned": []
+      },
+      "expect": "required_checks_mismatch; missing_from_snapshot ci/c"
+    },
+    "5": {
+      "title": "ruleset app-pinned",
+      "client": "gh owner token",
+      "snapshot": [
+        "ci/c",
+        "ci/d"
+      ],
+      "required_status": "required",
+      "comparison": {
+        "verdict": "required_checks_mismatch",
+        "missing_from_snapshot": [],
+        "app_pinned": [
+          "ci/d@app:15368"
+        ]
+      },
+      "expect": "required_checks_mismatch; app_pinned ci/d@app:15368"
+    },
+    "6": {
+      "title": "ruleset disabled",
+      "client": "gh owner token",
+      "snapshot": [
+        "ci/c"
+      ],
+      "required_status": "none",
+      "comparison": {
+        "verdict": "covered",
+        "github": []
+      },
+      "expect": "not enforced; covered with no required checks"
+    }
+  },
+  "port_fix": "Ruleset-only branches report protected=true while classic protection answers 404 'Branch not protected'; the port treated that as unknown. Fixed in readRequiredChecks; a bare 404 (no access) stays unknown. Regression tests in test/unit/spike-002/gh.test.ts.",
+  "not_covered": [
+    "Ruleset enforcement 'evaluate' needs GitHub Enterprise; covered by local fixture only.",
+    "Disabled ruleset is not returned by rules/branches, so the port never reads its enforcement; result is none."
+  ],
+  "source_digests": {
+    "scripts/spike-002/gh.ts": "253bffd845dc1c562d9b17fa2a3251a3378642457c693715f37bbea8e87c6213",
+    "test/unit/spike-002/gh.test.ts": "c9661b09055c016a33a2783b4e432f6e241427843f074b818184cdc4235f0755"
+  },
+  "files": {
+    "case-3.json": "1257b8c4d0e881647563ee60b47a8d70aadcd461309917a4727550610a18e983",
+    "case-7.json": "1a3e1a87385b9585409dceb55f1a9a206f51d87e235a83dbd86e489c4feec62b",
+    "case-1.json": "6e2975e2abef643b8ed730fbfa53b4107c9ee0d778405e9c0598ad77bdca0847",
+    "drive.py.txt": "ff3b38bc2cc8cf245bdc5786999ad63c947b9cb6f50497d76ee8824b7bab482b",
+    "cases.json": "9976ea00b1d75defb6a65a8b3edd20b960e96efe2c2b061281310e97e96daab8",
+    "gh-anonymous.sh.txt": "46425d5883810679bda529c8a39e15cf1d6461f3ddde2fc54215766ae27ba751",
+    "read-required.mjs.txt": "b144fc7db04a1b14ee40cb78aa314682677593e4e7b10f0e4eabdcb2b9e6ee9f",
+    "case-5.json": "9ba3d1d813bf689c095c557039a65b999244b433d40095937620e84b5c519c91",
+    "case-2.json": "90dfea4d6187fd4f75332ef74a5405eff8e9c8098f293c8a16cb32a4e3f6319e",
+    "case-6.json": "033f56bacacf351354627511ddd78b909d700bbc3ebe39d8400f0d7a0af5bd0e",
+    "case-4.json": "9468c981a4775e1e43415c19f68a7eca6f2eb2f1e6e54576877991d46215291f",
+    "admin-ledger.json": "ed1261a0e18c3edd33e8d240f60e9b48b8b0170fa52dfd78b525559979775437",
+    "run1-observe-merged-pr/cases.json": "ba04c77819b39ea40989d8b1f5fb4460a9666135f321c268fa46166d1db59501",
+    "run1-observe-merged-pr/admin-ledger.json": "2268a13bf796f12b1fc2a8748f58adcbf203b951e2fb12be623cc41b7d8fdf49",
+    "run2-before-fix/case-3.json": "6ee9f29bc333a9c12969cac970b2f593fec860c94d93fcc94f61d75f4ecd4b96",
+    "run2-before-fix/case-7.json": "bdfa43fe68648406aa513613ad955c96e5196419b350bb5a457f61b6b20e1509",
+    "run2-before-fix/case-1.json": "5bc3a13100a98c5ba916a76d99cdea7179e17d22ec924c520ee10de45ec1dc0d",
+    "run2-before-fix/cases.json": "64569e80046076763bae803fd6ced1849bb2c8e4bbdcdc05bb96b584c538e005",
+    "run2-before-fix/case-5.json": "0496d87700beb0f09c158148760ba3ac1d14e24345e0d03b1b4c51ba4dcd6514",
+    "run2-before-fix/case-2.json": "26b82a29faf563da6a157d3580a90c97090ba1781451aa2de3ee853cf2be65de",
+    "run2-before-fix/case-6.json": "8850563722f7ef7cf3037c93ed8d13f7a7befc2fa7511e319bd46c8d02bbae5f",
+    "run2-before-fix/case-4.json": "63bd1fc579f337883385db041abd3882223b8cba202a197001b5cb9259b49414",
+    "run2-before-fix/admin-ledger.json": "39ec7d1046890ecda886af4b405ee3a25876a140bc397ce7e19e1bb926cfb662"
+  }
+}

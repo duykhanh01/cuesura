@@ -1,0 +1,19 @@
+# Example project configuration.
+version: 1
+extends: [node]
+setup: "npm ci"
+gates:
+  build: "npm run build"
+  unit: "npm test"
+  lint: "npm run lint"
+autofix:
+  format_fix: "npm run format"
+ci:
+  required_checks: [build, test]
+ci_rules:
+  - match: { job: e2e }
+    class: flaky_or_infra
+pools: { e2e_browser: 1 }
+hotspots: [package.json, "migrations/**"]
+conventions: [AGENTS.md]
+profile: standard

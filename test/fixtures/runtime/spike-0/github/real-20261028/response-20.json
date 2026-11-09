@@ -1,0 +1,53 @@
+{
+  "content": {
+    "name": "squash.txt",
+    "path": "spike/squash.txt",
+    "sha": "1ea50d6a04497e5d4ca09b21a0b862bc10bdcb37",
+    "size": 151,
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/squash.txt?ref=spike/s0-squash-20261028",
+    "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/blob/spike/s0-squash-20261028/spike/squash.txt",
+    "git_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/blobs/1ea50d6a04497e5d4ca09b21a0b862bc10bdcb37",
+    "download_url": "https://raw.githubusercontent.com/duykhanh01/cuesura-spike-002-sandbox/spike/s0-squash-20261028/spike/squash.txt?token=[REDACTED]",
+    "type": "file",
+    "_links": {
+      "self": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/squash.txt?ref=spike/s0-squash-20261028",
+      "git": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/blobs/1ea50d6a04497e5d4ca09b21a0b862bc10bdcb37",
+      "html": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/blob/spike/s0-squash-20261028/spike/squash.txt"
+    }
+  },
+  "commit": {
+    "sha": "898fbab58ae8230f75e309f1cd21150ea53a56ae",
+    "node_id": "C_kwDOVaHCGdoAKDg5OGZiYWI1OGFlODIzMGY3NWUzMDlmMWNkMjExNTBlYTUzYTU2YWU",
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/898fbab58ae8230f75e309f1cd21150ea53a56ae",
+    "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/898fbab58ae8230f75e309f1cd21150ea53a56ae",
+    "author": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T08:39:33Z"
+    },
+    "committer": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T08:39:33Z"
+    },
+    "tree": {
+      "sha": "df717ff2a0d0e6f11edb3d18a76fd18b10671588",
+      "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/trees/df717ff2a0d0e6f11edb3d18a76fd18b10671588"
+    },
+    "message": "test: post-merge squash source proof",
+    "parents": [
+      {
+        "sha": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+        "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/e43c576d742ac4aae928f157d9a3042a8aad4558",
+        "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/e43c576d742ac4aae928f157d9a3042a8aad4558"
+      }
+    ],
+    "verification": {
+      "verified": false,
+      "reason": "unsigned",
+      "signature": null,
+      "payload": null,
+      "verified_at": null
+    }
+  }
+}

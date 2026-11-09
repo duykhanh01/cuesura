@@ -1,0 +1,19 @@
+# expect: override_exceeds_caller 1 1
+# with-project: valid/cusr.yaml
+# overrides: {"escalation.max_escalations_per_task": 50}
+# caller: operate
+version: 1
+harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
+pools: { claude: 1 }
+models: { sonnet: { harness: claude, id: sonnet, tier: 2 } }
+roles:
+  coder: { binding: [{ model: sonnet }] }
+  fixer: { binding: [{ model: sonnet }] }
+  reviewer: { permissions: read_only, binding: [{ model: sonnet }] }
+  scout: { permissions: read_only, binding: [{ model: sonnet }] }
+workflows:
+  impl: { base: software_dev@1 }
+profiles:
+  standard:
+    workflow: impl
+    overridable: [roles.reviewer.binding, escalation.max_escalations_per_task]

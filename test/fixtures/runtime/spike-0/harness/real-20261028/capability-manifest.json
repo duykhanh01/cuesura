@@ -1,0 +1,217 @@
+{
+  "kind": "spike-0-capability-manifest",
+  "checked_at": "2026-10-28T09:50:53.280Z",
+  "scope": "T007 CapabilityManifest per vendor (data-model.md), derived offline from archived evidence. Valid only for the pinned binary/config/harness/host hashes below; any change re-runs the affected spike part.",
+  "vendors": {
+    "claude": {
+      "vendor": "claude",
+      "binary": {
+        "realpath": "/home/dev/.local/share/claude/versions/2.1.306",
+        "version": "2.1.306 (Claude Code)",
+        "sha256": "520bc6c1f40af466bd03a278b5ae1af1a2938bc7de5b9e5cb15526da20d71cfe"
+      },
+      "model": "claude-haiku-5-5",
+      "effort": "low",
+      "effective_model_source": "runtime: system/init and result.modelUsage report the model; effort from argv only",
+      "role_schemas": {
+        "coder": {
+          "schema_id": "cusr.role.coder-fixer.v1",
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "fixer": {
+          "schema_id": "cusr.role.coder-fixer.v1",
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "reviewer": {
+          "schema_id": "cusr.role.reviewer.v1",
+          "digest": "sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e"
+        }
+      },
+      "isolation_mode": "isolated",
+      "provider": "bwrap",
+      "selected_inner_mode": "internal_required",
+      "native_result": "passed",
+      "outer_proof_hash": "sha256:906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079",
+      "permission_policy_hash": "sha256:90f5ebe8b95a77f458ffa45938318acbca21db2088248da38e6ff594ae834618",
+      "permission_policy_hash_by_role": {
+        "coder": [
+          "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6"
+        ],
+        "fixer": [
+          "sha256:ad3d6e7f886cacf135201eab852c435ffbbfbd5e531a2aed1a0eb91d91c4c0a6"
+        ],
+        "reviewer": [
+          "sha256:64a2df2cf9453a2ada42e53b7233679cbab8a5fecb7612d8e7d19fec85bb4f29"
+        ]
+      },
+      "settings_hash": "sha256:1cac1036a4c36e94155c7928dfe961086b2727ac6d4923afecc68ed26ca523e2",
+      "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+      "pinned_config": "test/fixtures/runtime/spike-0/harness/real-20261028/pinned-claude.json",
+      "pinned_config_ready": true,
+      "harness_sha256": {
+        "attempts_1_10": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930",
+        "current": "bbbd2ca1f045667d181b00d5f4225337656c59899e80e845e7c0f43e577ed725"
+      },
+      "host": {
+        "deployment_host": "WSL2 worker (owner decision 2026-10-28)",
+        "manifest": "test/fixtures/runtime/spike-0/host/manifest.json"
+      },
+      "capabilities": {
+        "structured_output": {
+          "status": "proven",
+          "evidence": "stdout_json structured_output; valid results s0-claude-coder-1793172185, s0-claude-fixer-1793173414, s0-claude-reviewer-1793172547, s0-claude-reviewer-1793180331"
+        },
+        "schema_acceptance_coder": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-claude-coder-1793172185"
+        },
+        "schema_acceptance_fixer": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-claude-fixer-1793173414"
+        },
+        "schema_acceptance_reviewer": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-claude-reviewer-1793172547, s0-claude-reviewer-1793180331"
+        },
+        "native_inner_sandbox": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/isolation-record.json vendors.claude.native_result=passed (shell tool in child pid namespace for coder/fixer/reviewer)"
+        },
+        "permission_denial_kept": {
+          "status": "proven",
+          "evidence": "system/permission_denied events: s0-claude-coder-1793172185, s0-claude-fixer-1793173414, s0-claude-reviewer-1793172547 (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+        },
+        "private_home_auth": {
+          "status": "proven",
+          "evidence": "selected auth only in private home, removed after archive; test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json temporary_auth_cleanup"
+        },
+        "usage_report": {
+          "status": "proven",
+          "evidence": "tokens and total_cost_usd in 4 attempts (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+        },
+        "wall_limit": {
+          "status": "proven",
+          "evidence": "runner-enforced: deadline_ms 300000 + unit RuntimeMaxSec=330s; timeout path covered by test/integration/spike-002/harness-run.test.ts; vendor-independent"
+        },
+        "cost_limit": {
+          "status": "unknown",
+          "evidence": "no hard USD cap exercised; total_cost_usd is a report, not a limit"
+        },
+        "session_resume": {
+          "status": "unknown",
+          "evidence": "owner did not approve resume runs (2026-10-28); runs used --no-session-persistence"
+        }
+      },
+      "capability_missing": [
+        "cost_limit",
+        "session_resume"
+      ],
+      "manifest_hash": "sha256:565eed1a27d1359da966ca54f1deaed50ddd058e8fee9d6c831c2aa461677773"
+    },
+    "codex": {
+      "vendor": "codex",
+      "binary": {
+        "realpath": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+        "version": "codex-cli 0.165.0",
+        "sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5"
+      },
+      "model": "gpt-6-luna",
+      "effort": "low",
+      "effective_model_source": "argv only: exec --json reports neither model nor effort",
+      "role_schemas": {
+        "coder": {
+          "schema_id": "cusr.role.coder-fixer.v1",
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "fixer": {
+          "schema_id": "cusr.role.coder-fixer.v1",
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "reviewer": {
+          "schema_id": "cusr.role.reviewer.v1",
+          "digest": "sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e"
+        }
+      },
+      "isolation_mode": "isolated",
+      "provider": "bwrap",
+      "selected_inner_mode": "internal_required",
+      "native_result": "passed",
+      "outer_proof_hash": "sha256:906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079",
+      "permission_policy_hash": "sha256:4198dbe536484cd59941d0b1cc392c015a7e8c332dc1f12fcd3732df05f4d5b9",
+      "permission_policy_hash_by_role": {
+        "coder": [
+          "sha256:bac453cf6ec1a6ff4fd8594187a7cc9b93c58cbe4199dfaeeaad5c6f08267dac"
+        ],
+        "fixer": [
+          "sha256:bac453cf6ec1a6ff4fd8594187a7cc9b93c58cbe4199dfaeeaad5c6f08267dac"
+        ],
+        "reviewer": [
+          "sha256:b33ad41c005803ce1dc52e4707fef53c1a8556fc0155f909cc0dccfa005f82f8"
+        ]
+      },
+      "settings_hash": null,
+      "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+      "pinned_config": "test/fixtures/runtime/spike-0/harness/real-20261028/pinned-codex.json",
+      "pinned_config_ready": true,
+      "harness_sha256": {
+        "attempts_1_10": "055bc19322c5acda7ee52c1197743a20c4cc57e2ab1b34a8dcf32e6d3bc9d930",
+        "current": "bbbd2ca1f045667d181b00d5f4225337656c59899e80e845e7c0f43e577ed725"
+      },
+      "host": {
+        "deployment_host": "WSL2 worker (owner decision 2026-10-28)",
+        "manifest": "test/fixtures/runtime/spike-0/host/manifest.json"
+      },
+      "capabilities": {
+        "structured_output": {
+          "status": "proven",
+          "evidence": "file via --output-last-message; valid results s0-codex-coder-1793178479, s0-codex-fixer-1793173505, s0-codex-reviewer-1793178514, s0-codex-reviewer-1793180367"
+        },
+        "schema_acceptance_coder": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-codex-coder-1793178479"
+        },
+        "schema_acceptance_fixer": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-codex-fixer-1793173505"
+        },
+        "schema_acceptance_reviewer": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-codex-reviewer-1793178514, s0-codex-reviewer-1793180367"
+        },
+        "native_inner_sandbox": {
+          "status": "proven",
+          "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/isolation-record.json vendors.codex.native_result=passed (shell tool in child pid namespace for coder/fixer/reviewer)"
+        },
+        "permission_denial_kept": {
+          "status": "proven",
+          "evidence": "codex_core::tools::router Rejected on stderr; no --json event: s0-codex-coder-1793172447, s0-codex-coder-1793178479, s0-codex-fixer-1793173505, s0-codex-reviewer-1793172662, s0-codex-reviewer-1793178514 (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+        },
+        "private_home_auth": {
+          "status": "proven",
+          "evidence": "selected auth only in private home, removed after archive; test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json temporary_auth_cleanup"
+        },
+        "usage_report": {
+          "status": "proven",
+          "evidence": "tokens only, no cost field in 7 attempts (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+        },
+        "wall_limit": {
+          "status": "proven",
+          "evidence": "runner-enforced: deadline_ms 300000 + unit RuntimeMaxSec=330s; timeout path covered by test/integration/spike-002/harness-run.test.ts; vendor-independent"
+        },
+        "cost_limit": {
+          "status": "unknown",
+          "evidence": "no cost reported or capped"
+        },
+        "session_resume": {
+          "status": "unknown",
+          "evidence": "owner did not approve resume runs (2026-10-28); runs used --ephemeral"
+        }
+      },
+      "capability_missing": [
+        "cost_limit",
+        "session_resume"
+      ],
+      "manifest_hash": "sha256:782208ab45d51360778293356b8dd8392f01d7e5123abeb6e6aa0466e6fbbd51"
+    }
+  }
+}

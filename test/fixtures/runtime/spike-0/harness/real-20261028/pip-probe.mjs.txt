@@ -1,0 +1,42 @@
+// Re-run the S0.2 pip download probe in the same gate-role sandbox layout used by network.mjs.
+import { spawnSync } from 'node:child_process';
+import { readFileSync, writeFileSync, mkdtempSync, readdirSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { buildSandbox, probeLayout } from '/home/dev/Personal/cuesura/scripts/spike-002/sandbox.ts';
+
+const out = process.argv[2];
+const timeoutMs = Number(process.argv[3] ?? 300000);
+const owner = '/tmp/cusr-spike-002-owner-c6_um8ih';
+const s = JSON.parse(readFileSync(join(owner, 'state.json'), 'utf8'));
+const scratch = mkdtempSync(join(s.base, 'pip-rerun-'));
+const plan = buildSandbox({ ...probeLayout('gate', s.fx), scratch });
+const command = ['/usr/bin/python3', '-m', 'pip', 'download', '--no-deps', '--no-cache-dir', '--dest', '/cusr/scratch', 'six==1.17.0'];
+const started = new Date();
+const r = spawnSync('/usr/bin/bwrap', [...plan.argv, '--', ...command], { env: {}, encoding: 'utf8', timeout: timeoutMs, maxBuffer: 1 << 20 });
+const files = readdirSync(scratch).map((f) => {
+  const bytes = readFileSync(join(scratch, f));
+  return { name: f, bytes: statSync(join(scratch, f)).size, sha256: createHash('sha256').update(bytes).digest('hex') };
+});
+const row = {
+  role: 'gate',
+  package_manager: 'pip',
+  started_at: started.toISOString(),
+  duration_ms: Date.now() - started.getTime(),
+  timeout_ms: timeoutMs,
+  bwrap: '/usr/bin/bwrap',
+  bwrap_argv_sha256: createHash('sha256').update(JSON.stringify(plan.argv)).digest('hex'),
+  command,
+  exit: r.status,
+  signal: r.signal,
+  spawn_error: r.error?.message ?? null,
+  layout_digest: plan.layout_digest,
+  model_auth_mounted: plan.mounts.some((m) => m.purpose === 'private-home'),
+  fresh_destination: true,
+  host_scratch: scratch,
+  stdout: r.stdout?.trim() ?? '',
+  stderr: r.stderr?.trim() ?? '',
+  downloaded_files: files,
+};
+writeFileSync(out, JSON.stringify(row, null, 2) + '\n');
+console.log(JSON.stringify(row, null, 2));

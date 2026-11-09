@@ -1,0 +1,101 @@
+{
+  "sha": "d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+  "node_id": "C_kwDOVaHCGdoAKGQ3OGJjZDg3OWMwNWJhM2I5ZDFmNzliZTFhZjVhOWI0NjUxNGFhYTE",
+  "commit": {
+    "author": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T08:32:51Z"
+    },
+    "committer": {
+      "name": "GitHub",
+      "email": "noreply@github.com",
+      "date": "2026-10-28T08:32:51Z"
+    },
+    "message": "test: add squash head-at-merge fixture (#2)",
+    "tree": {
+      "sha": "f589ff82c10a212a8da3e07ab98110e511fb0129",
+      "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/trees/f589ff82c10a212a8da3e07ab98110e511fb0129"
+    },
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+    "comment_count": 0,
+    "verification": {
+      "verified": true,
+      "reason": "valid",
+      "signature": "-----BEGIN PGP SIGNATURE-----\n\nwsFcBAABCAAQBQJq4bMzCRC1aQ7uu5UhlAAABvgQABkPUByWSlYpTWujv73Ax9RC\n3ZN2700AFcZAubPxGvrM9phijURn8j2OlpJ77I1vMZ5Tcs5QwhMdCjCpwbgVPw/b\nQTAfB11oOH4YqrH0FFLpeG3B0HVR6td1zxf+Ab5vI2kAgJWqQ4DPrOjF2iqHzh5/\nAfKPVuqpHCZfn8/AefQb606Mm3nWvnlyqNPedvlvklX8Mp3hgSiJJlNPpD+rfxeH\nLKXbFcVjSak/o3Mmj0WOXJgObFyVLtn2drHBvR8DFdZNR1tXqi2eG+WAEG6HaLfn\nxZQq8ZpBvQffjD3VWI0NJ9ieBgM4etYi14GJZVYji+6QbvpG5H/B/VNVXDF58MMR\nL8o0gtHMciB7tdjclQtkgzhv04nkT/GaIUwqbcUFYwxOKhcO2l6K83se/5/udeJn\n/QxBX/r0ly1LBmx0oy1OHyRO24w7j8Ac44h/PbOYxO+7ridAAxxP1OebLjpIXQdU\nhin29GuBc4FNtpRrTR8hZJUbS0iEq+BzzZJPMffXlSwvVNUG5pj//qlNq68RcxIM\nP04GvelDIfeFMJbKqCHn5KLqSkJV0Uz53PH1O0gcMuHWCV7NqKm0tccHaWKrqr0R\nGnVTjzUkldSmBTLfeLdCgPCmKBymJsL8B4+nIJ7ZhTPf0Sijg81L/AfRz9uiD6AM\nyCl5pz1U/ULtIpspS/V/\n=MG3V\n-----END PGP SIGNATURE-----\n",
+      "payload": "tree f589ff82c10a212a8da3e07ab98110e511fb0129\nparent d329cc7e37c7100822924ea21166da9c86b19257\nauthor Ng\u00f4 Duy Kh\u00e1nh <80962056+duykhanh01@users.noreply.github.com> 1793176371 +0700\ncommitter GitHub <noreply@github.com> 1793176371 +0700\n\ntest: add squash head-at-merge fixture (#2)",
+      "verified_at": "2026-10-28T08:32:51Z"
+    }
+  },
+  "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+  "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+  "comments_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1/comments",
+  "author": {
+    "login": "duykhanh01",
+    "id": 80962056,
+    "node_id": "MDQ6VXNlcjgwOTYyMDU2",
+    "avatar_url": "https://avatars.githubusercontent.com/u/80962056?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/duykhanh01",
+    "html_url": "https://github.com/duykhanh01",
+    "followers_url": "https://api.github.com/users/duykhanh01/followers",
+    "following_url": "https://api.github.com/users/duykhanh01/following{/other_user}",
+    "gists_url": "https://api.github.com/users/duykhanh01/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/duykhanh01/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/duykhanh01/subscriptions",
+    "organizations_url": "https://api.github.com/users/duykhanh01/orgs",
+    "repos_url": "https://api.github.com/users/duykhanh01/repos",
+    "events_url": "https://api.github.com/users/duykhanh01/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/duykhanh01/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "committer": {
+    "login": "web-flow",
+    "id": 19864447,
+    "node_id": "MDQ6VXNlcjE5ODY0NDQ3",
+    "avatar_url": "https://avatars.githubusercontent.com/u/19864447?v=4",
+    "gravatar_id": "",
+    "url": "https://api.github.com/users/web-flow",
+    "html_url": "https://github.com/web-flow",
+    "followers_url": "https://api.github.com/users/web-flow/followers",
+    "following_url": "https://api.github.com/users/web-flow/following{/other_user}",
+    "gists_url": "https://api.github.com/users/web-flow/gists{/gist_id}",
+    "starred_url": "https://api.github.com/users/web-flow/starred{/owner}{/repo}",
+    "subscriptions_url": "https://api.github.com/users/web-flow/subscriptions",
+    "organizations_url": "https://api.github.com/users/web-flow/orgs",
+    "repos_url": "https://api.github.com/users/web-flow/repos",
+    "events_url": "https://api.github.com/users/web-flow/events{/privacy}",
+    "received_events_url": "https://api.github.com/users/web-flow/received_events",
+    "type": "User",
+    "user_view_type": "public",
+    "site_admin": false
+  },
+  "parents": [
+    {
+      "sha": "d329cc7e37c7100822924ea21166da9c86b19257",
+      "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/commits/d329cc7e37c7100822924ea21166da9c86b19257",
+      "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/d329cc7e37c7100822924ea21166da9c86b19257"
+    }
+  ],
+  "stats": {
+    "total": 3,
+    "additions": 3,
+    "deletions": 0
+  },
+  "files": [
+    {
+      "sha": "f282aec37f22d51f2f3e4870e07572b71b0dd30d",
+      "filename": "spike/squash.txt",
+      "status": "added",
+      "additions": 3,
+      "deletions": 0,
+      "changes": 3,
+      "blob_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/blob/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1/spike%2Fsquash.txt",
+      "raw_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/raw/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1/spike%2Fsquash.txt",
+      "contents_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike%2Fsquash.txt?ref=d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+      "patch": "@@ -0,0 +1,3 @@\n+Cuesura S0.3 disposable fixture.\n+Expected manual merge method: squash.\n+No product code or credentials."
+    }
+  ]
+}

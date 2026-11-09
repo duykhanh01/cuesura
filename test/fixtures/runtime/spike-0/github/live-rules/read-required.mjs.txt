@@ -1,0 +1,10 @@
+// GET-only: required checks on master through the gh port, compared with a snapshot. No PR needed.
+import { writeFileSync } from 'node:fs';
+import { GhPort, spawnGhExec, readRequiredChecks, compareRequired, API_VERSION } from '/home/dev/Personal/cuesura/scripts/spike-002/gh.ts';
+const [out, snapshotArg, gh] = process.argv.slice(2);
+const snapshot = snapshotArg.split(',').filter(Boolean);
+const port = new GhPort(spawnGhExec(gh));
+const required = await readRequiredChecks(port, 'duykhanh01', 'cuesura-spike-002-sandbox', 'master');
+const comparison = compareRequired(required, snapshot);
+writeFileSync(out, JSON.stringify({ api_version: API_VERSION, snapshot, required, comparison, ledger: port.ledger, evidence: port.evidence, limits: port.limits, mode: 'live' }, null, 2) + '\n');
+console.log(JSON.stringify({ required: required.status, comparison }));

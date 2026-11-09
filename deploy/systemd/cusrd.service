@@ -1,0 +1,17 @@
+# Sample unit for one daemon writer, installed as a user unit. Edit ExecStart to match where it is installed and the config; see deploy/README.md.
+# Nothing in the repo installs or loads this unit by itself.
+[Unit]
+Description=Cuesura daemon (one writer per data dir)
+After=default.target
+
+[Service]
+Type=exec
+ExecStart=%h/.local/bin/cusrd --config %h/.cusr/config.yaml --data-dir %h/.cusr
+Restart=on-failure
+RestartSec=5
+# The runner is its own transient unit (`cusr-op-*.service`) outside this cgroup: stopping the daemon does not stop the agent.
+KillMode=mixed
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

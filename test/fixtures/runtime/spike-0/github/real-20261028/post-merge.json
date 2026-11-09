@@ -1,0 +1,497 @@
+{
+  "kind": "spike-0-github-post-merge-proof",
+  "checked_at": "2026-10-28T08:39:13.554089+00:00",
+  "repository": "duykhanh01/cuesura-spike-002-sandbox",
+  "repository_id": 1436664345,
+  "api_version": "2026-03-10",
+  "gh_version": "gh version 2.103.3 (2026-10-26)",
+  "pull_requests": [
+    {
+      "merge_commit_source": "issues.events.merged.commit_id",
+      "pinned_pull_merge_commit_sha_present": false,
+      "number": 1,
+      "requested_merge_mode": "merge",
+      "pr_id": 5047144058,
+      "node_id": "PR_kwDOVaHCGc8AAAABLNVOeg",
+      "branch": "spike/s0-merge-20261028",
+      "expected_head_at_merge": "852ea24c0d34c651100002dbc175f8f784193043",
+      "merged_at": "2026-10-28T08:32:31Z",
+      "merge_commit_sha": "d329cc7e37c7100822924ea21166da9c86b19257",
+      "before_push_head": "852ea24c0d34c651100002dbc175f8f784193043",
+      "merged_commit": {
+        "sha": "d329cc7e37c7100822924ea21166da9c86b19257",
+        "parents": [
+          "01deb1618eef654e00dd28781864f837d015f6d6",
+          "852ea24c0d34c651100002dbc175f8f784193043"
+        ],
+        "message": "Merge pull request #1 from duykhanh01/spike/s0-merge-20261028\n\nS0.3: manual merge fixture",
+        "author": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T08:32:30Z"
+        },
+        "committer": {
+          "name": "GitHub",
+          "email": "noreply@github.com",
+          "date": "2026-10-28T08:32:30Z"
+        }
+      },
+      "original_commit": {
+        "sha": "852ea24c0d34c651100002dbc175f8f784193043",
+        "parents": [
+          "01deb1618eef654e00dd28781864f837d015f6d6"
+        ],
+        "message": "test: add merge head-at-merge fixture",
+        "author": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:42Z"
+        },
+        "committer": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:42Z"
+        }
+      },
+      "merge_mode_evidence": "two-parent commit containing original head",
+      "post_merge_source_sha": "fadab7702d979460c71a30edddc6535ac3a8ac33",
+      "after_push_head": "852ea24c0d34c651100002dbc175f8f784193043",
+      "push_head_preserved": true,
+      "push_probe": "completed",
+      "post_push_still_merged": true,
+      "post_push_pull_merge_sha": null,
+      "source_deleted": true,
+      "after_delete_head": "852ea24c0d34c651100002dbc175f8f784193043",
+      "delete_head_preserved": true,
+      "post_delete_still_merged": true,
+      "post_delete_pull_merge_sha": null
+    },
+    {
+      "merge_commit_source": "issues.events.merged.commit_id",
+      "pinned_pull_merge_commit_sha_present": false,
+      "number": 2,
+      "requested_merge_mode": "squash",
+      "pr_id": 5047144870,
+      "node_id": "PR_kwDOVaHCGc8AAAABLNVRpg",
+      "branch": "spike/s0-squash-20261028",
+      "expected_head_at_merge": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "merged_at": "2026-10-28T08:32:51Z",
+      "merge_commit_sha": "d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+      "before_push_head": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "merged_commit": {
+        "sha": "d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+        "parents": [
+          "d329cc7e37c7100822924ea21166da9c86b19257"
+        ],
+        "message": "test: add squash head-at-merge fixture (#2)",
+        "author": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T08:32:51Z"
+        },
+        "committer": {
+          "name": "GitHub",
+          "email": "noreply@github.com",
+          "date": "2026-10-28T08:32:51Z"
+        }
+      },
+      "original_commit": {
+        "sha": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+        "parents": [
+          "01deb1618eef654e00dd28781864f837d015f6d6"
+        ],
+        "message": "test: add squash head-at-merge fixture",
+        "author": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:47Z"
+        },
+        "committer": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:47Z"
+        }
+      },
+      "merge_mode_evidence": "one-parent commit; requested squash/rebase mode is not uniquely identifiable from graph alone",
+      "post_merge_source_sha": "898fbab58ae8230f75e309f1cd21150ea53a56ae",
+      "after_push_head": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "push_head_preserved": true,
+      "push_probe": "completed",
+      "post_push_still_merged": true,
+      "post_push_pull_merge_sha": null,
+      "source_deleted": true,
+      "after_delete_head": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "delete_head_preserved": true,
+      "post_delete_still_merged": true,
+      "post_delete_pull_merge_sha": null
+    },
+    {
+      "merge_commit_source": "issues.events.merged.commit_id",
+      "pinned_pull_merge_commit_sha_present": false,
+      "number": 3,
+      "requested_merge_mode": "rebase",
+      "pr_id": 5047145758,
+      "node_id": "PR_kwDOVaHCGc8AAAABLNVVHg",
+      "branch": "spike/s0-rebase-20261028",
+      "expected_head_at_merge": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "merged_at": "2026-10-28T08:33:11Z",
+      "merge_commit_sha": "9ad1de32594287e475b91ba61f4063dc20de9aa8",
+      "before_push_head": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "merged_commit": {
+        "sha": "9ad1de32594287e475b91ba61f4063dc20de9aa8",
+        "parents": [
+          "d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1"
+        ],
+        "message": "test: add rebase head-at-merge fixture",
+        "author": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:51Z"
+        },
+        "committer": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T08:33:10Z"
+        }
+      },
+      "original_commit": {
+        "sha": "042b57287c27ae7ddc448ede14ba1006b875b799",
+        "parents": [
+          "01deb1618eef654e00dd28781864f837d015f6d6"
+        ],
+        "message": "test: add rebase head-at-merge fixture",
+        "author": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:51Z"
+        },
+        "committer": {
+          "name": "Ng\u00f4 Duy Kh\u00e1nh",
+          "email": "80962056+duykhanh01@users.noreply.github.com",
+          "date": "2026-10-28T07:57:51Z"
+        }
+      },
+      "merge_mode_evidence": "one-parent commit; requested squash/rebase mode is not uniquely identifiable from graph alone",
+      "post_merge_source_sha": "1b30c953b6381255057b2b86da11888c09b233be",
+      "after_push_head": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "push_head_preserved": true,
+      "push_probe": "completed",
+      "post_push_still_merged": true,
+      "post_push_pull_merge_sha": null,
+      "source_deleted": true,
+      "after_delete_head": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "delete_head_preserved": true,
+      "post_delete_still_merged": true,
+      "post_delete_pull_merge_sha": null
+    }
+  ],
+  "request_ledger": [
+    {
+      "sequence": 1,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox",
+      "exit": 0,
+      "response": "response-01.json",
+      "sha256": "ac5962a1436376a16bc3d7b711a9183c8f2b6bbadd6d603c18dd318a7879ce6a"
+    },
+    {
+      "sequence": 2,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/1",
+      "exit": 0,
+      "response": "response-02.json",
+      "sha256": "d4a964354e4d626c8ebc0f2e72fff8d6440eca098041c4dd69de174e4638848c"
+    },
+    {
+      "sequence": 3,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/issues/1/events?per_page=100",
+      "exit": 0,
+      "response": "response-03.json",
+      "sha256": "d8a40c17e324954705a75bac789dd0c7b6bd5fc401a2b3b37d87e51cc9e9abce"
+    },
+    {
+      "sequence": 4,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/commits/d329cc7e37c7100822924ea21166da9c86b19257",
+      "exit": 0,
+      "response": "response-04.json",
+      "sha256": "affdc55279cda5319a0043b205859b01932f08ece17e58733cf3e67e20e0bd07"
+    },
+    {
+      "sequence": 5,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/commits/852ea24c0d34c651100002dbc175f8f784193043",
+      "exit": 0,
+      "response": "response-05.json",
+      "sha256": "267bcd00682016134130f1bbf10f416c15be5863d55883c01f9704bc5223e9f9"
+    },
+    {
+      "sequence": 6,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-merge-20261028",
+      "exit": 0,
+      "response": "response-06.json",
+      "sha256": "96fabaf2893830caab0199b722f57c0ae115f214429be263e69b6daa0fbe4cb7"
+    },
+    {
+      "sequence": 7,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/merge.txt?ref=spike%2Fs0-merge-20261028",
+      "exit": 0,
+      "response": "response-07.json",
+      "sha256": "b9d1f3136ef27d54147c1f4d8a63b05832ebfc97fc4ae1d60cacc9fe34a9dd11"
+    },
+    {
+      "sequence": 8,
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/merge.txt",
+      "exit": 0,
+      "response": "response-08.json",
+      "sha256": "b7442ffb8b406fda5bb9b08c496f17daa9a7d6d102ecca615c9ab04c2f9a60ac",
+      "request_body_sha256": "9722ab0f23e06dfda98853ed1b57fbb64dc9015293a77cc4211bffdec27fee4a"
+    },
+    {
+      "sequence": 9,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/1",
+      "exit": 0,
+      "response": "response-09.json",
+      "sha256": "5e1c76b78f5f4f3e2261727a5d39e522583179345a8d03c3a774c5a785849c90"
+    },
+    {
+      "sequence": 10,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-merge-20261028",
+      "exit": 0,
+      "response": "response-10.json",
+      "sha256": "2692e59390e32c95e68ddbbc97ad5fd413591dcf7f0aa5804c4e3f3fd9caa318"
+    },
+    {
+      "sequence": 11,
+      "method": "DELETE",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/refs/heads/spike/s0-merge-20261028",
+      "exit": 0,
+      "response": "response-11.json",
+      "sha256": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+    },
+    {
+      "sequence": 12,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-merge-20261028",
+      "exit": 1,
+      "response": "response-12.json",
+      "sha256": "af34d7e1c24c2c3bd1da5d50fee4e8711a488d218f814c6c4f644603390fdf52"
+    },
+    {
+      "sequence": 13,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/1",
+      "exit": 0,
+      "response": "response-13.json",
+      "sha256": "4c118cbf4981a388ada0b9142aa4234a73ed15ecd4161a3f22f1efc693a646ea"
+    },
+    {
+      "sequence": 14,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/2",
+      "exit": 0,
+      "response": "response-14.json",
+      "sha256": "1870d4388fb57f7ec6eb7b87c23de92d1f92882ec9234e14e380433b78257dfd"
+    },
+    {
+      "sequence": 15,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/issues/2/events?per_page=100",
+      "exit": 0,
+      "response": "response-15.json",
+      "sha256": "e9bf3cc8624994d64c9ce7153b716f25105d0968d29d572b96287fc0bd3e2823"
+    },
+    {
+      "sequence": 16,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/commits/d78bcd879c05ba3b9d1f79be1af5a9b46514aaa1",
+      "exit": 0,
+      "response": "response-16.json",
+      "sha256": "47e964220c415b374f14172c98b43c58099361b1d817bfa63ad4c89c05f66166"
+    },
+    {
+      "sequence": 17,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/commits/e43c576d742ac4aae928f157d9a3042a8aad4558",
+      "exit": 0,
+      "response": "response-17.json",
+      "sha256": "50372581e4f7465948eaba31d5000fbea08ce298e9205a06685c4578aea58924"
+    },
+    {
+      "sequence": 18,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-squash-20261028",
+      "exit": 0,
+      "response": "response-18.json",
+      "sha256": "4baf3f9a20291b1ad5f6194be6c039893650702b9edc672c420f43508c329ad1"
+    },
+    {
+      "sequence": 19,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/squash.txt?ref=spike%2Fs0-squash-20261028",
+      "exit": 0,
+      "response": "response-19.json",
+      "sha256": "76f8f6c80f297b9e02928f486679f25b44fce2ba7700f63bbacdd6cef8f71ee8"
+    },
+    {
+      "sequence": 20,
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/squash.txt",
+      "exit": 0,
+      "response": "response-20.json",
+      "sha256": "ff025b4414ea35bfc6221ea83246f2eb83e2e9c5a6dcbbc418098d5e7a913c5c",
+      "request_body_sha256": "fda97fd23bd84d5a73120f316f6428bb1e4d8d286b4bf81dc083edd405932894"
+    },
+    {
+      "sequence": 21,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/2",
+      "exit": 0,
+      "response": "response-21.json",
+      "sha256": "5722e248e39e11a7fa992627fc7bb247181cef9d3b91e63b559012c3533dc7b0"
+    },
+    {
+      "sequence": 22,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-squash-20261028",
+      "exit": 0,
+      "response": "response-22.json",
+      "sha256": "6dae6bb6d133e9b1228cc95fa369dd381b9761b3f933d51cfb7c09b4aa957b21"
+    },
+    {
+      "sequence": 23,
+      "method": "DELETE",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/refs/heads/spike/s0-squash-20261028",
+      "exit": 0,
+      "response": "response-23.json",
+      "sha256": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+    },
+    {
+      "sequence": 24,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-squash-20261028",
+      "exit": 1,
+      "response": "response-24.json",
+      "sha256": "af34d7e1c24c2c3bd1da5d50fee4e8711a488d218f814c6c4f644603390fdf52"
+    },
+    {
+      "sequence": 25,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/2",
+      "exit": 0,
+      "response": "response-25.json",
+      "sha256": "ca96d7d48e0adb32fb1db8589edca7bb7e17c52d1b14c07e795445222389759f"
+    },
+    {
+      "sequence": 26,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/3",
+      "exit": 0,
+      "response": "response-26.json",
+      "sha256": "027a4e673601aab2ab0c04ff56b73ae47ec93ad3508619b9345eb18a78724193"
+    },
+    {
+      "sequence": 27,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/issues/3/events?per_page=100",
+      "exit": 0,
+      "response": "response-27.json",
+      "sha256": "4f04b7a33a832a1da3595d12e58b4c16166df5147e0d0618bdebcc70aa123d91"
+    },
+    {
+      "sequence": 28,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/commits/9ad1de32594287e475b91ba61f4063dc20de9aa8",
+      "exit": 0,
+      "response": "response-28.json",
+      "sha256": "22ea6228dc4f05abb5dac5f715ff5e7db88715f476acaff45b4efeb4e6d621bb"
+    },
+    {
+      "sequence": 29,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/commits/042b57287c27ae7ddc448ede14ba1006b875b799",
+      "exit": 0,
+      "response": "response-29.json",
+      "sha256": "af0f44078f63a38a8654963eeef6577a1930e724b9bd825bbb1e703ceb74dd68"
+    },
+    {
+      "sequence": 30,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-rebase-20261028",
+      "exit": 0,
+      "response": "response-30.json",
+      "sha256": "ab9283ed6123b5243aa75caab6074a61e092cec580e425436b07900c278f6c87"
+    },
+    {
+      "sequence": 31,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/rebase.txt?ref=spike%2Fs0-rebase-20261028",
+      "exit": 0,
+      "response": "response-31.json",
+      "sha256": "5f3f174eab5abddaa6c3157f926833ace90d7e233502e7c767c39cd5e51d9147"
+    },
+    {
+      "sequence": 32,
+      "method": "PUT",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/rebase.txt",
+      "exit": 0,
+      "response": "response-32.json",
+      "sha256": "d2569b38e684b1aa0b71d4b4111b906de1f350d039e56af86558847d1ae47a2a",
+      "request_body_sha256": "c515bf8f0db9f51a3c64756851c3373eeaf3eae99405e777ee13f0cec7992164"
+    },
+    {
+      "sequence": 33,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/3",
+      "exit": 0,
+      "response": "response-33.json",
+      "sha256": "db5e834564512586a69fe8dfebf7f1083e30e0e8a81629615b7d9ed8dea06013"
+    },
+    {
+      "sequence": 34,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-rebase-20261028",
+      "exit": 0,
+      "response": "response-34.json",
+      "sha256": "fd33c5c6dd7c156b3ce169513a57057f5144cab71afab3abc90c7bc50fe5dda1"
+    },
+    {
+      "sequence": 35,
+      "method": "DELETE",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/refs/heads/spike/s0-rebase-20261028",
+      "exit": 0,
+      "response": "response-35.json",
+      "sha256": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed"
+    },
+    {
+      "sequence": 36,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/git/ref/heads/spike/s0-rebase-20261028",
+      "exit": 1,
+      "response": "response-36.json",
+      "sha256": "af34d7e1c24c2c3bd1da5d50fee4e8711a488d218f814c6c4f644603390fdf52"
+    },
+    {
+      "sequence": 37,
+      "method": "GET",
+      "path": "repos/duykhanh01/cuesura-spike-002-sandbox/pulls/3",
+      "exit": 0,
+      "response": "response-37.json",
+      "sha256": "a2f961ccd10da646827653b9f1796c339a3274dfde377f055fff00dfb0fe00e5"
+    }
+  ],
+  "merge_requests_sent": 0,
+  "scope": "Only owner-authorized merged fixture branches; no merge endpoint mutation, default branch write, rules/protection mutation, model calls or production repository.",
+  "private": true,
+  "default_branch": "master",
+  "pinned_api_schema_gap": "REST 2026-03-10 omits merge_commit_sha; merged event commit_id used only as diagnostic evidence, not implemented by gh-port prototype",
+  "head_source": "pulls.head.sha",
+  "head_source_cases_passed": true,
+  "required_check_configuration_coverage": "not established by these merged PRs; no rules/protection changes were authorized or sent"
+}

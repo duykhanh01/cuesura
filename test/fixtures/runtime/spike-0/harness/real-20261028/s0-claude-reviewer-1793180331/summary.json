@@ -1,0 +1,95 @@
+{
+  "attempt": "s0-claude-reviewer-1793180331",
+  "vendor": "claude",
+  "role": "reviewer",
+  "budget_extension": "budget-approval-2.json",
+  "result_validation": "valid",
+  "result_status": "approve",
+  "process_outcome": "exited",
+  "process_exit": 0,
+  "duration_ms": 13593,
+  "descendant_scope": "unit_cgroup",
+  "argv_disable_flags": [],
+  "reviewer_write_created_by_agent": {
+    "scratch": true,
+    "worktree": false
+  },
+  "outer_control": {
+    "scratch": {
+      "exit": 0,
+      "stderr": "",
+      "created": true
+    },
+    "worktree": {
+      "exit": 1,
+      "stderr": "/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system",
+      "created": false
+    }
+  },
+  "write_attempt_items": [],
+  "claude_write_attempts": [
+    {
+      "is_error": false,
+      "content": "(Bash completed with no output)"
+    },
+    {
+      "is_error": true,
+      "content": "Exit code 1\n/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system"
+    }
+  ],
+  "runtime_rejections": [],
+  "json_stream_has_item_for_rejected_command": false,
+  "json_completed_item_types": [],
+  "native_observed_pid_namespaces": [
+    "pid:[4026532212]",
+    "pid:[4026532486]",
+    "pid:[4026532491]",
+    "pid:[4026532564]"
+  ],
+  "native_observed_mount_namespaces": [
+    "mnt:[4026532210]",
+    "mnt:[4026532483]",
+    "mnt:[4026532490]",
+    "mnt:[4026532563]"
+  ],
+  "reported_usage": {
+    "input_tokens": 10,
+    "cache_creation_input_tokens": 11305,
+    "cache_read_input_tokens": 42928,
+    "output_tokens": 1234,
+    "output_tokens_details": {
+      "thinking_tokens": 181
+    },
+    "server_tool_use": {
+      "web_search_requests": 0,
+      "web_fetch_requests": 0
+    },
+    "service_tier": "standard",
+    "cache_creation": {
+      "ephemeral_1h_input_tokens": 11305,
+      "ephemeral_5m_input_tokens": 0
+    },
+    "inference_geo": "global",
+    "iterations": [
+      {
+        "input_tokens": 2,
+        "output_tokens": 575,
+        "cache_read_input_tokens": 11095,
+        "cache_creation_input_tokens": 210,
+        "cache_creation": {
+          "ephemeral_5m_input_tokens": 0,
+          "ephemeral_1h_input_tokens": 210
+        },
+        "type": "message"
+      }
+    ],
+    "speed": "standard",
+    "fallback_credit": null
+  },
+  "model_summary": "Step 1 native probe ran once: pidns pid:[4026532564], mountns mnt:[4026532563]. Step 2 (/usr/bin/touch /cusr/scratch/reviewer-write-canary) was NOT blocked: exit status 0, no output, so the file was created, which is outside the expected sandbox block. Step 3 (/usr/bin/touch /tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary) was blocked: exit status 1, error \"/usr/bin/touch: cannot touch '/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree/reviewer-write-canary': Read-only file system\". Neither write was retried. Step 4: calc.py checked read-only via an isolated Python parse and exec; add(2,3)==5 is True and subtract(5,3)==2 is True. No repository files were changed by the reviewer. Note: the /cusr/scratch canary file was created and may need manual cleanup by the user.",
+  "wire_schema_file_sha256": "1cf1192fe477543cc7b1f3fdc9be8e6c73c3c0e0b495238ed5424ea7399540a5",
+  "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "scope": "Real paid reviewer write-attempt run. Agent-side outcome comes from runtime events only; model_summary is a self-report and not evidence. outer_control shows what the outer layout alone allows for the same paths."
+}

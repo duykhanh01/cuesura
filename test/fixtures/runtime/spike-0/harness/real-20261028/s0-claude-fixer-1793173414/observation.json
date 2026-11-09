@@ -1,0 +1,276 @@
+{
+  "attempt": "s0-claude-fixer-1793173414",
+  "vendor": "claude",
+  "role": "fixer",
+  "unit": "cusr-op-op-s0-claude-fixer-1793173414.service",
+  "systemd_run_exit": 0,
+  "run_dir": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-claude-fixer-1793173414",
+  "command": [
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/claude.json",
+    "--role",
+    "fixer",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-claude-fixer-1793173414",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-fixer-1793173414-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid",
+    "--max-invocations",
+    "8"
+  ],
+  "unit_argv": [
+    "/usr/bin/systemd-run",
+    "--user",
+    "--unit=cusr-op-op-s0-claude-fixer-1793173414.service",
+    "--property=Restart=no",
+    "--property=KillMode=control-group",
+    "--property=TimeoutStopSec=15s",
+    "--property=RuntimeMaxSec=330s",
+    "--property=StandardOutput=append:/tmp/cusr-spike-002-real-dTgXz2/s0-claude-fixer-1793173414-console.json",
+    "--property=StandardError=append:/tmp/cusr-spike-002-real-dTgXz2/s0-claude-fixer-1793173414-unit.stderr",
+    "--quiet",
+    "--",
+    "/bin/sh",
+    "-c",
+    "trap \"\" TERM; exec \"$@\"",
+    "sh",
+    "/usr/bin/flock",
+    "--nonblock",
+    "/tmp/cusr-spike-002-real-dTgXz2/data/locks/op-s0-claude-fixer-1793173414.lock",
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/claude.json",
+    "--role",
+    "fixer",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-claude-fixer-1793173414",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-fixer-1793173414-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid",
+    "--max-invocations",
+    "8"
+  ],
+  "prompt_sha256": "5aaacaeb633b627b52d3961dee9f67146291d78322e39e1ce9ac7ebdd926825c",
+  "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+  "console_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-fixer-1793173414-console.json",
+  "unit_stderr_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-fixer-1793173414-unit.stderr",
+  "result": {
+    "role": "fixer",
+    "status": "valid",
+    "issues": [],
+    "raw_digest": "sha256:1bd503203643c9e2323b1d77b787b494d868d7007fb1455b47eaf499585c679c",
+    "result_path": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-claude-fixer-1793173414/out/result.json"
+  },
+  "refused": null,
+  "exit": {
+    "schema_version": 1,
+    "operation_id": "op-s0-claude-fixer-1793173414",
+    "attempt_id": "s0-claude-fixer-1793173414",
+    "launch_nonce": "c0c9b09af5d5f95b1c2bef8455794fe0",
+    "outcome": "exited",
+    "exit_code": 0,
+    "signal": null,
+    "started_at": "2026-10-28T07:43:35.445Z",
+    "ended_at": "2026-10-28T07:43:45.789Z",
+    "duration_ms": 10339,
+    "termination": {
+      "term_sent": false,
+      "kill_sent": false,
+      "group_empty_verified": true,
+      "descendant_scope": "unit_cgroup",
+      "descendants_killed": 0
+    },
+    "usage": {
+      "status": "unavailable",
+      "reason": "runner does not parse harness usage"
+    },
+    "artifacts": {
+      "events": {
+        "records": 21,
+        "bytes": 27966,
+        "generations": 1,
+        "truncated_records": 0
+      },
+      "stderr": {
+        "bytes": 0,
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "error": null
+  },
+  "native_process_observations": [
+    {
+      "at_elapsed_ms": 452,
+      "pid": 79329,
+      "exe": "/usr/bin/flock",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 452,
+      "pid": 79330,
+      "exe": "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 452,
+      "pid": 79338,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 452,
+      "pid": 79339,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 452,
+      "pid": 79340,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 1108,
+      "pid": 79386,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 4445,
+      "pid": 79397,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 4495,
+      "pid": 79415,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 4495,
+      "pid": 79416,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79417,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79418,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79419,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79420,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79421,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79422,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79423,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79424,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 4546,
+      "pid": 79425,
+      "exe": "/usr/bin/python3.10",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 8031,
+      "pid": 79441,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 8031,
+      "pid": 79442,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    }
+  ],
+  "permission_marker_absent": true,
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "final_source": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n"
+}

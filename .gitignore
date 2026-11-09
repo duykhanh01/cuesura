@@ -1,0 +1,17 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+*.sqlite
+# Pinned schema-1 database fixture (see test/fixtures/runtime/db/README.md).
+!test/fixtures/runtime/db/v1.sqlite
+*.sqlite-wal
+*.sqlite-shm
+.cusr/
+.lavish/
+.DS_Store
+reports/
+# The checkpoint stages everything else, including .codegraph/.gitignore.
+.codegraph/

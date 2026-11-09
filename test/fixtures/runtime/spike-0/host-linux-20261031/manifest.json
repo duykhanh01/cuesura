@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "kind": "host-boundary-rerun",
+  "checked_at": "2026-10-31T08:52:05.211Z",
+  "scope": "T126: S0.1 local probes re-run on the current non-WSL Linux host, because the T006 proof is of the WSL2 worker. Not the full T006 gate.",
+  "commands": [
+    "scripts/spike-002/probe-local-boundary.ts",
+    "scripts/spike-002/sandbox.ts probe --all",
+    "scripts/spike-002/reassess-sandbox.ts",
+    "scripts/spike-002/probe-lifetime.ts",
+    "scripts/spike-002/probe-mount-toctou.ts"
+  ],
+  "files": {
+    "layout.json": "df57d8c7e3d5a0badda0223c6d11df54ceaff94554344ab1c455f71126c59f69",
+    "lifetime.json": "5e563ba1c11356803f1d8807f76c63a4dfef4bcfab9474f97e148c7ceef975a9",
+    "local-boundary.json": "ee55de6bcb0a2d3a671a48f318a18b126b32041a5910413de0039f1f6cbd797d",
+    "mount-toctou.json": "54902056f22c0f85a43f502315851a3f486c3ff722dcd3738e801297c007530c",
+    "namespace.json": "a68d164354d810912bdc4001455de1cc0bfd715a3077db378e1b4ad1fe423695"
+  }
+}

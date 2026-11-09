@@ -1,0 +1,10 @@
+{
+  "ref": "refs/heads/spike/s0-squash-20261028",
+  "node_id": "REF_kwDOVaHCGdoAI3JlZnMvaGVhZHMvc3Bpa2UvczAtc3F1YXNoLTIwMjYxMDI4",
+  "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/refs/heads/spike/s0-squash-20261028",
+  "object": {
+    "sha": "e43c576d742ac4aae928f157d9a3042a8aad4558",
+    "type": "commit",
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/e43c576d742ac4aae928f157d9a3042a8aad4558"
+  }
+}

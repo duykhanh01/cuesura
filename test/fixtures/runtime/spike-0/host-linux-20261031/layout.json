@@ -1,0 +1,766 @@
+{
+  "schema_version": 1,
+  "kind": "spike-0-sandbox-probe",
+  "evidence_scope": "Outer mount/PID/env canaries on this machine only (ADR-0004). Not S0.1 proof in full: FD/socket/race, systemd lifetime and pinned vendor/permission/auth records are still required. AppArmor child-stack hardening is optional.",
+  "bwrap": {
+    "path": "/usr/bin/bwrap",
+    "version": "bubblewrap 0.9.0",
+    "usable": true,
+    "detail": "bwrap --unshare-user ran /usr/bin/true"
+  },
+  "kernel": "7.0.0-38-generic",
+  "roles": {
+    "coder": {
+      "layout_digest": "sha256:b2c8a0a71d375fde9b94050a5c0ec0394821a9ec391dd0d75e347a178755276e",
+      "pass": true,
+      "canaries": [
+        {
+          "name": "outside canary unreadable",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "control socket path absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "user bus absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "docker socket absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "worktree readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree write",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree .git file read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git common dir readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "git common dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git admin dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "scratch writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "home writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "/usr read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "host home entry absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.ssh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.config/gh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.claude",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.codex",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "pid namespace (visible pids <= 4)",
+          "expect": "denied",
+          "observed": "2",
+          "pass": true
+        },
+        {
+          "name": "no_new_privs and dropped bounding caps",
+          "expect": "record",
+          "observed": "CapEff:\t0000000000000000 NoNewPrivs:\t1",
+          "pass": true
+        },
+        {
+          "name": "no secret env",
+          "expect": "denied",
+          "observed": "CUSR_ATTEMPT_ID HOME LANG PATH PWD TMPDIR",
+          "pass": true
+        },
+        {
+          "name": "apparmor label",
+          "expect": "record",
+          "observed": "bwrap (unconfined)",
+          "pass": null
+        }
+      ]
+    },
+    "fixer": {
+      "layout_digest": "sha256:5cea66ecaa4b951f5c31bd0efbf8d339a43e5dbe70ceaa2d00a37ee35438e403",
+      "pass": true,
+      "canaries": [
+        {
+          "name": "outside canary unreadable",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "control socket path absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "user bus absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "docker socket absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "worktree readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree write",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree .git file read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git common dir readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "git common dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git admin dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "scratch writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "home writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "/usr read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "host home entry absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.ssh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.config/gh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.claude",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.codex",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "pid namespace (visible pids <= 4)",
+          "expect": "denied",
+          "observed": "2",
+          "pass": true
+        },
+        {
+          "name": "no_new_privs and dropped bounding caps",
+          "expect": "record",
+          "observed": "CapEff:\t0000000000000000 NoNewPrivs:\t1",
+          "pass": true
+        },
+        {
+          "name": "no secret env",
+          "expect": "denied",
+          "observed": "CUSR_ATTEMPT_ID HOME LANG PATH PWD TMPDIR",
+          "pass": true
+        },
+        {
+          "name": "apparmor label",
+          "expect": "record",
+          "observed": "bwrap (unconfined)",
+          "pass": null
+        }
+      ]
+    },
+    "reviewer": {
+      "layout_digest": "sha256:847412ac81a313aba09b0e8536963f51fb025361e26e4d2a66a262789a0caae5",
+      "pass": true,
+      "canaries": [
+        {
+          "name": "outside canary unreadable",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "control socket path absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "user bus absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "docker socket absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "worktree readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree write",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "worktree .git file read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git common dir readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "git common dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git admin dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "scratch writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "home writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "/usr read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "host home entry absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.ssh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.config/gh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.claude",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.codex",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "pid namespace (visible pids <= 4)",
+          "expect": "denied",
+          "observed": "2",
+          "pass": true
+        },
+        {
+          "name": "no_new_privs and dropped bounding caps",
+          "expect": "record",
+          "observed": "CapEff:\t0000000000000000 NoNewPrivs:\t1",
+          "pass": true
+        },
+        {
+          "name": "no secret env",
+          "expect": "denied",
+          "observed": "CUSR_ATTEMPT_ID HOME LANG PATH PWD TMPDIR",
+          "pass": true
+        },
+        {
+          "name": "apparmor label",
+          "expect": "record",
+          "observed": "bwrap (unconfined)",
+          "pass": null
+        }
+      ]
+    },
+    "setup": {
+      "layout_digest": "sha256:3e73bd0cd5517049e80d0dc44a335da253eb14c0c3810de4b21d933f80bd01ce",
+      "pass": true,
+      "canaries": [
+        {
+          "name": "outside canary unreadable",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "control socket path absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "user bus absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "docker socket absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "worktree readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree write",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree .git file read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git common dir readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "git common dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git admin dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "scratch writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "home writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "/usr read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "host home entry absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.ssh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.config/gh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.claude",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.codex",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "pid namespace (visible pids <= 4)",
+          "expect": "denied",
+          "observed": "2",
+          "pass": true
+        },
+        {
+          "name": "no_new_privs and dropped bounding caps",
+          "expect": "record",
+          "observed": "CapEff:\t0000000000000000 NoNewPrivs:\t1",
+          "pass": true
+        },
+        {
+          "name": "no secret env",
+          "expect": "denied",
+          "observed": "CUSR_ATTEMPT_ID HOME LANG PATH PWD TMPDIR",
+          "pass": true
+        },
+        {
+          "name": "apparmor label",
+          "expect": "record",
+          "observed": "bwrap (unconfined)",
+          "pass": null
+        }
+      ]
+    },
+    "gate": {
+      "layout_digest": "sha256:e8fecf82ea801fdb39fa4320c4e3b4dde10e584d5df26cd285727cc07a06e833",
+      "pass": true,
+      "canaries": [
+        {
+          "name": "outside canary unreadable",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "control socket path absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "user bus absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "docker socket absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "worktree readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree write",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "worktree .git file read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git common dir readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "git common dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "git admin dir read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "scratch writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context readable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "context read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "home writable",
+          "expect": "allowed",
+          "observed": "allowed",
+          "pass": true
+        },
+        {
+          "name": "/usr read-only",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "host home entry absent",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.ssh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.config/gh",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.claude",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "credential path absent /home/dev/.codex",
+          "expect": "denied",
+          "observed": "denied",
+          "pass": true
+        },
+        {
+          "name": "pid namespace (visible pids <= 4)",
+          "expect": "denied",
+          "observed": "2",
+          "pass": true
+        },
+        {
+          "name": "no_new_privs and dropped bounding caps",
+          "expect": "record",
+          "observed": "CapEff:\t0000000000000000 NoNewPrivs:\t1",
+          "pass": true
+        },
+        {
+          "name": "no secret env",
+          "expect": "denied",
+          "observed": "CUSR_ATTEMPT_ID HOME LANG PATH PWD TMPDIR",
+          "pass": true
+        },
+        {
+          "name": "apparmor label",
+          "expect": "record",
+          "observed": "bwrap (unconfined)",
+          "pass": null
+        }
+      ]
+    }
+  },
+  "apparmor_fixture": null,
+  "layout_pass": true
+}

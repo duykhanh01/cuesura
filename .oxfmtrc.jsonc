@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "singleQuote": true,
+  "trailingComma": "all",
+  "semi": true,
+  "printWidth": 100,
+  // Prettier never sorted package.json; keep key order as written.
+  "sortPackageJson": false,
+  // .gitignore is also honoured, as it was with Prettier.
+  "ignorePatterns": [
+    "node_modules/",
+    "dist/",
+    "coverage/",
+    "reports/",
+    "pnpm-lock.yaml",
+    "specs/",
+    "docs/",
+    "*.md",
+    // Recorded evidence and deliberately malformed inputs: byte-for-byte as captured.
+    "test/fixtures/",
+    // Harness argv templates keep each flag next to its value.
+    "scripts/spike-002/config/",
+    // Vendored agent/tooling configuration, kept as upstream ships it.
+    ".agents/",
+    ".claude/",
+  ],
+}

@@ -1,0 +1,6 @@
+{
+  "source": "/home/dev/.codex/packages/standalone/releases/0.165.0-x86_64-unknown-linux-musl/bin/codex-code-mode-host",
+  "staged": "/tmp/cusr-spike-002-tools/codex/bin/codex-code-mode-host",
+  "sha256": "522935d4392ec9674fab60b239b5495992c6a93e4deb65113a216b6f5451ccd4",
+  "staged_sha256": "522935d4392ec9674fab60b239b5495992c6a93e4deb65113a216b6f5451ccd4"
+}

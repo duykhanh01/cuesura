@@ -1,0 +1,3 @@
+interface:
+  display_name: 'Cuesura'
+  short_description: 'Submit and manage development tasks through cusr'

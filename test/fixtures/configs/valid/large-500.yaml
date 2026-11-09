@@ -1,0 +1,500 @@
+# Fixed 500-line configuration for the SC-002 performance check.
+#
+version: 1
+harnesses:
+  h0: { cmd: h0, auth: subscription, pool: p0 }
+  h1: { cmd: h1, auth: subscription, pool: p1 }
+  h2: { cmd: h2, auth: subscription, pool: p2 }
+  h3: { cmd: h3, auth: subscription, pool: p3 }
+pools:
+  p0: 2
+  p1: 2
+  p2: 2
+  p3: 2
+models:
+  m0: { harness: h0, id: model-0, tier: 1 }
+  m1: { harness: h1, id: model-1, tier: 2 }
+  m2: { harness: h2, id: model-2, tier: 3 }
+  m3: { harness: h3, id: model-3, tier: 1 }
+  m4: { harness: h0, id: model-4, tier: 2 }
+  m5: { harness: h1, id: model-5, tier: 3 }
+  m6: { harness: h2, id: model-6, tier: 1 }
+  m7: { harness: h3, id: model-7, tier: 2 }
+  m8: { harness: h0, id: model-8, tier: 3 }
+  m9: { harness: h1, id: model-9, tier: 1 }
+  m10: { harness: h2, id: model-10, tier: 2 }
+  m11: { harness: h3, id: model-11, tier: 3 }
+  m12: { harness: h0, id: model-12, tier: 1 }
+  m13: { harness: h1, id: model-13, tier: 2 }
+  m14: { harness: h2, id: model-14, tier: 3 }
+  m15: { harness: h3, id: model-15, tier: 1 }
+  m16: { harness: h0, id: model-16, tier: 2 }
+  m17: { harness: h1, id: model-17, tier: 3 }
+  m18: { harness: h2, id: model-18, tier: 1 }
+  m19: { harness: h3, id: model-19, tier: 2 }
+  m20: { harness: h0, id: model-20, tier: 3 }
+  m21: { harness: h1, id: model-21, tier: 1 }
+  m22: { harness: h2, id: model-22, tier: 2 }
+  m23: { harness: h3, id: model-23, tier: 3 }
+  m24: { harness: h0, id: model-24, tier: 1 }
+  m25: { harness: h1, id: model-25, tier: 2 }
+  m26: { harness: h2, id: model-26, tier: 3 }
+  m27: { harness: h3, id: model-27, tier: 1 }
+  m28: { harness: h0, id: model-28, tier: 2 }
+  m29: { harness: h1, id: model-29, tier: 3 }
+  m30: { harness: h2, id: model-30, tier: 1 }
+  m31: { harness: h3, id: model-31, tier: 2 }
+  m32: { harness: h0, id: model-32, tier: 3 }
+  m33: { harness: h1, id: model-33, tier: 1 }
+  m34: { harness: h2, id: model-34, tier: 2 }
+  m35: { harness: h3, id: model-35, tier: 3 }
+  m36: { harness: h0, id: model-36, tier: 1 }
+  m37: { harness: h1, id: model-37, tier: 2 }
+  m38: { harness: h2, id: model-38, tier: 3 }
+  m39: { harness: h3, id: model-39, tier: 1 }
+roles:
+  coder:
+    prompt: prompts/coder.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m0
+      - model: m0
+    escalation:
+      ladder:
+        - { effort: high }
+  fixer:
+    prompt: prompts/fixer.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m3
+      - model: m1
+    escalation:
+      ladder:
+        - { effort: high }
+  reviewer:
+    prompt: prompts/reviewer.md
+    permissions: read_only
+    binding:
+      - when: { size: [L, XL] }
+        model: m6
+      - model: m2
+    escalation:
+      ladder:
+        - { effort: high }
+  scout:
+    prompt: prompts/scout.md
+    permissions: read_only
+    binding:
+      - when: { size: [L, XL] }
+        model: m9
+      - model: m3
+  r0:
+    prompt: prompts/r0.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m12
+      - model: m4
+    escalation:
+      ladder:
+        - { effort: high }
+  r1:
+    prompt: prompts/r1.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m15
+      - model: m5
+    escalation:
+      ladder:
+        - { effort: high }
+  r2:
+    prompt: prompts/r2.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m18
+      - model: m6
+    escalation:
+      ladder:
+        - { effort: high }
+  r3:
+    prompt: prompts/r3.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m21
+      - model: m7
+    escalation:
+      ladder:
+        - { effort: high }
+  r4:
+    prompt: prompts/r4.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m24
+      - model: m8
+    escalation:
+      ladder:
+        - { effort: high }
+  r5:
+    prompt: prompts/r5.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m27
+      - model: m9
+    escalation:
+      ladder:
+        - { effort: high }
+  r6:
+    prompt: prompts/r6.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m30
+      - model: m10
+    escalation:
+      ladder:
+        - { effort: high }
+  r7:
+    prompt: prompts/r7.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m33
+      - model: m11
+    escalation:
+      ladder:
+        - { effort: high }
+  r8:
+    prompt: prompts/r8.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m36
+      - model: m12
+    escalation:
+      ladder:
+        - { effort: high }
+  r9:
+    prompt: prompts/r9.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m39
+      - model: m13
+    escalation:
+      ladder:
+        - { effort: high }
+  r10:
+    prompt: prompts/r10.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m2
+      - model: m14
+    escalation:
+      ladder:
+        - { effort: high }
+  r11:
+    prompt: prompts/r11.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m5
+      - model: m15
+    escalation:
+      ladder:
+        - { effort: high }
+  r12:
+    prompt: prompts/r12.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m8
+      - model: m16
+    escalation:
+      ladder:
+        - { effort: high }
+  r13:
+    prompt: prompts/r13.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m11
+      - model: m17
+    escalation:
+      ladder:
+        - { effort: high }
+  r14:
+    prompt: prompts/r14.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m14
+      - model: m18
+    escalation:
+      ladder:
+        - { effort: high }
+  r15:
+    prompt: prompts/r15.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m17
+      - model: m19
+    escalation:
+      ladder:
+        - { effort: high }
+  r16:
+    prompt: prompts/r16.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m20
+      - model: m20
+    escalation:
+      ladder:
+        - { effort: high }
+  r17:
+    prompt: prompts/r17.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m23
+      - model: m21
+    escalation:
+      ladder:
+        - { effort: high }
+  r18:
+    prompt: prompts/r18.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m26
+      - model: m22
+    escalation:
+      ladder:
+        - { effort: high }
+  r19:
+    prompt: prompts/r19.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m29
+      - model: m23
+    escalation:
+      ladder:
+        - { effort: high }
+  r20:
+    prompt: prompts/r20.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m32
+      - model: m24
+    escalation:
+      ladder:
+        - { effort: high }
+  r21:
+    prompt: prompts/r21.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m35
+      - model: m25
+    escalation:
+      ladder:
+        - { effort: high }
+  r22:
+    prompt: prompts/r22.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m38
+      - model: m26
+    escalation:
+      ladder:
+        - { effort: high }
+  r23:
+    prompt: prompts/r23.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m1
+      - model: m27
+    escalation:
+      ladder:
+        - { effort: high }
+  r24:
+    prompt: prompts/r24.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m4
+      - model: m28
+    escalation:
+      ladder:
+        - { effort: high }
+  r25:
+    prompt: prompts/r25.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m7
+      - model: m29
+    escalation:
+      ladder:
+        - { effort: high }
+  r26:
+    prompt: prompts/r26.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m10
+      - model: m30
+    escalation:
+      ladder:
+        - { effort: high }
+  r27:
+    prompt: prompts/r27.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m13
+      - model: m31
+    escalation:
+      ladder:
+        - { effort: high }
+  r28:
+    prompt: prompts/r28.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m16
+      - model: m32
+    escalation:
+      ladder:
+        - { effort: high }
+  r29:
+    prompt: prompts/r29.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m19
+      - model: m33
+    escalation:
+      ladder:
+        - { effort: high }
+  r30:
+    prompt: prompts/r30.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m22
+      - model: m34
+    escalation:
+      ladder:
+        - { effort: high }
+  r31:
+    prompt: prompts/r31.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m25
+      - model: m35
+    escalation:
+      ladder:
+        - { effort: high }
+  r32:
+    prompt: prompts/r32.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m28
+      - model: m36
+    escalation:
+      ladder:
+        - { effort: high }
+  r33:
+    prompt: prompts/r33.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m31
+      - model: m37
+    escalation:
+      ladder:
+        - { effort: high }
+  r34:
+    prompt: prompts/r34.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m34
+      - model: m38
+    escalation:
+      ladder:
+        - { effort: high }
+  r35:
+    prompt: prompts/r35.md
+    binding:
+      - when: { size: [L, XL] }
+        model: m37
+      - model: m39
+    escalation:
+      ladder:
+        - { effort: high }
+workflows:
+  wf0:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 10 }
+  wf1:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 11 }
+  wf2:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 12 }
+  wf3:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 13 }
+  wf4:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 10 }
+  wf5:
+    base: software_dev@1
+    steps:
+      code: { max_visits: 11 }
+profiles:
+  standard:
+    workflow: wf0
+    escalation: { max_escalations_per_task: 2 }
+  prof0:
+    workflow: wf0
+    escalation: { max_escalations_per_task: 2 }
+  prof1:
+    workflow: wf1
+    escalation: { max_escalations_per_task: 2 }
+  prof2:
+    workflow: wf2
+    escalation: { max_escalations_per_task: 2 }
+  prof3:
+    workflow: wf3
+    escalation: { max_escalations_per_task: 2 }
+  prof4:
+    workflow: wf4
+    escalation: { max_escalations_per_task: 2 }
+  prof5:
+    workflow: wf5
+    escalation: { max_escalations_per_task: 2 }
+  prof6:
+    workflow: wf0
+    escalation: { max_escalations_per_task: 2 }
+  prof7:
+    workflow: wf1
+    escalation: { max_escalations_per_task: 2 }
+  prof8:
+    workflow: wf2
+    escalation: { max_escalations_per_task: 2 }
+  prof9:
+    workflow: wf3
+    escalation: { max_escalations_per_task: 2 }
+  prof10:
+    workflow: wf4
+    escalation: { max_escalations_per_task: 2 }
+  prof11:
+    workflow: wf5
+    escalation: { max_escalations_per_task: 2 }
+  prof12:
+    workflow: wf0
+    escalation: { max_escalations_per_task: 2 }
+  prof13:
+    workflow: wf1
+    escalation: { max_escalations_per_task: 2 }
+  prof14:
+    workflow: wf2
+    escalation: { max_escalations_per_task: 2 }
+  prof15:
+    workflow: wf3
+    escalation: { max_escalations_per_task: 2 }
+  prof16:
+    workflow: wf4
+    escalation: { max_escalations_per_task: 2 }
+  prof17:
+    workflow: wf5
+    escalation: { max_escalations_per_task: 2 }
+  prof18:
+    workflow: wf0
+    escalation: { max_escalations_per_task: 2 }

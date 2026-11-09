@@ -1,0 +1,49 @@
+{
+  "attempt": "s0-codex-fixer-1793173505",
+  "vendor": "codex",
+  "role": "fixer",
+  "result_validation": "valid",
+  "result_status": "done",
+  "process_outcome": "exited",
+  "process_exit": 0,
+  "duration_ms": 28103,
+  "descendant_scope": "unit_cgroup",
+  "permission_marker_absent": true,
+  "outer_positive_touch": true,
+  "claude_permission_denials": null,
+  "native_observed_pid_namespaces": [
+    "pid:[4026532212]",
+    "pid:[4026532486]",
+    "pid:[4026532494]",
+    "pid:[4026532528]",
+    "pid:[4026532501]",
+    "pid:[4026532575]",
+    "pid:[4026532495]",
+    "pid:[4026532496]",
+    "pid:[4026532497]"
+  ],
+  "native_observed_mount_namespaces": [
+    "mnt:[4026532210]",
+    "mnt:[4026532483]",
+    "mnt:[4026532490]",
+    "mnt:[4026532493]",
+    "mnt:[4026532497]",
+    "mnt:[4026532573]",
+    "mnt:[4026532494]"
+  ],
+  "reported_usage": {
+    "input_tokens": 100121,
+    "cached_input_tokens": 69888,
+    "cache_write_input_tokens": 0,
+    "output_tokens": 546,
+    "reasoning_output_tokens": 0
+  },
+  "reported_cost_usd": null,
+  "cost_basis": null,
+  "wire_schema_dialect": "https://json-schema.org/draft/2020-12/schema",
+  "wire_schema_file_sha256": "6e58efa863297c3be9ed19fa4f1b3eaf927bc298b5fc77402fb21698c24e35e6",
+  "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "scope": "Real invocation, not a full S0.1/S0.2 pass. Namespace observations must be correlated with successful tool output. Codex --json does not expose a direct permission-denial event here; static execpolicy refusal and absence of marker are recorded separately."
+}

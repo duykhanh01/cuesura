@@ -1,0 +1,5 @@
+# Minimal project configuration without a profile; paired with user-workflows.yaml.
+version: 1
+gates:
+  build: "make"
+  unit: "make test"

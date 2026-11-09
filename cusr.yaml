@@ -1,0 +1,14 @@
+version: 1
+# A worktree starts without the untracked index. Keep it best effort: workers can read files without it,
+# and as a list item preflight would require codegraph on the PATH.
+setup: 'pnpm install --frozen-lockfile && { codegraph init -y . >/dev/null 2>&1 || true; }'
+# The `lint` gate of software_dev is optional and publishes even when red; typecheck and lint are in the required gate.
+gates:
+  build: 'pnpm typecheck && pnpm build'
+  unit: 'pnpm lint && pnpm format:check && pnpm test:changed'
+autofix:
+  format_fix: 'pnpm format'
+ci:
+  required_checks: [build, test]
+conventions: [AGENTS.md]
+profile: dogfood

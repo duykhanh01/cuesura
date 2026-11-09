@@ -1,0 +1,176 @@
+{
+  "attempt": "s0-claude-coder-1793170522",
+  "vendor": "claude",
+  "role": "coder",
+  "unit": "cusr-op-op-s0-claude-coder-1793170522.service",
+  "systemd_run_exit": 0,
+  "run_dir": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-claude-coder-1793170522",
+  "command": [
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/claude.json",
+    "--role",
+    "coder",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-claude-coder-1793170522",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-coder-1793170522-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid"
+  ],
+  "unit_argv": [
+    "/usr/bin/systemd-run",
+    "--user",
+    "--unit=cusr-op-op-s0-claude-coder-1793170522.service",
+    "--property=Restart=no",
+    "--property=KillMode=control-group",
+    "--property=TimeoutStopSec=15s",
+    "--property=RuntimeMaxSec=330s",
+    "--property=StandardOutput=append:/tmp/cusr-spike-002-real-dTgXz2/s0-claude-coder-1793170522-console.json",
+    "--property=StandardError=append:/tmp/cusr-spike-002-real-dTgXz2/s0-claude-coder-1793170522-unit.stderr",
+    "--quiet",
+    "--",
+    "/bin/sh",
+    "-c",
+    "trap \"\" TERM; exec \"$@\"",
+    "sh",
+    "/usr/bin/flock",
+    "--nonblock",
+    "/tmp/cusr-spike-002-real-dTgXz2/data/locks/op-s0-claude-coder-1793170522.lock",
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/claude.json",
+    "--role",
+    "coder",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-claude-coder-1793170522",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-coder-1793170522-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid"
+  ],
+  "prompt_sha256": "e28b7580e17a223849a556dcbb6baf4d7d5cc04ce766dc9bf9ab451a8a488c58",
+  "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+  "console_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-coder-1793170522-console.json",
+  "unit_stderr_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-coder-1793170522-unit.stderr",
+  "result": {
+    "role": "coder",
+    "raw_digest": null,
+    "result_path": null,
+    "status": "process_failed",
+    "issues": [
+      "no complete final stdout record"
+    ]
+  },
+  "refused": null,
+  "exit": {
+    "schema_version": 1,
+    "operation_id": "op-s0-claude-coder-1793170522",
+    "attempt_id": "s0-claude-coder-1793170522",
+    "launch_nonce": "42a0e744145d1beabff209b97ba235d3",
+    "outcome": "exited",
+    "exit_code": 1,
+    "signal": null,
+    "started_at": "2026-10-28T06:55:31.360Z",
+    "ended_at": "2026-10-28T06:55:35.826Z",
+    "duration_ms": 4256,
+    "termination": {
+      "term_sent": false,
+      "kill_sent": false,
+      "group_empty_verified": true,
+      "descendant_scope": "unit_cgroup",
+      "descendants_killed": 0
+    },
+    "usage": {
+      "status": "unavailable",
+      "reason": "runner does not parse harness usage"
+    },
+    "artifacts": {
+      "events": {
+        "records": 0,
+        "bytes": 0,
+        "generations": 1,
+        "truncated_records": 0
+      },
+      "stderr": {
+        "bytes": 122,
+        "digest": "sha256:d8a1e758a0885d376f7a2457d829c53f27040ef929246fb4e28105670fb743de"
+      }
+    },
+    "error": null
+  },
+  "native_process_observations": [
+    {
+      "at_elapsed_ms": 4139,
+      "pid": 69577,
+      "exe": "/usr/bin/flock",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 4139,
+      "pid": 69579,
+      "exe": "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 4140,
+      "pid": 69651,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 4140,
+      "pid": 69652,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 4140,
+      "pid": 69653,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 6307,
+      "pid": 69735,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    }
+  ],
+  "permission_marker_absent": true,
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "final_source": "def add(a, b):\n    return a - b\n\ndef subtract(a, b):\n    return a + b\n"
+}

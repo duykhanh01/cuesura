@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "vendor": "claude",
+  "binary": {
+    "realpath": "/home/dev/.local/share/claude/versions/2.1.316",
+    "version": "2.1.316 (Claude Code)",
+    "sha256": "fd13c70000fec3f2116dfbcbb6121210b4a29328bf0e46210a59dd594a67d824"
+  },
+  "toolchain": [
+    "/home/dev/.local/share/cuesura-t126/tools/socat/root/usr/bin",
+    "/home/dev/.local/share/cuesura-t126/tools/node/bin"
+  ],
+  "env": {},
+  "home_files": [
+    {
+      "credential": "claude-0",
+      "to": ".claude/.credentials.json"
+    }
+  ],
+  "settings": {
+    "sandbox": {
+      "enabled": true,
+      "failIfUnavailable": true,
+      "allowUnsandboxedCommands": false,
+      "filesystem": {
+        "allowWrite": [
+          "/cusr/scratch",
+          "/cusr/home",
+          "/tmp"
+        ]
+      }
+    },
+    "permissions": {
+      "defaultMode": "dontAsk",
+      "allow": [
+        "Bash",
+        "Read",
+        "Edit",
+        "Write",
+        "Glob",
+        "Grep"
+      ],
+      "deny": [
+        "Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)",
+        "Read(//cusr/scratch/permission-denied.txt)"
+      ]
+    }
+  },
+  "max_turns": 16,
+  "tools": [
+    "Bash",
+    "Read",
+    "Edit",
+    "Write",
+    "Glob",
+    "Grep"
+  ]
+}

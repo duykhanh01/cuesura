@@ -1,0 +1,132 @@
+{
+  "schema_version": 1,
+  "vendor": "codex",
+  "binary": {
+    "path": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+    "sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5",
+    "version_argv": [
+      "--version"
+    ],
+    "expected_version": "codex-cli 0.165.0"
+  },
+  "model": "gpt-6-luna",
+  "effort": "low",
+  "argv": [
+    "exec",
+    "--disable",
+    "apps",
+    "--disable",
+    "plugins",
+    "--disable",
+    "remote_plugin",
+    "--disable",
+    "plugin_sharing",
+    "--disable",
+    "skill_mcp_dependency_install",
+    "-c",
+    "approval_policy=\"never\"",
+    "--json",
+    "--output-schema",
+    "{schema_file}",
+    "--output-last-message",
+    "{output_file}",
+    "--model",
+    "{model}",
+    "-c",
+    "model_reasoning_effort=\"{effort}\"",
+    "--ignore-user-config",
+    "--ephemeral",
+    "-C",
+    "{cwd}",
+    "{role_args}",
+    "-"
+  ],
+  "role_args": {
+    "coder": [
+      "--sandbox",
+      "workspace-write",
+      "--add-dir",
+      "/cusr/scratch"
+    ],
+    "fixer": [
+      "--sandbox",
+      "workspace-write",
+      "--add-dir",
+      "/cusr/scratch"
+    ],
+    "reviewer": [
+      "--sandbox",
+      "read-only"
+    ]
+  },
+  "prompt_via": "stdin",
+  "result_source": {
+    "kind": "file"
+  },
+  "settings": null,
+  "auth_files": [
+    {
+      "from": "/home/dev/.codex/auth.json",
+      "to": ".codex/auth.json"
+    },
+    {
+      "from": "/tmp/cusr-spike-002-owner-c6_um8ih/spike.rules",
+      "to": ".codex/rules/spike.rules"
+    }
+  ],
+  "isolation": {
+    "requested_inner_mode": "internal_required",
+    "owner_allows_external_verified": false,
+    "native_result": "passed",
+    "outer_proof_hash": "sha256:906ae9e8698d0d404e5751e21345f080e4b55f4952c5c20f27dd5980a1d09079",
+    "permission_policy_hash": "sha256:4198dbe536484cd59941d0b1cc392c015a7e8c332dc1f12fcd3732df05f4d5b9"
+  },
+  "capabilities": {
+    "structured_output": {
+      "status": "proven",
+      "evidence": "file via --output-last-message; valid results s0-codex-coder-1793178479, s0-codex-fixer-1793173505, s0-codex-reviewer-1793178514, s0-codex-reviewer-1793180367"
+    },
+    "schema_acceptance_coder": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-codex-coder-1793178479"
+    },
+    "schema_acceptance_fixer": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-codex-fixer-1793173505"
+    },
+    "schema_acceptance_reviewer": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json rows s0-codex-reviewer-1793178514, s0-codex-reviewer-1793180367"
+    },
+    "native_inner_sandbox": {
+      "status": "proven",
+      "evidence": "test/fixtures/runtime/spike-0/harness/real-20261028/isolation-record.json vendors.codex.native_result=passed (shell tool in child pid namespace for coder/fixer/reviewer)"
+    },
+    "permission_denial_kept": {
+      "status": "proven",
+      "evidence": "codex_core::tools::router Rejected on stderr; no --json event: s0-codex-coder-1793172447, s0-codex-coder-1793178479, s0-codex-fixer-1793173505, s0-codex-reviewer-1793172662, s0-codex-reviewer-1793178514 (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+    },
+    "private_home_auth": {
+      "status": "proven",
+      "evidence": "selected auth only in private home, removed after archive; test/fixtures/runtime/spike-0/harness/real-20261028/manifest.json temporary_auth_cleanup"
+    },
+    "usage_report": {
+      "status": "proven",
+      "evidence": "tokens only, no cost field in 7 attempts (test/fixtures/runtime/spike-0/harness/real-20261028/stream-summary.json)"
+    },
+    "wall_limit": {
+      "status": "proven",
+      "evidence": "runner-enforced: deadline_ms 300000 + unit RuntimeMaxSec=330s; timeout path covered by test/integration/spike-002/harness-run.test.ts; vendor-independent"
+    },
+    "cost_limit": {
+      "status": "unknown",
+      "evidence": "no cost reported or capped"
+    },
+    "session_resume": {
+      "status": "unknown",
+      "evidence": "owner did not approve resume runs (2026-10-28); runs used --ephemeral"
+    }
+  },
+  "wall_ms": 300000,
+  "env": {}
+}

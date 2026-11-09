@@ -1,0 +1,49 @@
+# Sample user config for a first run of cusrd. Copy it, fill in the placeholders, then start the daemon:
+#
+#   (umask 077 && mkdir -p ~/.cusr && cp deploy/config.example.yaml ~/.cusr/config.yaml)
+#   cusrd --config ~/.cusr/config.yaml --data-dir ~/.cusr
+#
+# cusrd creates the data dir (mode 0700) on its first run; there is no token to create. Check the result
+# with `cusr status` and `cusr doctor --project my-app`. Full reference: specs/001-deterministic-core/contracts/config.md.
+version: 1
+
+# One harness is enough to start. Each one needs a pin and a manifest before it runs a real task:
+# see cusr-runner setup-harness in docs/dogfooding.md.
+harnesses:
+  claude: { cmd: claude, auth: subscription, pool: claude }
+pools: { claude: 1 }
+
+models:
+  opus: { harness: claude, id: 'claude-opus-5-5', tier: 3 }
+  sonnet: { harness: claude, id: 'claude-sonnet-5-5', tier: 2 }
+
+# The first binding of each role is its default model.
+roles:
+  coder:
+    binding: [{ model: opus, effort: medium }, { model: sonnet, effort: medium }]
+  fixer:
+    binding: [{ model: opus, effort: medium }, { model: sonnet, effort: medium }]
+  reviewer:
+    binding: [{ model: opus, effort: high }]
+    permissions: read_only
+
+workflows:
+  default-flow: { base: software_dev@1 }
+
+profiles:
+  default:
+    workflow: default-flow
+    allow_roles: [coder, fixer, reviewer]
+    allow_models: [opus, sonnet]
+
+projects:
+  my-app:
+    base_branch: main
+    path: '/home/me/code/my-app' # a clone the daemon owns; do not work in it by hand
+    repo: 'owner/my-app'
+
+# Required by cusrd, even when empty.
+runtime:
+  # data_dir: "/home/me/.cusr" # --data-dir wins over this; ~/.cusr when neither is set
+  credential_refs:
+    claude-0: '/home/me/.claude/.credentials.json'

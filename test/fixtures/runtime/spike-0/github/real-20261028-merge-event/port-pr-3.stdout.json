@@ -1,0 +1,64 @@
+{
+  "observation": {
+    "schema_version": 2,
+    "api_version": "2026-03-10",
+    "merge_proof": {
+      "merged": true,
+      "repo_id": 1436664345,
+      "pr_id": 5047145758,
+      "target": "master",
+      "merged_at": "2026-10-28T08:33:11Z",
+      "merge_commit_sha": "9ad1de32594287e475b91ba61f4063dc20de9aa8",
+      "merge_commit": {
+        "sha": "9ad1de32594287e475b91ba61f4063dc20de9aa8",
+        "source": "issues.events.merged.commit_id",
+        "status": "found",
+        "basis": "single merged event on a complete listing",
+        "event_id": 34453728385,
+        "event_created_at": "2026-10-28T08:33:11Z",
+        "events": {
+          "pages": 1,
+          "complete": true,
+          "digest": "sha256:02dae36f6b9563c85331c7a87a66846d3e0bd0a2cb23ced667283afe3d88a729"
+        }
+      },
+      "head_at_merge_candidate": "042b57287c27ae7ddc448ede14ba1006b875b799",
+      "head_source": "pulls.head.sha",
+      "merge_endpoint": "merged_204",
+      "completeness": "complete",
+      "gaps": []
+    },
+    "required": null,
+    "comparison": null,
+    "checks": null,
+    "green": false,
+    "identity": {
+      "repo_id": 1436664345,
+      "pr_id": 5047145758,
+      "target": "master",
+      "verdict": "match"
+    },
+    "pull": {
+      "id": 5047145758,
+      "number": 3,
+      "state": "closed",
+      "merged": true,
+      "merged_at": "2026-10-28T08:33:11Z",
+      "merge_commit_sha": null,
+      "head": {
+        "sha": "042b57287c27ae7ddc448ede14ba1006b875b799",
+        "ref": "spike/s0-rebase-20261028",
+        "repo_id": 1436664345
+      },
+      "base": {
+        "sha": "01deb1618eef654e00dd28781864f837d015f6d6",
+        "ref": "master",
+        "repo_id": 1436664345
+      }
+    },
+    "state": "merged",
+    "reasons": []
+  },
+  "requests": 5,
+  "evidence_out": "test/fixtures/runtime/spike-0/github/real-20261028-merge-event/port-pr-3.json"
+}

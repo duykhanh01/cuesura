@@ -1,0 +1,13 @@
+{
+  "project": "node-sandbox",
+  "title": "Add slugify to the strings module",
+  "base_branch": "main",
+  "description": "src/strings.js has capitalize only. Add a named export slugify(text) and cover it in test/strings.test.js.",
+  "acceptance": [
+    "slugify('Hello, World!') returns 'hello-world'",
+    "slugify('  a  b  ') returns 'a-b'",
+    "slugify('') returns ''",
+    "the build, unit and lint gates pass"
+  ],
+  "depends_on": []
+}

@@ -1,0 +1,34 @@
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from 'node:fs';
+import { join } from 'node:path';
+import { createProbeFixture } from '/home/dev/Personal/cuesura/scripts/spike-002/sandbox.ts';
+import { checkConfig, probeBinary } from '/home/dev/Personal/cuesura/scripts/spike-002/harness.ts';
+const owner='/tmp/cusr-spike-002-owner-c6_um8ih';
+const base=mkdtempSync('/tmp/cusr-spike-002-real-');
+const fixture=join(base,'fixture'); mkdirSync(fixture,{mode:0o700});
+const fx=createProbeFixture(fixture);
+const root=join(base,'data'); mkdirSync(root,{mode:0o700});
+writeFileSync(join(fx.worktree,'calc.py'),'def add(a, b):\n    return a - b\n\ndef subtract(a, b):\n    return a + b\n');
+const rules=join(owner,'spike.rules');
+writeFileSync(rules,'prefix_rule(pattern=["/usr/bin/touch", "/cusr/scratch/permission-denied-by-rule"], decision="forbidden")\nprefix_rule(pattern=["touch", "/cusr/scratch/permission-denied-by-rule"], decision="forbidden")\n',{mode:0o600});
+for (const vendor of ['claude','codex']) {
+ const path=join(owner,`${vendor}.json`);
+ const c=JSON.parse(readFileSync(path,'utf8'));
+ if(vendor==='claude') {
+  c.argv[c.argv.indexOf('--output-format')+1]='stream-json';
+  c.argv.splice(1,0,'--verbose','--max-turns','16','--tools','Bash,Read,Edit,Write,Glob,Grep');
+  c.settings.content.permissions={defaultMode:'dontAsk',allow:['Bash','Read','Edit','Write','Glob','Grep'],deny:['Bash(/usr/bin/touch /cusr/scratch/permission-denied-by-rule)','Read(//cusr/scratch/permission-denied.txt)']};
+  c.settings.content.sandbox.filesystem={allowWrite:['/cusr/scratch','/cusr/home','/tmp']};
+  c.role_args={reviewer:['--disallowedTools','Edit,Write']};
+  c.env.LD_LIBRARY_PATH='/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu';
+ } else {
+  c.argv.splice(1,0,'-c','approval_policy="never"');
+  c.auth_files.push({from:rules,to:'.codex/rules/spike.rules'});
+  for(const role of ['coder','fixer']) c.role_args[role].push('--add-dir','/cusr/scratch');
+ }
+ const ready=checkConfig(c); const binary=probeBinary(c);
+ if(!ready.ready || binary.issues.length) throw Error(JSON.stringify({vendor,ready,binary}));
+ writeFileSync(path,JSON.stringify(c,null,2)+'\n',{mode:0o600});
+}
+const state={base,fx,root,ledger:join(base,'ledger.jsonl'),owner,toolchain:['/tmp/cusr-spike-002-tools/root/usr/bin','/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu']};
+writeFileSync(join(owner,'state.json'),JSON.stringify(state,null,2)+'\n',{mode:0o600});
+console.log(JSON.stringify({base,root,ledger:state.ledger,config_static_checks:'passed'}));

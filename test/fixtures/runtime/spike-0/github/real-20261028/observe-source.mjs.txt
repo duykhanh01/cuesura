@@ -1,0 +1,15 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {GhPort,spawnGhExec,observePull,readRequiredChecks,API_VERSION} from '/home/dev/Personal/cuesura/scripts/spike-002/gh.ts';
+const root='/home/dev/Personal/cuesura/';
+const dir=root+'test/fixtures/runtime/spike-0/github/real-20261028/';
+const pulls=JSON.parse(readFileSync('/tmp/cusr-spike-002-post-merge/initial-pulls.json','utf8'));
+for (const p of pulls) {
+ const port=new GhPort(spawnGhExec());
+ const observation=await observePull(port,'duykhanh01','cuesura-spike-002-sandbox',p.number,[],{repo_id:1436664345,pr_id:p.id});
+ writeFileSync(dir+`port-pr-${p.number}-final.json`,JSON.stringify({observation,ledger:port.ledger,evidence:port.evidence,limits:port.limits,mode:'live'},null,2)+'\n');
+ console.log(JSON.stringify({pr:p.number,identity:observation.identity.verdict,state:observation.state,head:observation.merge_proof?.head_at_merge_candidate,merge_sha:observation.merge_proof?.merge_commit_sha,requests:port.ledger.length}));
+}
+const port=new GhPort(spawnGhExec());
+const required=await readRequiredChecks(port,'duykhanh01','cuesura-spike-002-sandbox','master');
+writeFileSync(dir+'required-checks.json',JSON.stringify({api_version:API_VERSION,required,ledger:port.ledger,evidence:port.evidence,limits:port.limits,mode:'live'},null,2)+'\n');
+console.log(JSON.stringify({required,requests:port.ledger.length}));

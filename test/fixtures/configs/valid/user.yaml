@@ -1,0 +1,65 @@
+# Example user configuration (~/.cusr/config.yaml).
+version: 1
+
+harnesses:
+  claude: { cmd: claude, auth: subscription, pool: claude }
+  codex: { cmd: codex, auth: subscription, pool: codex }
+
+pools: { claude: 2, codex: 2, build: 1 }
+
+models:
+  haiku: { harness: claude, id: haiku, tier: 1 }
+  sonnet: { harness: claude, id: sonnet, tier: 2 }
+  opus: { harness: claude, id: opus, tier: 3 }
+  sol: { harness: codex, id: sol-1, tier: 2 }
+
+roles:
+  coder:
+    prompt: prompts/coder.md
+    context: [task_brief, conventions]
+    binding:
+      - when: { size: [L, XL] }
+        model: opus
+      - model: sonnet
+    limits: { max_turns: 80, stall_timeout: 10m, wall_timeout: 45m }
+    escalation:
+      ladder:
+        - { effort: high }
+        - { model: opus, effort: high }
+  fixer:
+    prompt: prompts/fixer.md
+    binding: [{ model: sonnet }]
+    escalation:
+      ladder:
+        - { effort: high }
+        - { model: opus, effort: high }
+  reviewer:
+    prompt: prompts/reviewer.md
+    permissions: read_only
+    binding: [{ model: sol }]
+    escalation:
+      ladder:
+        - { effort: high }
+  scout:
+    prompt: prompts/scout.md
+    permissions: read_only
+    binding: [{ model: sol }]
+
+workflows:
+  impl:
+    base: software_dev@1
+
+projects:
+  acme: { base_branch: main }
+
+profiles:
+  standard:
+    workflow: impl
+    allow_roles: [scout, coder, reviewer, fixer]
+    allow_models: [sonnet, sol, haiku]
+    escalation: { auto_up_to_tier: 2, above: ask_human, max_escalations_per_task: 2 }
+    overridable: [roles.reviewer.binding, gates.lint, escalation.max_escalations_per_task]
+  heavy:
+    extends: standard
+    allow_models: [sonnet, sol, opus]
+    escalation: { auto_up_to_tier: 3 }

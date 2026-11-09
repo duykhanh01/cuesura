@@ -1,0 +1,173 @@
+{
+  "schema_version": 1,
+  "kind": "spike-0-mount-source-toctou",
+  "checked_at": "2026-10-31T08:51:27.037Z",
+  "scope": "Host-side mount-source TOCTOU between buildSandbox() realpath checks and bwrap exec. Local fixture only; no model, network, sudo or policy change.",
+  "node": "v24.22.1",
+  "kernel": "7.0.0-38-generic",
+  "bwrap": "bubblewrap 0.9.0",
+  "hashes": {
+    "probe": "305f74087970348b5bba5e31081464a13fd421d3904ed03a55a2f53896e1644a",
+    "sandbox": "a5d6edb7ffbff92e2aa3ae83dcc5296419726e08f408b758019ad403a1408519",
+    "bwrap": "e318903862396f96de3df57264e0158682b952fd3fb53ac23d876413e7b30f71"
+  },
+  "plan_time_symlink_refused": "scratch: /tmp/cusr-spike-sandbox-0aTy98/scratch-link resolves through a symlink to /tmp/cusr-spike-sandbox-0aTy98/outside",
+  "sandbox_cannot_reach_source_parents": [
+    {
+      "role": "coder",
+      "layout_digest": "sha256:2156016ff1153130c063f57a7d75396595c8c213a7176629eba08efa7f35cfde",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/home": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-0aTy98": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "fixer",
+      "layout_digest": "sha256:53e948519ef506a08577416614ac22d76dc643da7ba4e75c58f7f779bf83eebe",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/home": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-0aTy98": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "reviewer",
+      "layout_digest": "sha256:a95a53bc0c05b6a5ae31256ec1fb33000b270b47c12c6dbcaa18183ed5101191",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree/.git": "denied:30",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/home": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-0aTy98": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "denied:30"
+      },
+      "host_parent_writes_via_rw_mount": [],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "setup",
+      "layout_digest": "sha256:0c53175f0c923f6e5b3d4a76569e6f5c1bb567a10a6c41a3e03f1c6081522e6f",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-0aTy98": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    },
+    {
+      "role": "gate",
+      "layout_digest": "sha256:117463cfe196c5e747ca5c71b87f39aa7aa6d7a526c26653c028a2b9e2323ed6",
+      "exit": 0,
+      "source_swaps": {
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo/.git": "denied:16",
+        "/tmp/cusr-spike-sandbox-0aTy98/scratch": "not_visible",
+        "/tmp/cusr-spike-sandbox-0aTy98/context": "not_visible"
+      },
+      "sources_intact": true,
+      "parent_writes_inside": {
+        "/tmp/cusr-spike-sandbox-0aTy98": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/repo": "written_inside_sandbox",
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree": "written_inside_sandbox"
+      },
+      "host_parent_writes_via_rw_mount": [
+        "/tmp/cusr-spike-sandbox-0aTy98/worktree"
+      ],
+      "unexpected_host_parent_writes": [],
+      "passed": true
+    }
+  ],
+  "host_swap_race": [
+    {
+      "mount": "scratch",
+      "host_source": "/tmp/cusr-spike-sandbox-0aTy98/scratch",
+      "sandbox_target": "/cusr/scratch",
+      "planned_inode": {
+        "dev": 66306,
+        "ino": 3299234
+      },
+      "observed_inside": null,
+      "exit": 125,
+      "stderr": "SandboxPolicyError: mount source changed after planning: /tmp/cusr-spike-sandbox-0aTy98/scratch",
+      "bwrap_failed_closed": true,
+      "redirected_to_canary": false,
+      "inode_check_detects": false
+    },
+    {
+      "mount": "worktree",
+      "host_source": "/tmp/cusr-spike-sandbox-0aTy98/worktree",
+      "sandbox_target": "/tmp/cusr-spike-sandbox-0aTy98/worktree",
+      "planned_inode": {
+        "dev": 66306,
+        "ino": 3299235
+      },
+      "observed_inside": null,
+      "exit": 125,
+      "stderr": "SandboxPolicyError: [Errno 2] No such file or directory: '/tmp/cusr-spike-sandbox-0aTy98/worktree/.git'",
+      "bwrap_failed_closed": true,
+      "redirected_to_canary": false,
+      "inode_check_detects": false
+    }
+  ],
+  "canary_unchanged": true,
+  "conclusion": {
+    "attacker_inside_sandbox_can_swap": false,
+    "same_uid_host_swap_redirects_bwrap": false,
+    "inode_check_detects_every_redirect": true,
+    "prototype_runs_inode_check": true
+  },
+  "passed": true
+}

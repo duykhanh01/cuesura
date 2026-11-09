@@ -1,0 +1,53 @@
+{
+  "content": {
+    "name": "merge.txt",
+    "path": "spike/merge.txt",
+    "sha": "36206ef026e094c2dcd5e8b75f66ed67001333ae",
+    "size": 150,
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/merge.txt?ref=spike/s0-merge-20261028",
+    "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/blob/spike/s0-merge-20261028/spike/merge.txt",
+    "git_url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/blobs/36206ef026e094c2dcd5e8b75f66ed67001333ae",
+    "download_url": "https://raw.githubusercontent.com/duykhanh01/cuesura-spike-002-sandbox/spike/s0-merge-20261028/spike/merge.txt?token=[REDACTED]",
+    "type": "file",
+    "_links": {
+      "self": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/contents/spike/merge.txt?ref=spike/s0-merge-20261028",
+      "git": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/blobs/36206ef026e094c2dcd5e8b75f66ed67001333ae",
+      "html": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/blob/spike/s0-merge-20261028/spike/merge.txt"
+    }
+  },
+  "commit": {
+    "sha": "fadab7702d979460c71a30edddc6535ac3a8ac33",
+    "node_id": "C_kwDOVaHCGdoAKGZhZGFiNzcwMmQ5Nzk0NjBjNzFhMzBlZGRkYzY1MzVhYzNhOGFjMzM",
+    "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/fadab7702d979460c71a30edddc6535ac3a8ac33",
+    "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/fadab7702d979460c71a30edddc6535ac3a8ac33",
+    "author": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T08:39:21Z"
+    },
+    "committer": {
+      "name": "Ng\u00f4 Duy Kh\u00e1nh",
+      "email": "80962056+duykhanh01@users.noreply.github.com",
+      "date": "2026-10-28T08:39:21Z"
+    },
+    "tree": {
+      "sha": "f508ebd879c8d475fe055cba823e3fb444243e9f",
+      "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/trees/f508ebd879c8d475fe055cba823e3fb444243e9f"
+    },
+    "message": "test: post-merge merge source proof",
+    "parents": [
+      {
+        "sha": "852ea24c0d34c651100002dbc175f8f784193043",
+        "url": "https://api.github.com/repos/duykhanh01/cuesura-spike-002-sandbox/git/commits/852ea24c0d34c651100002dbc175f8f784193043",
+        "html_url": "https://github.com/duykhanh01/cuesura-spike-002-sandbox/commit/852ea24c0d34c651100002dbc175f8f784193043"
+      }
+    ],
+    "verification": {
+      "verified": false,
+      "reason": "unsigned",
+      "signature": null,
+      "payload": null,
+      "verified_at": null
+    }
+  }
+}

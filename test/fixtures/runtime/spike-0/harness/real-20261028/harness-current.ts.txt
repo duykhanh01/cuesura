@@ -1,0 +1,631 @@
+/**
+ * Spike 0 harness prototype (T004, contracts/execution.md "Harness contract", "Mode isolation").
+ *
+ *   node scripts/spike-002/harness.ts check --config FILE
+ *   node scripts/spike-002/harness.ts plan  --config FILE --role R --root DIR --attempt-id ID \
+ *        --worktree DIR --git-dir DIR [--git-dir DIR] [--toolchain DIR]... [--prompt FILE]
+ *   node scripts/spike-002/harness.ts run   <plan args> --ledger FILE [--allow-paid]
+ *   node scripts/spike-002/harness.ts ledger --ledger FILE
+ *
+ * Everything vendor-specific (argv, settings, result location, model, effort) comes from an explicit
+ * config. Nothing is inferred from help text or docs; capabilities stay `unknown` until a T006/T007
+ * record proves them. claude/codex runs are paid: they require --allow-paid and reserve a slot in the
+ * shared T001 ledger (6 invocations, 5 minutes each) before spawn, failures included.
+ */
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import {
+  closeSync,
+  copyFileSync,
+  existsSync,
+  fsyncSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  realpathSync,
+  unlinkSync,
+  writeFileSync,
+  writeSync,
+  chmodSync,
+} from 'node:fs';
+import { dirname, isAbsolute, join, normalize, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { z } from 'zod';
+import { hashCanonical } from '../../src/shared/hash.ts';
+import { ROLE_SCHEMAS, isRole, roleJsonSchema, roleSchemaDigest, validateRoleResult, type Role, type ValidationIssue } from './role-schema.ts';
+import { DEFAULT_LIMITS, SafeIdSchema, execOperation, prepareRunDir, writeAtomic, type ExitRecord, type RunSpec } from './runner.ts';
+import { IN_SANDBOX, buildSandbox, sandboxCommand, type HostPolicy, defaultHostPolicy } from './sandbox.ts';
+
+export const SPIKE_BUDGET = { max_invocations: 6, max_wall_ms: 5 * 60_000 } as const;
+
+const CapabilityStatus = z.strictObject({
+  status: z.enum(['proven', 'unproven', 'unknown']),
+  evidence: z.string().nullable(),
+});
+
+export const CAPABILITIES = [
+  'structured_output',
+  'schema_acceptance_coder',
+  'schema_acceptance_fixer',
+  'schema_acceptance_reviewer',
+  'native_inner_sandbox',
+  'permission_denial_kept',
+  'private_home_auth',
+  'usage_report',
+  'wall_limit',
+  'cost_limit',
+  'session_resume',
+] as const;
+
+export const HarnessConfigSchema = z.strictObject({
+  schema_version: z.literal(1),
+  vendor: z.enum(['claude', 'codex', 'fixture']),
+  binary: z.strictObject({
+    path: z.string(),
+    /** Expected sha256 of the real binary file; mismatch refuses the plan. */
+    sha256: z.string().regex(/^[0-9a-f]{64}$/).nullable(),
+    version_argv: z.array(z.string()).nullable(),
+    expected_version: z.string().nullable(),
+  }),
+  /** Explicit, never defaulted. null model blocks claude/codex plans. */
+  model: z.string().min(1).nullable(),
+  effort: z.string().min(1).nullable(),
+  /**
+   * Placeholders: {model} {effort} {schema_file} {schema_inline} {output_file} {prompt_file}
+   * {settings_file} {cwd}; an element that is exactly "{role_args}" expands to role_args[role].
+   */
+  argv: z.array(z.string()).min(1),
+  role_args: z.partialRecord(z.enum(['coder', 'fixer', 'reviewer']), z.array(z.string())),
+  prompt_via: z.enum(['stdin', 'argv']),
+  result_source: z.discriminatedUnion('kind', [
+    z.strictObject({ kind: z.literal('file') }),
+    z.strictObject({ kind: z.literal('stdout_json'), pointer: z.array(z.string()) }),
+  ]),
+  settings: z.strictObject({ file_name: z.string().regex(/^[A-Za-z0-9._-]+$/), content: z.record(z.string(), z.unknown()) }).nullable(),
+  auth_files: z.array(z.strictObject({ from: z.string(), to: z.string() })),
+  isolation: z.strictObject({
+    requested_inner_mode: z.enum(['internal_required', 'external_verified']),
+    /** Trusted owner config, outside any repo. */
+    owner_allows_external_verified: z.boolean(),
+    native_result: z.enum(['not_run', 'passed', 'failed']),
+    outer_proof_hash: z.string().nullable(),
+    permission_policy_hash: z.string().nullable(),
+  }),
+  capabilities: z.partialRecord(z.enum(CAPABILITIES), CapabilityStatus),
+  wall_ms: z.number().int().positive(),
+  env: z.record(z.string(), z.string()),
+});
+export type HarnessConfig = z.infer<typeof HarnessConfigSchema>;
+
+export type Readiness = { readonly ready: boolean; readonly blockers: readonly string[] };
+
+const PLACEHOLDERS = ['model', 'effort', 'schema_file', 'schema_inline', 'output_file', 'prompt_file', 'settings_file', 'cwd', 'role_args'] as const;
+type Placeholder = (typeof PLACEHOLDERS)[number];
+const BYPASS = /dangerously|bypass|skip-permissions|accept-?all|yolo|ignore-?rules|no-?verify/i;
+const INNER_OFF = /danger-full-access/i;
+
+function strings(v: unknown): string[] {
+  if (typeof v === 'string') return [v];
+  if (Array.isArray(v)) return v.flatMap(strings);
+  if (typeof v === 'object' && v !== null) return Object.entries(v).flatMap(([k, x]) => [k, ...strings(x)]);
+  return [];
+}
+
+function innerSandboxOff(config: HarnessConfig): boolean {
+  const sandbox = config.settings?.content['sandbox'];
+  const settingsOff = typeof sandbox === 'object' && sandbox !== null && (sandbox as Record<string, unknown>)['enabled'] === false;
+  return settingsOff || [...config.argv, ...strings(config.role_args)].some((a) => INNER_OFF.test(a));
+}
+
+/** Static policy checks; no process is spawned. */
+export function checkConfig(config: HarnessConfig): Readiness {
+  const blockers: string[] = [];
+  const paid = config.vendor !== 'fixture';
+  if (!isAbsolute(config.binary.path)) blockers.push('binary.path must be absolute');
+  if (paid && config.model === null) blockers.push('model is not configured (never defaulted)');
+  if (paid && config.binary.sha256 === null) blockers.push('binary.sha256 must be pinned');
+  for (const s of [...config.argv, ...strings(config.role_args), ...strings(config.settings?.content ?? {})]) {
+    if (BYPASS.test(s)) blockers.push(`permission bypass token rejected: ${s}`);
+  }
+  for (const a of config.argv) {
+    for (const m of a.matchAll(/\{([a-z_]+)\}/g)) {
+      if (!(PLACEHOLDERS as readonly string[]).includes(m[1] as string)) blockers.push(`unknown placeholder {${m[1]}}`);
+    }
+  }
+  const uses = (p: Placeholder): boolean => config.argv.some((a) => a.includes(`{${p}}`));
+  if (!uses('schema_file') && !uses('schema_inline')) blockers.push('argv does not pass {schema_file}: schema acceptance cannot be tested');
+  if (config.result_source.kind === 'file' && !uses('output_file')) blockers.push('result_source=file but argv has no {output_file}');
+  if (config.prompt_via === 'argv' && !uses('prompt_file')) blockers.push('prompt_via=argv but argv has no {prompt_file}');
+  if (config.settings !== null && !uses('settings_file')) blockers.push('settings given but argv has no {settings_file}');
+  if (config.wall_ms > SPIKE_BUDGET.max_wall_ms) blockers.push(`wall_ms exceeds spike cap ${SPIKE_BUDGET.max_wall_ms}`);
+  for (const [name, c] of Object.entries(config.capabilities)) {
+    if (c.status === 'proven' && c.evidence === null) blockers.push(`capability ${name} marked proven without evidence`);
+  }
+  for (const a of config.auth_files) {
+    if (!isAbsolute(a.from)) blockers.push(`auth file ${a.from} must be absolute`);
+    if (isAbsolute(a.to) || normalize(a.to).startsWith('..')) blockers.push(`auth target ${a.to} must stay inside the private home`);
+  }
+  for (const key of Object.keys(config.env)) {
+    if (/(TOKEN|SECRET|PASSWORD|API_KEY|CREDENTIAL)/i.test(key)) blockers.push(`env ${key}: auth must come from the private home, not env`);
+  }
+
+  const iso = config.isolation;
+  const off = innerSandboxOff(config);
+  if (iso.requested_inner_mode === 'internal_required' && off) blockers.push('inner sandbox disabled while internal_required');
+  if (iso.requested_inner_mode === 'external_verified') {
+    // ADR-0003: only after native was tried and failed, outer + permission proof exist, and the owner allowed it.
+    if (!iso.owner_allows_external_verified) blockers.push('external_verified not allowed by owner config');
+    if (iso.native_result !== 'failed') blockers.push('external_verified requires a recorded native failure');
+    if (iso.outer_proof_hash === null) blockers.push('external_verified requires outer_proof_hash');
+    if (iso.permission_policy_hash === null) blockers.push('external_verified requires permission_policy_hash');
+    if (config.capabilities.permission_denial_kept?.status !== 'proven') blockers.push('external_verified requires proven permission_denial_kept');
+  }
+  return { ready: blockers.length === 0, blockers };
+}
+
+export function fileSha256(path: string): string {
+  return createHash('sha256').update(readFileSync(path)).digest('hex');
+}
+
+export type BinaryFacts = { readonly real_path: string; readonly sha256: string; readonly version: string | null; readonly issues: readonly string[] };
+
+export function probeBinary(config: HarnessConfig): BinaryFacts {
+  const issues: string[] = [];
+  let real = config.binary.path;
+  try {
+    real = realpathSync(config.binary.path);
+  } catch {
+    return { real_path: real, sha256: '', version: null, issues: [`binary ${config.binary.path} not found`] };
+  }
+  const sha = fileSha256(real);
+  if (config.binary.sha256 !== null && sha !== config.binary.sha256) issues.push(`binary sha256 ${sha} != pinned ${config.binary.sha256}`);
+  let version: string | null = null;
+  if (config.binary.version_argv !== null) {
+    // Local version query only; never a model call.
+    const r = spawnSync(real, config.binary.version_argv, { encoding: 'utf8', timeout: 15_000, env: { PATH: '/usr/bin:/bin' } });
+    version = r.status === 0 ? r.stdout.trim() : null;
+    if (version === null) issues.push('version probe failed');
+  }
+  if (config.binary.expected_version !== null && version !== null && !version.includes(config.binary.expected_version)) {
+    issues.push(`version ${version} does not match pinned ${config.binary.expected_version}`);
+  }
+  return { real_path: real, sha256: sha, version, issues };
+}
+
+// --- plan ---------------------------------------------------------------------------------------
+
+export type PlanInput = {
+  readonly config: HarnessConfig;
+  readonly role: Role;
+  readonly root: string;
+  readonly attemptId: string;
+  readonly worktree: string;
+  readonly gitDirs: readonly string[];
+  readonly toolchain: readonly string[];
+  readonly prompt: string;
+  readonly hostPolicy?: HostPolicy;
+};
+
+export type HarnessPlan = {
+  readonly readiness: Readiness;
+  readonly paid: boolean;
+  readonly run_dir: string;
+  readonly files: { readonly schema: string; readonly prompt: string; readonly settings: string | null; readonly output: string };
+  readonly harness_argv: readonly string[];
+  readonly spec: RunSpec;
+  readonly manifest: Record<string, unknown>;
+};
+
+const OUTPUT_NAME = 'final-response.json';
+
+/** Claude 2.1.306 rejects the 2020-12 meta-schema. The portable body uses shared draft-7 keywords. */
+function wireSchema(config: HarnessConfig, role: Role): Record<string, unknown> {
+  const schema = roleJsonSchema(role);
+  if (config.vendor === 'claude') delete schema['$schema'];
+  return schema;
+}
+
+/** Builds the full plan. Creates the run directory skeleton but copies no auth and spawns nothing. */
+export function planInvocation(input: PlanInput): HarnessPlan {
+  const { config, role } = input;
+  const checked = checkConfig(config);
+  const binary = probeBinary(config);
+  const blockers = [...checked.blockers, ...binary.issues];
+  const attemptId = SafeIdSchema.parse(input.attemptId);
+  const runDir = prepareRunDir(input.root, 'runs', attemptId);
+  const dirs = { context: join(runDir, 'context'), schema: join(runDir, 'schema'), scratch: join(runDir, 'scratch'), home: join(runDir, 'private-home') };
+  for (const d of Object.values(dirs)) mkdirSync(d, { recursive: true, mode: 0o700 });
+
+  const schemaName = `${ROLE_SCHEMAS[role].id}.schema.json`;
+  const inSandbox: Record<Exclude<Placeholder, 'role_args'>, string> = {
+    model: config.model ?? '',
+    effort: config.effort ?? '',
+    schema_file: join(IN_SANDBOX.schema, schemaName),
+    schema_inline: JSON.stringify(wireSchema(config, role)),
+    output_file: join(IN_SANDBOX.scratch, OUTPUT_NAME),
+    prompt_file: join(IN_SANDBOX.context, 'prompt.md'),
+    settings_file: join(IN_SANDBOX.context, config.settings?.file_name ?? 'settings.json'),
+    cwd: input.worktree,
+  };
+  if (config.effort === null && config.argv.some((a) => a.includes('{effort}'))) blockers.push('argv uses {effort} but effort is null');
+  const harnessArgv = [
+    binary.real_path,
+    ...config.argv.flatMap((a) =>
+      a === '{role_args}'
+        ? (config.role_args[role] ?? [])
+        : [a.replace(/\{([a-z_]+)\}/g, (_m, k: string) => inSandbox[k as keyof typeof inSandbox] ?? `{${k}}`)],
+    ),
+  ];
+
+  const toolchain = [...new Set([dirname(binary.real_path), ...input.toolchain])];
+  const sandbox = buildSandbox(
+    {
+      role,
+      worktree: input.worktree,
+      git_dirs: [...input.gitDirs],
+      scratch: dirs.scratch,
+      private_home: dirs.home,
+      context: dirs.context,
+      schema: dirs.schema,
+      toolchain,
+      env: { ...config.env, CUSR_ATTEMPT_ID: attemptId },
+      network: 'internet_outbound',
+    },
+    input.hostPolicy ?? defaultHostPolicy([input.root.endsWith('/') ? input.root.slice(0, -1) : input.root].map((r) => join(r, 'cusr.db'))),
+  );
+
+  const files = {
+    schema: join(dirs.schema, schemaName),
+    prompt: join(dirs.context, 'prompt.md'),
+    settings: config.settings === null ? null : join(dirs.context, config.settings.file_name),
+    output: join(dirs.scratch, OUTPUT_NAME),
+  };
+  const operationId = `op-${attemptId}`;
+  const spec: RunSpec = {
+    schema_version: 1,
+    kind: 'runs',
+    operation_id: operationId,
+    attempt_id: attemptId,
+    command: sandboxCommand(sandbox, harnessArgv),
+    cwd: input.worktree,
+    env: {},
+    stdin_file: config.prompt_via === 'stdin' ? files.prompt : null,
+    deadline_ms: Math.min(config.wall_ms, SPIKE_BUDGET.max_wall_ms),
+    redact_files: config.auth_files.map((a) => a.from),
+    binding: {
+      vendor: config.vendor,
+      model: config.model,
+      effort: config.effort,
+      role,
+      schema_id: ROLE_SCHEMAS[role].id,
+      schema_digest: roleSchemaDigest(role),
+      binary_sha256: binary.sha256,
+      binary_version: binary.version,
+      selected_inner_mode: config.isolation.requested_inner_mode,
+    },
+    limits: {},
+  };
+
+  const manifest = {
+    schema_version: 1,
+    proven: false,
+    vendor: config.vendor,
+    binary: { path: config.binary.path, real_path: binary.real_path, sha256: binary.sha256, version: binary.version },
+    model: config.model,
+    effort: config.effort,
+    argv_template_hash: hashCanonical({ argv: config.argv, role_args: config.role_args }),
+    settings_hash: config.settings === null ? null : hashCanonical(config.settings.content),
+    result_source: config.result_source,
+    schema: { role, id: ROLE_SCHEMAS[role].id, digest: roleSchemaDigest(role), wire_digest: hashCanonical(wireSchema(config, role)) },
+    isolation: {
+      native_result: config.isolation.native_result,
+      selected_inner_mode: config.isolation.requested_inner_mode,
+      inner_sandbox_off: innerSandboxOff(config),
+      outer_proof_hash: config.isolation.outer_proof_hash,
+      permission_policy_hash: config.isolation.permission_policy_hash,
+      layout_digest: sandbox.layout_digest,
+      network: sandbox.network,
+    },
+    capabilities: Object.fromEntries(CAPABILITIES.map((c) => [c, config.capabilities[c] ?? { status: 'unknown', evidence: null }])),
+  };
+
+  return {
+    readiness: { ready: blockers.length === 0, blockers },
+    paid: config.vendor !== 'fixture',
+    run_dir: runDir,
+    files,
+    harness_argv: harnessArgv,
+    spec,
+    manifest,
+  };
+}
+
+/** Writes schema/prompt/settings read-only and copies only the selected auth files (0600) into the private home. */
+export function materialize(plan: HarnessPlan, config: HarnessConfig, role: Role, prompt: string): void {
+  writeFileSync(plan.files.schema, `${JSON.stringify(wireSchema(config, role), null, 2)}\n`, { mode: 0o400, flag: 'wx' });
+  writeFileSync(plan.files.prompt, prompt, { mode: 0o400, flag: 'wx' });
+  if (config.settings !== null && plan.files.settings !== null) {
+    writeFileSync(plan.files.settings, `${JSON.stringify(config.settings.content, null, 2)}\n`, { mode: 0o400, flag: 'wx' });
+  }
+  const home = join(plan.run_dir, 'private-home');
+  for (const a of config.auth_files) {
+    const st = lstatSync(a.from);
+    if (!st.isFile()) throw new Error(`auth file ${a.from} must be a regular file (symlinks refused)`);
+    const target = join(home, a.to);
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    copyFileSync(a.from, target);
+    chmodSync(target, 0o600);
+  }
+}
+
+// --- budget ledger ------------------------------------------------------------------------------
+
+export type LedgerEntry = {
+  readonly seq: number;
+  readonly at: string;
+  readonly attempt_id: string;
+  readonly vendor: string;
+  readonly role: string;
+  readonly wall_cap_ms: number;
+  readonly event: 'reserved' | 'finished';
+  readonly outcome: string | null;
+  readonly approved_max_invocations?: number;
+};
+
+export function readLedger(path: string): LedgerEntry[] {
+  if (!existsSync(path)) return [];
+  return readFileSync(path, 'utf8')
+    .split('\n')
+    .filter(Boolean)
+    .map((l) => JSON.parse(l) as LedgerEntry);
+}
+
+function appendDurable(path: string, line: string): void {
+  const fd = openSync(path, 'a', 0o600);
+  try {
+    writeSync(fd, line);
+    fsyncSync(fd);
+  } finally {
+    closeSync(fd);
+  }
+}
+
+function withLedgerLock<T>(path: string, fn: () => T): T {
+  const lock = `${path}.lock`;
+  let fd: number;
+  try {
+    fd = openSync(lock, 'wx', 0o600);
+  } catch {
+    throw new Error(`ledger ${path} is locked by another invocation (${lock})`);
+  }
+  try {
+    return fn();
+  } finally {
+    closeSync(fd);
+    unlinkSync(lock);
+  }
+}
+
+/** Reserves one paid invocation before spawn. Every reservation counts, whatever the outcome. */
+export function reserveBudget(path: string, attemptId: string, vendor: string, role: string, wallMs: number, maxInvocations: number = SPIKE_BUDGET.max_invocations): LedgerEntry {
+  if (!Number.isSafeInteger(maxInvocations) || maxInvocations < 1) throw new Error('approved invocation limit must be a positive safe integer');
+  return withLedgerLock(path, () => {
+    const entries = readLedger(path);
+    const reserved = entries.filter((e) => e.event === 'reserved');
+    if (reserved.length >= maxInvocations) {
+      throw new Error(`spike budget exhausted: ${reserved.length}/${maxInvocations} invocations already reserved; ask the owner before more`);
+    }
+    if (reserved.some((e) => e.attempt_id === attemptId)) throw new Error(`attempt ${attemptId} already reserved`);
+    if (wallMs > SPIKE_BUDGET.max_wall_ms) throw new Error('wall cap exceeds 5 minutes');
+    const entry: LedgerEntry = { seq: entries.length, at: new Date().toISOString(), attempt_id: attemptId, vendor, role, wall_cap_ms: wallMs, event: 'reserved', outcome: null,
+      ...(maxInvocations !== SPIKE_BUDGET.max_invocations ? { approved_max_invocations: maxInvocations } : {}) };
+    appendDurable(path, `${JSON.stringify(entry)}\n`);
+    return entry;
+  });
+}
+
+export function recordFinished(path: string, attemptId: string, vendor: string, role: string, outcome: string): void {
+  withLedgerLock(path, () => {
+    const seq = readLedger(path).length;
+    const entry: LedgerEntry = { seq, at: new Date().toISOString(), attempt_id: attemptId, vendor, role, wall_cap_ms: 0, event: 'finished', outcome };
+    appendDurable(path, `${JSON.stringify(entry)}\n`);
+  });
+}
+
+// --- result normalisation -----------------------------------------------------------------------
+
+export type NormalizedStatus = 'valid' | 'invalid_output' | 'process_failed' | 'timeout' | 'missing_output';
+
+export type NormalizedResult = {
+  readonly status: NormalizedStatus;
+  readonly role: Role;
+  readonly issues: readonly ValidationIssue[] | readonly string[];
+  readonly raw_digest: string | null;
+  readonly result_path: string | null;
+};
+
+function readStdoutJson(runDir: string, pointer: readonly string[]): { value: unknown; raw: string } | null {
+  const path = join(runDir, 'events.jsonl');
+  if (!existsSync(path)) return null;
+  const lines = readFileSync(path, 'utf8').split('\n').filter(Boolean);
+  const last = lines.at(-1);
+  if (last === undefined) return null;
+  const rec = JSON.parse(last) as { data: unknown; truncated?: boolean };
+  if (rec.truncated === true) return null;
+  let v: unknown = rec.data;
+  for (const k of pointer) v = typeof v === 'object' && v !== null ? (v as Record<string, unknown>)[k] : undefined;
+  return v === undefined ? null : { value: typeof v === 'string' ? tryParse(v) : v, raw: JSON.stringify(rec.data) };
+}
+
+function tryParse(s: string): unknown {
+  try {
+    return JSON.parse(s) as unknown;
+  } catch {
+    return s;
+  }
+}
+
+/**
+ * Orchestrator-side validation: exit facts, freshness of the per-attempt output path, size, schema,
+ * semantics; then writes out/result.json with provenance taken from runner files, not from the model.
+ */
+export function normalizeResult(plan: HarnessPlan, config: HarnessConfig, role: Role, exit: ExitRecord, outputPreexisted: boolean): NormalizedResult {
+  const base = { role, raw_digest: null, result_path: null };
+  if (exit.outcome === 'timeout') return { ...base, status: 'timeout', issues: ['deadline reached'] };
+  let raw: string;
+  let value: unknown;
+  if (config.result_source.kind === 'file') {
+    if (outputPreexisted) return { ...base, status: 'invalid_output', issues: ['output path existed before launch (stale result)'] };
+    if (!existsSync(plan.files.output)) return { ...base, status: exit.outcome === 'exited' && exit.exit_code === 0 ? 'missing_output' : 'process_failed', issues: ['no output file'] };
+    const st = lstatSync(plan.files.output);
+    if (!st.isFile()) return { ...base, status: 'invalid_output', issues: ['output is not a regular file'] };
+    if (st.size > DEFAULT_LIMITS.result_bytes) return { ...base, status: 'invalid_output', issues: ['output exceeds 1 MiB'] };
+    if (st.mtimeMs < Date.parse(exit.started_at) - 1_000) return { ...base, status: 'invalid_output', issues: ['output older than launch'] };
+    raw = readFileSync(plan.files.output, 'utf8');
+    value = tryParse(raw);
+  } else {
+    const got = readStdoutJson(plan.run_dir, config.result_source.pointer);
+    if (got === null) return { ...base, status: exit.outcome === 'exited' && exit.exit_code === 0 ? 'missing_output' : 'process_failed', issues: ['no complete final stdout record'] };
+    raw = got.raw;
+    value = got.value;
+  }
+  const digest = `sha256:${createHash('sha256').update(raw).digest('hex')}`;
+  const validation = validateRoleResult(role, value);
+  if (exit.outcome !== 'exited' || exit.exit_code !== 0) {
+    // A schema-valid answer from a failed process is never accepted as done.
+    return { role, status: 'process_failed', issues: [`outcome ${exit.outcome} exit ${String(exit.exit_code)}`], raw_digest: digest, result_path: null };
+  }
+  if (!validation.ok) return { role, status: 'invalid_output', issues: validation.issues, raw_digest: digest, result_path: null };
+  const out = {
+    schema_version: 1,
+    provenance: {
+      operation_id: exit.operation_id,
+      attempt_id: exit.attempt_id,
+      launch_nonce: exit.launch_nonce,
+      role,
+      schema_id: ROLE_SCHEMAS[role].id,
+      schema_digest: roleSchemaDigest(role),
+      vendor: config.vendor,
+      model: config.model,
+      effort: config.effort,
+      binary_sha256: plan.manifest['binary'] !== undefined ? (plan.manifest['binary'] as { sha256: string }).sha256 : null,
+      source: config.result_source.kind,
+      raw_digest: digest,
+      usage: exit.usage,
+    },
+    value: validation.value,
+  };
+  const outDir = join(plan.run_dir, 'out');
+  writeAtomic(outDir, 'result.json', `${JSON.stringify(out)}\n`);
+  return { role, status: 'valid', issues: [], raw_digest: digest, result_path: join(outDir, 'result.json') };
+}
+
+export type RunOutcome = { readonly plan: HarnessPlan; readonly exit: ExitRecord | null; readonly result: NormalizedResult | null; readonly refused: string | null };
+
+/** plan → (paid guard + ledger reservation) → materialize → runner exec → normalize. */
+export async function runInvocation(input: PlanInput, opts: { ledger: string; allowPaid: boolean; maxInvocations?: number }): Promise<RunOutcome> {
+  const plan = planInvocation(input);
+  if (!plan.readiness.ready) return { plan, exit: null, result: null, refused: `not ready: ${plan.readiness.blockers.join('; ')}` };
+  if (plan.paid && !opts.allowPaid) return { plan, exit: null, result: null, refused: 'paid vendor requires --allow-paid' };
+  if (existsSync(join(plan.run_dir, 'launch.json'))) return { plan, exit: null, result: null, refused: 'attempt already launched; use runner receipt' };
+  // Only paid vendors consume the shared spike budget; the local fixture vendor never does.
+  if (plan.paid) reserveBudget(opts.ledger, input.attemptId, input.config.vendor, input.role, plan.spec.deadline_ms, opts.maxInvocations);
+  let outcome = 'unknown';
+  try {
+    materialize(plan, input.config, input.role, input.prompt);
+    const outputPreexisted = existsSync(plan.files.output);
+    const r = await execOperation(plan.spec, input.root);
+    if (r.status === 'marker_exists') {
+      outcome = 'marker_exists';
+      return { plan, exit: null, result: null, refused: 'launch marker exists; not respawning' };
+    }
+    const result = normalizeResult(plan, input.config, input.role, r.exit, outputPreexisted);
+    outcome = `${r.exit.outcome}/${result.status}`;
+    return { plan, exit: r.exit, result, refused: null };
+  } finally {
+    if (plan.paid) recordFinished(opts.ledger, input.attemptId, input.config.vendor, input.role, outcome);
+  }
+}
+
+// --- cli ----------------------------------------------------------------------------------------
+
+function loadConfig(file: string): HarnessConfig {
+  return HarnessConfigSchema.parse(JSON.parse(readFileSync(resolve(file), 'utf8')));
+}
+
+function main(argv: readonly string[]): Promise<number> | number {
+  const [cmd, ...rest] = argv;
+  const opt = (name: string): string | undefined => {
+    const i = rest.indexOf(name);
+    return i >= 0 ? rest[i + 1] : undefined;
+  };
+  const many = (name: string): string[] => rest.flatMap((a, i) => (a === name && rest[i + 1] !== undefined ? [resolve(rest[i + 1] as string)] : []));
+  const out = (v: unknown): void => void process.stdout.write(`${JSON.stringify(v, null, 2)}\n`);
+  const configFile = opt('--config');
+  if (cmd === 'ledger') {
+    const ledger = opt('--ledger');
+    if (ledger === undefined) return usage();
+    const entries = readLedger(resolve(ledger));
+    out({ budget: SPIKE_BUDGET, approved_max_invocations: Math.max(SPIKE_BUDGET.max_invocations, ...entries.map((e) => e.approved_max_invocations ?? 0)), reserved: entries.filter((e) => e.event === 'reserved').length, entries });
+    return 0;
+  }
+  if (configFile === undefined) return usage();
+  const config = loadConfig(configFile);
+  if (cmd === 'check') {
+    const readiness = checkConfig(config);
+    out({ readiness, binary: probeBinary(config) });
+    return readiness.ready ? 0 : 1;
+  }
+  const role = opt('--role');
+  const root = opt('--root');
+  const attemptId = opt('--attempt-id');
+  const worktree = opt('--worktree');
+  if (role === undefined || !isRole(role) || root === undefined || attemptId === undefined || worktree === undefined) return usage();
+  const promptFile = opt('--prompt');
+  const input: PlanInput = {
+    config,
+    role,
+    root: resolve(root),
+    attemptId,
+    worktree: resolve(worktree),
+    gitDirs: many('--git-dir'),
+    toolchain: many('--toolchain'),
+    prompt: promptFile === undefined ? '' : readFileSync(resolve(promptFile), 'utf8'),
+  };
+  if (cmd === 'plan') {
+    const plan = planInvocation(input);
+    out(plan);
+    return plan.readiness.ready ? 0 : 1;
+  }
+  if (cmd === 'run') {
+    const ledger = opt('--ledger');
+    if (ledger === undefined) return usage();
+    if (promptFile === undefined) return usage();
+    const max = opt('--max-invocations');
+    return runInvocation(input, { ledger: resolve(ledger), allowPaid: rest.includes('--allow-paid'), ...(max === undefined ? {} : { maxInvocations: Number(max) }) }).then((r) => {
+      out({ refused: r.refused, exit: r.exit, result: r.result, manifest: r.plan.manifest });
+      return r.result?.status === 'valid' ? 0 : 1;
+    });
+  }
+  return usage();
+}
+
+function usage(): number {
+  process.stderr.write(
+    'usage: harness.ts check --config FILE | plan|run --config FILE --role coder|fixer|reviewer --root DIR --attempt-id ID --worktree DIR [--git-dir DIR]... [--toolchain DIR]... [--prompt FILE] [--ledger FILE --allow-paid [--max-invocations OWNER_APPROVED_TOTAL]] | ledger --ledger FILE\n',
+  );
+  return 2;
+}
+
+if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  Promise.resolve()
+    .then(() => main(process.argv.slice(2)))
+    .then((code) => {
+      process.exitCode = code;
+    })
+    .catch((e: unknown) => {
+      process.stderr.write(`${e instanceof Error ? `${e.name}: ${e.message}` : String(e)}\n`);
+      process.exitCode = 2;
+    });
+}

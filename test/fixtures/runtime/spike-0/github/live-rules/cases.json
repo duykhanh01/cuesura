@@ -1,0 +1,274 @@
+[
+  {
+    "case": 1,
+    "title": "classic any-app",
+    "snapshot": [
+      "ci/a"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-1.json",
+      "ci/a",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/a",
+          "app": "any",
+          "source": "classic",
+          "enforcement": "classic",
+          "ruleset_id": null
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "covered",
+      "github": [
+        "ci/a"
+      ]
+    },
+    "expect": "covered; ci/a app any, source classic",
+    "evidence_file": "case-1.json",
+    "evidence_sha256": "6e2975e2abef643b8ed730fbfa53b4107c9ee0d778405e9c0598ad77bdca0847"
+  },
+  {
+    "case": 2,
+    "title": "classic app-pinned",
+    "snapshot": [
+      "ci/a",
+      "ci/b"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-2.json",
+      "ci/a,ci/b",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/a",
+          "app": "any",
+          "source": "classic",
+          "enforcement": "classic",
+          "ruleset_id": null
+        },
+        {
+          "name": "ci/b",
+          "app": 15368,
+          "source": "classic",
+          "enforcement": "classic",
+          "ruleset_id": null
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "required_checks_mismatch",
+      "missing_from_snapshot": [],
+      "app_pinned": [
+        "ci/b@app:15368"
+      ]
+    },
+    "expect": "required_checks_mismatch; app_pinned ci/b@app:15368",
+    "evidence_file": "case-2.json",
+    "evidence_sha256": "90dfea4d6187fd4f75332ef74a5405eff8e9c8098f293c8a16cb32a4e3f6319e"
+  },
+  {
+    "case": 7,
+    "title": "reader without Administration permission",
+    "snapshot": [
+      "ci/a"
+    ],
+    "client": "anonymous (no token)",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-7.json",
+      "ci/a",
+      "gh-anonymous.sh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "unknown",
+      "checks": [],
+      "basis": "classic protection unreadable: HTTP 401"
+    },
+    "comparison": {
+      "verdict": "unknown",
+      "basis": "classic protection unreadable: HTTP 401"
+    },
+    "expect": "unknown; protection unreadable",
+    "evidence_file": "case-7.json",
+    "evidence_sha256": "1a3e1a87385b9585409dceb55f1a9a206f51d87e235a83dbd86e489c4feec62b"
+  },
+  {
+    "case": 3,
+    "title": "ruleset active any-app",
+    "snapshot": [
+      "ci/c"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-3.json",
+      "ci/c",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/c",
+          "app": "any",
+          "source": "rules",
+          "enforcement": "active",
+          "ruleset_id": 26029694
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "covered",
+      "github": [
+        "ci/c"
+      ]
+    },
+    "expect": "covered; ci/c source rules enforcement active",
+    "evidence_file": "case-3.json",
+    "evidence_sha256": "1257b8c4d0e881647563ee60b47a8d70aadcd461309917a4727550610a18e983"
+  },
+  {
+    "case": 4,
+    "title": "ruleset active, snapshot missing check",
+    "snapshot": [
+      "ci/x"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-4.json",
+      "ci/x",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/c",
+          "app": "any",
+          "source": "rules",
+          "enforcement": "active",
+          "ruleset_id": 26029694
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "required_checks_mismatch",
+      "missing_from_snapshot": [
+        "ci/c"
+      ],
+      "app_pinned": []
+    },
+    "expect": "required_checks_mismatch; missing_from_snapshot ci/c",
+    "evidence_file": "case-4.json",
+    "evidence_sha256": "9468c981a4775e1e43415c19f68a7eca6f2eb2f1e6e54576877991d46215291f"
+  },
+  {
+    "case": 5,
+    "title": "ruleset app-pinned",
+    "snapshot": [
+      "ci/c",
+      "ci/d"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-5.json",
+      "ci/c,ci/d",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "required",
+      "checks": [
+        {
+          "name": "ci/c",
+          "app": "any",
+          "source": "rules",
+          "enforcement": "active",
+          "ruleset_id": 26029694
+        },
+        {
+          "name": "ci/d",
+          "app": 15368,
+          "source": "rules",
+          "enforcement": "active",
+          "ruleset_id": 26029694
+        }
+      ],
+      "basis": "classic and/or active rules"
+    },
+    "comparison": {
+      "verdict": "required_checks_mismatch",
+      "missing_from_snapshot": [],
+      "app_pinned": [
+        "ci/d@app:15368"
+      ]
+    },
+    "expect": "required_checks_mismatch; app_pinned ci/d@app:15368",
+    "evidence_file": "case-5.json",
+    "evidence_sha256": "9ba3d1d813bf689c095c557039a65b999244b433d40095937620e84b5c519c91"
+  },
+  {
+    "case": 6,
+    "title": "ruleset disabled",
+    "snapshot": [
+      "ci/c"
+    ],
+    "client": "gh owner token",
+    "command": [
+      "node",
+      "read-required.mjs",
+      "case-6.json",
+      "ci/c",
+      "gh"
+    ],
+    "exit": 0,
+    "stderr": "",
+    "required": {
+      "status": "none",
+      "checks": [],
+      "basis": "unprotected, no enforced required-check rules"
+    },
+    "comparison": {
+      "verdict": "covered",
+      "github": []
+    },
+    "expect": "not enforced; covered with no required checks",
+    "evidence_file": "case-6.json",
+    "evidence_sha256": "033f56bacacf351354627511ddd78b909d700bbc3ebe39d8400f0d7a0af5bd0e"
+  }
+]

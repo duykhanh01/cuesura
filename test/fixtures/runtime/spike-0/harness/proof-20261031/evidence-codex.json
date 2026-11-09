@@ -1,0 +1,97 @@
+{
+  "kind": "harness-proof",
+  "checked_at": "2026-10-31T09:52:53.392Z",
+  "vendors": {
+    "codex": {
+      "vendor": "codex",
+      "binary": {
+        "realpath": "/home/dev/.nvm/versions/node/v24.22.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+        "version": "codex-cli 0.165.0",
+        "sha256": "c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5"
+      },
+      "role_schemas": {
+        "coder": {
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "fixer": {
+          "digest": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4"
+        },
+        "reviewer": {
+          "digest": "sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e"
+        }
+      },
+      "selected_inner_mode": "internal_required",
+      "native_result": "passed",
+      "outer_proof_hash": "sha256:3be8ba15f6c0265265fdd9a1fe6befa4ca3465d5dfd05a2ccf53360ea5d854cd",
+      "permission_policy_hash": "sha256:9679b096676de9a5783db6f1fdd30f5cd2e0cd51abfa55e0793c5e9a1afeda13",
+      "capabilities": {
+        "structured_output": {
+          "status": "proven",
+          "evidence": "valid results: e2c8283a-0d14-4f6d-b053-3f198fe869a5, 3d813abb-76e8-4548-9341-965f7f073813, cf06caba-fd0b-4469-a533-28d93427913f"
+        },
+        "permission_denial_kept": {
+          "status": "proven",
+          "evidence": "probe refused, marker absent: e2c8283a-0d14-4f6d-b053-3f198fe869a5, 3d813abb-76e8-4548-9341-965f7f073813, cf06caba-fd0b-4469-a533-28d93427913f"
+        },
+        "private_home_auth": {
+          "status": "proven",
+          "evidence": "authenticated from the private home, auth removed after: e2c8283a-0d14-4f6d-b053-3f198fe869a5, 3d813abb-76e8-4548-9341-965f7f073813, cf06caba-fd0b-4469-a533-28d93427913f"
+        },
+        "usage_report": {
+          "status": "proven",
+          "evidence": "usage reported: e2c8283a-0d14-4f6d-b053-3f198fe869a5, 3d813abb-76e8-4548-9341-965f7f073813, cf06caba-fd0b-4469-a533-28d93427913f"
+        },
+        "session_resume": {
+          "status": "unknown",
+          "evidence": "this proof runs no resume"
+        },
+        "cost_limit": {
+          "status": "unknown",
+          "evidence": "no hard USD cap is exercised"
+        },
+        "schema_acceptance_coder": {
+          "status": "proven",
+          "evidence": "valid result: e2c8283a-0d14-4f6d-b053-3f198fe869a5"
+        },
+        "schema_acceptance_fixer": {
+          "status": "proven",
+          "evidence": "valid result: 3d813abb-76e8-4548-9341-965f7f073813"
+        },
+        "schema_acceptance_reviewer": {
+          "status": "proven",
+          "evidence": "valid result: cf06caba-fd0b-4469-a533-28d93427913f"
+        }
+      },
+      "attested": {
+        "settings_hash": "sha256:5a42fd886329d47c999fc16212d370738ada7d9cf1c0668a925ff3f52438672f",
+        "environment_hash": "sha256:e035a6ff68115386706f9d7cd8bcc0a7bdb1b8ec62eda750933661e7ece275a5",
+        "host_policy_hash": "sha256:290f9c2b21a0fbf680df8b8e542aab7485e3241fa8ba6d26db9b65740ba95d0a",
+        "layout_shapes": {
+          "coder": "sha256:29383bb917773dc4ab18e587b42073d11f36b2a4d25f3f366ec3832c7b99b3c7",
+          "fixer": "sha256:b0a77a45fcb2387793c6cca5745a42a72e231e2f9f4e486877282ed0fec1bafd",
+          "reviewer": "sha256:bb1670b4097cf9c435d5805ef29e098ea307d35ee08e595a0b099fbf8eb175b0"
+        }
+      },
+      "runs": [
+        {
+          "role": "coder",
+          "attempt_id": "e2c8283a-0d14-4f6d-b053-3f198fe869a5",
+          "kind": "result",
+          "nested_pid_namespaces": true
+        },
+        {
+          "role": "fixer",
+          "attempt_id": "3d813abb-76e8-4548-9341-965f7f073813",
+          "kind": "result",
+          "nested_pid_namespaces": true
+        },
+        {
+          "role": "reviewer",
+          "attempt_id": "cf06caba-fd0b-4469-a533-28d93427913f",
+          "kind": "result",
+          "nested_pid_namespaces": true
+        }
+      ]
+    }
+  }
+}

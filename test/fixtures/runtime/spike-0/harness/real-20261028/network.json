@@ -1,0 +1,51 @@
+{
+  "kind": "spike-0-package-network",
+  "scope": "Setup/gate outer sandbox with empty home, no model/admin/GitHub/SSH credentials. pnpm installs only into the disposable fixture with lifecycle scripts disabled; pip downloads only. No package installation on the host or execution of downloaded package code; not full workflow SC-002.",
+  "checked_at": "2026-10-28T07:51:17.789Z",
+  "rows": [
+    {
+      "role": "setup",
+      "package_manager": "pnpm",
+      "command": [
+        "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+        "/home/dev/.nvm/versions/node/v24.22.1/lib/node_modules/corepack/dist/pnpm.js",
+        "add",
+        "--ignore-scripts",
+        "--store-dir",
+        "/cusr/scratch/store",
+        "is-number@7.0.0"
+      ],
+      "exit": 0,
+      "duration_ms": 14278,
+      "layout_digest": "sha256:5c0f17f4920e997d98b77f87a60fd340f174820dca4a540c8336c1b4c6c274a0",
+      "model_auth_mounted": false,
+      "stdout": "Progress: resolved 1, reused 0, downloaded 0, added 0\nPackages are copied from the content-addressable store to the virtual store.\n  Content-addressable store is at: /cusr/scratch/store/v11\n  Virtual store is at:             node_modules/.pnpm\nPackages: +1\n+\nProgress: resolved 1, reused 0, downloaded 1, added 1, done\n\ndependencies:\n+ is-number 7.0.0\n\nDone in 382ms using pnpm v12.15.0",
+      "stderr": "Downloading the pnpm 12.15.0 binary for linux-x64...",
+      "downloaded_files": [],
+      "package_installed_in_fixture": true
+    },
+    {
+      "role": "gate",
+      "package_manager": "pip",
+      "command": [
+        "/usr/bin/python3",
+        "-m",
+        "pip",
+        "download",
+        "--no-deps",
+        "--no-cache-dir",
+        "--dest",
+        "/cusr/scratch",
+        "six==1.17.0"
+      ],
+      "exit": null,
+      "layout_digest": "sha256:c9817aeff3590fe0986fa306001c2c56b0318497e5c9c9271a5157af8e9b8d9e",
+      "model_auth_mounted": false,
+      "fresh_destination": true,
+      "stdout": "",
+      "stderr": "",
+      "downloaded_files": []
+    }
+  ],
+  "passed": false
+}

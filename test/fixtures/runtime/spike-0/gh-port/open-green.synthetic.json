@@ -1,0 +1,136 @@
+{
+  "source": "synthetic local fixture for gh.ts parser tests; not GitHub output (S0.3/T008 records real responses)",
+  "responses": {
+    "repos/octo-sandbox/cusr-spike": [
+      {
+        "status": 200,
+        "headers": {
+          "x-github-request-id": "FIXTURE:1"
+        },
+        "body": {
+          "id": 420001,
+          "full_name": "octo-sandbox/cusr-spike"
+        }
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/pulls/5": [
+      {
+        "status": 200,
+        "headers": {
+          "etag": "\"p1\""
+        },
+        "body": {
+          "id": 770001,
+          "number": 5,
+          "state": "open",
+          "merged": false,
+          "merged_at": null,
+          "merge_commit_sha": "cccccccccccccccccccccccccccccccccccccccc",
+          "head": {
+            "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "ref": "cusr/t1-fixture",
+            "repo": {
+              "id": 420001
+            }
+          },
+          "base": {
+            "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "ref": "main",
+            "repo": {
+              "id": 420001
+            }
+          }
+        }
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/branches/main": [
+      {
+        "status": 200,
+        "body": {
+          "name": "main",
+          "protected": true
+        }
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/branches/main/protection": [
+      {
+        "status": 200,
+        "body": {
+          "required_status_checks": {
+            "strict": true,
+            "checks": [
+              {
+                "context": "build",
+                "app_id": null
+              }
+            ]
+          }
+        }
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/rules/branches/main?per_page=100&page=1": [
+      {
+        "status": 200,
+        "body": [
+          {
+            "type": "required_status_checks",
+            "ruleset_source_type": "Repository",
+            "ruleset_id": 9,
+            "parameters": {
+              "required_status_checks": [
+                {
+                  "context": "test"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/rulesets/9": [
+      {
+        "status": 200,
+        "body": {
+          "id": 9,
+          "enforcement": "active"
+        }
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/check-runs?per_page=100&page=1": [
+      {
+        "status": 200,
+        "body": {
+          "total_count": 2,
+          "check_runs": [
+            {
+              "id": 101,
+              "name": "build",
+              "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "status": "completed",
+              "conclusion": "success",
+              "app": {
+                "id": 15368
+              }
+            },
+            {
+              "id": 102,
+              "name": "test",
+              "head_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "status": "completed",
+              "conclusion": "success",
+              "app": {
+                "id": 15368
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "repos/octo-sandbox/cusr-spike/commits/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa/statuses?per_page=100&page=1": [
+      {
+        "status": 200,
+        "body": []
+      }
+    ]
+  }
+}

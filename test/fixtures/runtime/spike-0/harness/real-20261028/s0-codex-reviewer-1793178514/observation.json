@@ -1,0 +1,262 @@
+{
+  "attempt": "s0-codex-reviewer-1793178514",
+  "vendor": "codex",
+  "role": "reviewer",
+  "unit": "cusr-op-op-s0-codex-reviewer-1793178514.service",
+  "systemd_run_exit": 0,
+  "run_dir": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-codex-reviewer-1793178514",
+  "command": [
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/codex.json",
+    "--role",
+    "reviewer",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-codex-reviewer-1793178514",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-codex-reviewer-1793178514-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid",
+    "--max-invocations",
+    "10"
+  ],
+  "unit_argv": [
+    "/usr/bin/systemd-run",
+    "--user",
+    "--unit=cusr-op-op-s0-codex-reviewer-1793178514.service",
+    "--property=Restart=no",
+    "--property=KillMode=control-group",
+    "--property=TimeoutStopSec=15s",
+    "--property=RuntimeMaxSec=330s",
+    "--property=StandardOutput=append:/tmp/cusr-spike-002-real-dTgXz2/s0-codex-reviewer-1793178514-console.json",
+    "--property=StandardError=append:/tmp/cusr-spike-002-real-dTgXz2/s0-codex-reviewer-1793178514-unit.stderr",
+    "--quiet",
+    "--",
+    "/bin/sh",
+    "-c",
+    "trap \"\" TERM; exec \"$@\"",
+    "sh",
+    "/usr/bin/flock",
+    "--nonblock",
+    "/tmp/cusr-spike-002-real-dTgXz2/data/locks/op-s0-codex-reviewer-1793178514.lock",
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/codex.json",
+    "--role",
+    "reviewer",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-codex-reviewer-1793178514",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-codex-reviewer-1793178514-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid",
+    "--max-invocations",
+    "10"
+  ],
+  "prompt_sha256": "05d184e055aee10665eb05c3d910185bee0aaedbaefbe501cc15a7fecc5a8d8f",
+  "config_sha256": "c345800804dfc5c6b9f86b9d9c795764dc86cb11335546db7955241eed801c74",
+  "console_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-codex-reviewer-1793178514-console.json",
+  "unit_stderr_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-codex-reviewer-1793178514-unit.stderr",
+  "result": {
+    "role": "reviewer",
+    "status": "valid",
+    "issues": [],
+    "raw_digest": "sha256:564b6338a939572647e807fab53c2b351c948d565955c2be2c1af6065f5a0a22",
+    "result_path": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-codex-reviewer-1793178514/out/result.json"
+  },
+  "refused": null,
+  "exit": {
+    "schema_version": 1,
+    "operation_id": "op-s0-codex-reviewer-1793178514",
+    "attempt_id": "s0-codex-reviewer-1793178514",
+    "launch_nonce": "9eff830171bfc388c380fa425282bedf",
+    "outcome": "exited",
+    "exit_code": 0,
+    "signal": null,
+    "started_at": "2026-10-28T09:08:36.370Z",
+    "ended_at": "2026-10-28T09:08:48.918Z",
+    "duration_ms": 12532,
+    "termination": {
+      "term_sent": false,
+      "kill_sent": false,
+      "group_empty_verified": true,
+      "descendant_scope": "unit_cgroup",
+      "descendants_killed": 0
+    },
+    "usage": {
+      "status": "unavailable",
+      "reason": "runner does not parse harness usage"
+    },
+    "artifacts": {
+      "events": {
+        "records": 10,
+        "bytes": 3975,
+        "generations": 1,
+        "truncated_records": 0
+      },
+      "stderr": {
+        "bytes": 312,
+        "digest": "sha256:3f32c7c941b4ed725a9e9fe39bf54d5b7c8df5ef2cd1f814acbd4662b5f93f28"
+      }
+    },
+    "error": null
+  },
+  "native_process_observations": [
+    {
+      "at_elapsed_ms": 856,
+      "pid": 153518,
+      "exe": "/usr/bin/flock",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 856,
+      "pid": 153519,
+      "exe": "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 856,
+      "pid": 153549,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 856,
+      "pid": 153550,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 856,
+      "pid": 153551,
+      "exe": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 1209,
+      "pid": 153592,
+      "exe": "/usr/bin/python3.10",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 1210,
+      "pid": 153593,
+      "exe": "/usr/bin/python3.10",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 5810,
+      "pid": 153659,
+      "exe": "/tmp/cusr-spike-002-tools/codex/bin/codex-code-mode-host",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 5810,
+      "pid": 153675,
+      "exe": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 5810,
+      "pid": 153677,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 5810,
+      "pid": 153678,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532492]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 5860,
+      "pid": 153675,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 5860,
+      "pid": 153679,
+      "exe": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+      "pidns": "pid:[4026532565]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 5860,
+      "pid": 153680,
+      "exe": "/usr/bin/python3.10",
+      "pidns": "pid:[4026532565]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 9199,
+      "pid": 153684,
+      "exe": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 9199,
+      "pid": 153685,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 10919,
+      "pid": 153710,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 10919,
+      "pid": 153714,
+      "exe": "/tmp/cusr-spike-002-tools/codex/bin/codex",
+      "pidns": "pid:[4026532565]",
+      "mountns": "mnt:[4026532563]"
+    }
+  ],
+  "permission_marker_absent": true,
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "final_source": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n"
+}

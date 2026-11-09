@@ -1,0 +1,65 @@
+name: ci
+on:
+  pull_request:
+    # closed is only there to cancel old runs of the PR via concurrency; every job skips this event.
+    # Draft PRs (cusr keeps one a draft until its review approves) skip CI; ready_for_review runs it.
+    types: [opened, synchronize, reopened, ready_for_review, closed]
+concurrency:
+  group: ci-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  # build and test are required checks: a PR that only edits docs still has these two jobs, in the skipped state.
+  changes:
+    if: github.event.action != 'closed' && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.files.outputs.code }}
+    steps:
+      - id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        # Markdown outside src/ and test/ is documentation. If the file list cannot be read, treat it as containing code.
+        run: |
+          if ! files=$(gh pr diff "$PR" --repo "$GITHUB_REPOSITORY" --name-only); then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "$files"
+          code=$(printf '%s\n' "$files" | awk 'NF && (!/\.md$/ || /^(src|test)\//) { c = 1 } END { print c ? "true" : "false" }')
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+  build:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","cuesura-host"]') || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck
+      - run: pnpm lint
+      - run: pnpm format:check
+      - run: pnpm build
+  test:
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && fromJSON('["self-hosted","cuesura-host"]') || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+      # The harness's native sandbox probes need bwrap/userns; this is not Cuesura's outer sandbox.
+      - if: runner.environment == 'github-hosted'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apparmor_parser -R /etc/apparmor.d/bwrap-userns-restrict
+      - run: pnpm test

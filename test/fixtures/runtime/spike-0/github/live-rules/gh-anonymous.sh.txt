@@ -1,0 +1,6 @@
+#!/bin/sh
+# Anonymous stand-in for `gh api --method GET --include -H ... -H ... TARGET`: no token, so it reads
+# like a client without the Administration permission. Only GET to api.github.com; target is the last arg.
+for a in "$@"; do target="$a"; done
+case "$target" in repos/*) ;; *) echo "refused target" >&2; exit 2 ;; esac
+exec /usr/bin/curl -sS -i --max-time 25 -H 'Accept: application/vnd.github+json' -H 'X-GitHub-Api-Version: 2026-03-10' "https://api.github.com/$target"

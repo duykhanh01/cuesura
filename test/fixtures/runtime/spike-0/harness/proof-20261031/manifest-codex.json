@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "vendor": "codex",
+  "binary": {
+    "realpath": "/home/dev/.nvm/versions/node/v24.22.1/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "version": "codex-cli 0.165.0",
+    "digest": "sha256:c06a67fd8ac76508dc78bd99ce20c9f317b8d568beda59485f3f4134df9962d5"
+  },
+  "role_schemas": {
+    "coder": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4",
+    "fixer": "sha256:0c1592471ef20ca5a8043c0c24c01b8f9b08593dc65be3686c427ba72e3023f4",
+    "reviewer": "sha256:0ff4669a1cfda8e2208448032c76fd3428f55124fe5eb3e3e423cbb96ed1c57e"
+  },
+  "isolation_mode": "isolated",
+  "provider": "bwrap",
+  "capabilities": {
+    "structured_output": "proven",
+    "permission_enforced": "proven",
+    "private_home_auth": "proven",
+    "cost_reporting": "unavailable",
+    "resume": "unknown"
+  },
+  "native_result": "passed",
+  "selected_inner_mode": "native",
+  "outer_proof_hash": "sha256:3be8ba15f6c0265265fdd9a1fe6befa4ca3465d5dfd05a2ccf53360ea5d854cd",
+  "permission_policy_hash": "sha256:9679b096676de9a5783db6f1fdd30f5cd2e0cd51abfa55e0793c5e9a1afeda13",
+  "environment_hash": "sha256:e035a6ff68115386706f9d7cd8bcc0a7bdb1b8ec62eda750933661e7ece275a5",
+  "settings_hash": "sha256:5a42fd886329d47c999fc16212d370738ada7d9cf1c0668a925ff3f52438672f",
+  "host_policy_hash": "sha256:290f9c2b21a0fbf680df8b8e542aab7485e3241fa8ba6d26db9b65740ba95d0a",
+  "layout_shapes": {
+    "coder": "sha256:29383bb917773dc4ab18e587b42073d11f36b2a4d25f3f366ec3832c7b99b3c7",
+    "fixer": "sha256:b0a77a45fcb2387793c6cca5745a42a72e231e2f9f4e486877282ed0fec1bafd",
+    "reviewer": "sha256:bb1670b4097cf9c435d5805ef29e098ea307d35ee08e595a0b099fbf8eb175b0"
+  },
+  "fixture_refs": [
+    "/home/dev/.local/share/cuesura-t126/evidence/codex.json"
+  ],
+  "checked_at": 1793440373809,
+  "manifest_hash": "sha256:8096d68ad4c2f3d28bf46da3791e27c233c7a86e5214525a1d3b7ac90471d701"
+}

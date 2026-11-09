@@ -1,0 +1,7 @@
+{
+  "transport": "systemd user private socket",
+  "unit": "cusr-op-s0-transport-66995-1793170342.service",
+  "exit": 1,
+  "stdout": "",
+  "stderr": "Failed to start transient service unit: Invalid request descriptor"
+}

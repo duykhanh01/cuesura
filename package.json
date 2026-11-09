@@ -1,0 +1,54 @@
+{
+  "name": "cuesura",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Cuesura: deterministic workflow engine for AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "cusr": "dist/cli/cusr.js",
+    "cusrd": "dist/cli/cusrd.js",
+    "cusr-runner": "dist/cli/cusr-runner.js"
+  },
+  "engines": {
+    "node": "24.22.1"
+  },
+  "packageManager": "pnpm@12.15.0",
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "test": "vitest run --project default",
+    "test:changed": "vitest run --project default --changed origin/main",
+    "test:performance": "vitest run --project performance",
+    "test:reliability": "node scripts/test-reliability.ts",
+    "test:smoke": "vitest run --project smoke --passWithNoTests",
+    "build": "tsc -p tsconfig.build.json && node -e \"const fs = require('node:fs'); fs.cpSync('src/store/migrations', 'dist/store/migrations', { recursive: true }); fs.cpSync('src/assets', 'dist/assets', { recursive: true }); fs.cpSync('skills/cusr', 'dist/assets/skills/cusr', { recursive: true })\" && node scripts/write-build-info.ts",
+    "report:invariants": "node scripts/report-invariants.ts"
+  },
+  "dependencies": {
+    "better-sqlite3": "13.0.3",
+    "commander": "15.0.0",
+    "string-width": "8.3.0",
+    "uuid": "14.0.3",
+    "yaml": "2.9.1",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/better-sqlite3": "9.6.0",
+    "@types/node": "24.19.2",
+    "@xterm/headless": "6.0.0",
+    "eslint": "10.13.0",
+    "fast-check": "4.10.2",
+    "globals": "17.13.0",
+    "node-pty": "1.1.0",
+    "oxfmt": "0.75.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "5.0.5"
+  },
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,96 @@
+// Archive only the two attempts from budget-approval-2.json and merge them into the existing manifest.
+import { readFileSync, writeFileSync, mkdirSync, readdirSync, existsSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { Redactor, secretValuesFromFile } from '/home/dev/Personal/cuesura/scripts/spike-002/runner.ts';
+const repo = '/home/dev/Personal/cuesura';
+const owner = '/tmp/cusr-spike-002-owner-c6_um8ih';
+const state = JSON.parse(readFileSync(join(owner, 'state.json'), 'utf8'));
+const approval = JSON.parse(readFileSync(join(owner, 'budget-approval-2.json'), 'utf8'));
+const dest = join(repo, 'test/fixtures/runtime/spike-0/harness/real-20261028');
+const ledger = readFileSync(state.ledger, 'utf8').trim().split('\n').map(JSON.parse);
+const extension = ledger.slice(approval.parent_ledger_lines).filter((r) => r.event === 'reserved');
+if (extension.length !== approval.additional_invocations) throw Error(`expected ${approval.additional_invocations} reservations, got ${extension.length}`);
+
+const c = JSON.parse(readFileSync(join(owner, 'codex.json'), 'utf8'));
+const values = [];
+for (const a of c.auth_files) if (!a.to.endsWith('.rules')) values.push(...secretValuesFromFile(a.from));
+for (const row of extension) for (const a of c.auth_files) {
+  const p = join(state.root, 'runs', row.attempt_id, 'private-home', a.to);
+  if (existsSync(p) && !a.to.endsWith('.rules')) values.push(...secretValuesFromFile(p));
+}
+const redactor = new Redactor(values);
+const sha = (b) => createHash('sha256').update(b).digest('hex');
+const written = {}; let redactions = 0;
+function save(path, text) { const clean = redactor.redact(text); if (clean !== text) redactions++; mkdirSync(join(path, '..'), { recursive: true }); writeFileSync(path, clean); written[path.slice(dest.length + 1)] = sha(clean); }
+
+save(join(dest, 'ledger.jsonl'), readFileSync(state.ledger, 'utf8'));
+const rows = [];
+for (const entry of extension) {
+  const r = JSON.parse(readFileSync(join(state.base, `${entry.attempt_id}-report.json`), 'utf8'));
+  const dir = join(dest, entry.attempt_id); const runDir = r.run_dir;
+  const inv = JSON.parse(readFileSync(join(runDir, 'invocation.json'), 'utf8'));
+  const split = inv.spec.command.indexOf('--');
+  const prefix = inv.spec.command.slice(0, split + 1);
+  const argv = inv.spec.command.slice(split + 1);
+  if (prefix[0] !== '/usr/bin/bwrap') throw Error('Unexpected outer executable');
+  const marker = join(runDir, 'scratch', 'permission-denied-by-rule');
+  const absentBefore = !existsSync(marker);
+  const touch = spawnSync(prefix[0], [...prefix.slice(1), '/usr/bin/touch', '/cusr/scratch/permission-denied-by-rule'], { env: {}, encoding: 'utf8', timeout: 10000 });
+  const outerWritable = touch.status === 0 && existsSync(marker);
+  if (existsSync(marker)) rmSync(marker);
+  const lines = readFileSync(join(runDir, 'events.jsonl'), 'utf8').split('\n').filter(Boolean).map(JSON.parse);
+  const events = lines.map((l) => l.data).filter((d) => d && typeof d === 'object');
+  const completed = events.filter((d) => d.type === 'item.completed').map((d) => d.item);
+  const stderr = existsSync(join(runDir, 'stderr.log')) ? readFileSync(join(runDir, 'stderr.log'), 'utf8') : '';
+  const v = r.result?.result_path ? JSON.parse(readFileSync(r.result.result_path, 'utf8')).value : null;
+  const wireFiles = readdirSync(join(runDir, 'schema'));
+  const summary = {
+    attempt: r.attempt, vendor: r.vendor, role: r.role, budget_extension: 'budget-approval-2.json',
+    result_validation: r.result?.status ?? null, result_status: v?.status ?? v?.verdict ?? null,
+    process_outcome: r.exit?.outcome ?? null, process_exit: r.exit?.exit_code ?? null, duration_ms: r.exit?.duration_ms ?? null,
+    descendant_scope: r.exit?.termination.descendant_scope ?? null,
+    argv_disable_flags: argv.flatMap((x, i) => (x === '--disable' ? [argv[i + 1]] : [])),
+    permission_marker_absent: absentBefore, outer_positive_touch: outerWritable,
+    runtime_rejections: stderr.split('\n').filter((l) => l.includes('Rejected(')).map((l) => ({ at: l.slice(0, 27), line: l.slice(28) })),
+    json_stream_has_item_for_rejected_command: completed.some((it) => (it.command ?? '').includes('permission-denied-by-rule')),
+    json_completed_item_types: [...new Set(completed.map((it) => it.type))].sort(),
+    native_observed_pid_namespaces: [...new Set(r.native_process_observations.map((x) => x.pidns))],
+    native_observed_mount_namespaces: [...new Set(r.native_process_observations.map((x) => x.mountns))],
+    reported_usage: events.findLast((d) => d.type === 'turn.completed')?.usage ?? null,
+    wire_schema_file_sha256: sha(readFileSync(join(runDir, 'schema', wireFiles[0]))),
+    config_sha256: r.config_sha256, worktree_readme_unchanged: r.worktree_readme_unchanged, gitfile_unchanged: r.gitfile_unchanged,
+    scope: 'Real paid invocation under the candidate profile (apps/plugins disabled). Runtime denial is the codex_core::tools::router stderr line; --json has no event for it.',
+  };
+  rows.push(summary);
+  save(join(dir, 'observation.json'), JSON.stringify(r, null, 2) + '\n');
+  save(join(dir, 'summary.json'), JSON.stringify(summary, null, 2) + '\n');
+  for (const name of ['invocation.json', 'pid.json', 'launch.json', 'events.jsonl', 'stderr.log', 'exit.json', 'progress.json']) {
+    const p = join(runDir, name); if (existsSync(p)) save(join(dir, name), readFileSync(p, 'utf8'));
+  }
+  for (const name of ['context', 'schema', 'out']) {
+    const p = join(runDir, name);
+    if (existsSync(p)) for (const f of readdirSync(p)) save(join(dir, name, f), readFileSync(join(p, f), 'utf8'));
+  }
+  save(join(dir, 'final-source.py'), r.final_source);
+}
+for (const name of ['budget-approval-2.json', 'launch2.py', 'archive2.mjs']) {
+  save(join(dest, name.endsWith('.json') ? name : `${name}.txt`), readFileSync(join(owner, name), 'utf8'));
+}
+
+const mp = join(dest, 'manifest.json');
+const m = JSON.parse(readFileSync(mp, 'utf8'));
+m.budget = { ...m.budget, approved_total: approval.approved_total, second_extension: 'Owner approved exactly two more Codex calls (coder, reviewer) with the apps/plugins-disabled candidate; ledger retained', reserved: ledger.filter((r) => r.event === 'reserved').length, finished: ledger.filter((r) => r.event === 'finished').length };
+m.rows = [...m.rows.filter((x) => !rows.some((y) => y.attempt === x.attempt)), ...rows];
+m.files = { ...m.files, ...written };
+m.redacted_artifact_count = (m.redacted_artifact_count ?? 0) + redactions;
+m.followups = [...(m.followups ?? []), { at: new Date().toISOString(), model_calls: rows.length, github_calls: 0, files: Object.keys(written).sort(), summary: 'Codex coder/reviewer re-run under the candidate profile' }];
+writeFileSync(mp, JSON.stringify(m, null, 2) + '\n');
+
+const removed = [];
+for (const row of extension) {
+  const home = join(state.root, 'runs', row.attempt_id, 'private-home');
+  if (existsSync(home)) { rmSync(home, { recursive: true, force: true }); removed.push(row.attempt_id); }
+}
+console.log(JSON.stringify({ rows: rows.map((r) => ({ attempt: r.attempt, status: r.result_status, validation: r.result_validation, disable: r.argv_disable_flags.length, rejections: r.runtime_rejections.length, json_item: r.json_stream_has_item_for_rejected_command, marker_absent: r.permission_marker_absent, outer_writable: r.outer_positive_touch, items: r.json_completed_item_types })), redactions, removed_private_homes: removed }, null, 1));

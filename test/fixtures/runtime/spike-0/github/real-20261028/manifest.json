@@ -1,0 +1,140 @@
+{
+  "kind": "spike-0-github-post-merge-evidence",
+  "captured_at": "2026-10-28T08:42:04.988302+00:00",
+  "repository": "duykhanh01/cuesura-spike-002-sandbox",
+  "repository_id": 1436664345,
+  "private": true,
+  "api_version": "2026-03-10",
+  "gh_version": "gh version 2.103.3 (2026-10-26)",
+  "commands": [
+    {
+      "command": "python3 /tmp/cusr-spike-002-post-merge/check.py (initial revision)",
+      "exit": 1,
+      "scope": "GET only; stops on missing merge_commit_sha",
+      "evidence": "initial-api-schema-failure.json"
+    },
+    {
+      "command": "python3 /tmp/cusr-spike-002-post-merge/check.py (archived probe-source.py.txt)",
+      "exit": 0,
+      "requests": 37,
+      "mutations": "3 PUT contents and 3 DELETE owned merged fixture refs; no merge request",
+      "evidence": "post-merge.json"
+    },
+    {
+      "command": "node scripts/spike-002/gh.ts observe --repo duykhanh01/cuesura-spike-002-sandbox --pr 1 --expect-repo-id 1436664345 --expect-pr-id 5047144058 --live --evidence-out PORT_FILE",
+      "exit": 0,
+      "requests": 3,
+      "evidence": "port-pr-1-initial.json"
+    },
+    {
+      "command": "node /tmp/cusr-spike-002-post-merge/observe.mjs (archived observe-source.mjs.txt)",
+      "exit": 0,
+      "requests": 11,
+      "scope": "9 GET for merged PRs, 2 GET for current branch/rules; no writes"
+    }
+  ],
+  "results": {
+    "merged_prs": [
+      1,
+      2,
+      3
+    ],
+    "push_preserves_original_head": [
+      1,
+      2,
+      3
+    ],
+    "delete_preserves_original_head": [
+      1,
+      2,
+      3
+    ],
+    "live_immutable_identity": "match for all three",
+    "live_merge_endpoint": "204 for all three",
+    "live_required_checks": "none",
+    "merge_mode_limit": "PR1 has two-parent merge proof; PR2/3 messages and ancestry fit requested squash/rebase, but single-commit graph alone does not identify method uniquely",
+    "pinned_api_merge_commit_sha": "absent; port null for all three",
+    "diagnostic_merge_commit_source": "merged issue event commit_id, matches initial default-API response; not implemented in gh port",
+    "remaining_rule_coverage": "classic/rules/app-pinned/unknown are local fixtures only",
+    "T008": "OPEN",
+    "T009": "BLOCKED"
+  },
+  "design_gap_source": "https://docs.github.com/en/rest/about-the-rest-api/breaking-changes#version-2026-03-10",
+  "validation": {
+    "artifact_assertions": "passed",
+    "checks": "hashes, expected head before/after push/delete, immutable identity, merged endpoint, diagnostic merge commit agreement, mutation scope and rule none",
+    "source_code_changed_this_check": false,
+    "quality_gates": "not rerun for evidence/docs-only changes; previous 487-test result remains historical"
+  },
+  "source_digests": {
+    "scripts/spike-002/gh.ts": "a6275e1f8d85bfc4d2d26154f4537794f45e9ffd7037fcad5c8b85062a3e9fc5",
+    "scripts/spike-002/runner.ts": "aefba34329d97007e5ae67a2aa917a2be6cd61718e8dcdef72451aaa31c4a483",
+    "src/shared/canonical-json.ts": "59a830f7366d3058593bb237ba30f2b6ccde7ef4fcdf5598a9b7e5e26409d6cc"
+  },
+  "files": {
+    "initial-api-schema-failure.json": "78830822cc960783d9d30c1540ea3f96cd44db2ba4e8714b727889cb93e2faeb",
+    "initial-pulls-default-api.json": "0f9526f052e0b792ef07208453f2c77e25ad08568ae31a8ad5baa95851f13214",
+    "initial-response-01.json": "b8390d72ed26daf201fed59a314e3c96e44720400b255833d1c8069bb17070a9",
+    "initial-response-02.json": "d4a964354e4d626c8ebc0f2e72fff8d6440eca098041c4dd69de174e4638848c",
+    "observe-source.mjs.txt": "7b4dfdaa66533501dba4946955d0465305fc2e98cdfe60daf8a59b37d3ac57c9",
+    "port-pr-1-final.json": "ac8c914bf5e710f79b64d2e8cbf0e3a950e60bf6d0dba1936d1ca1d0c1b586c1",
+    "port-pr-1-initial.json": "1bcae5b8db931f36d50aa4f56d9e8d92ce66de9d9a62b7aabcf83d0cfe36fb30",
+    "port-pr-2-final.json": "f47f47006a045d33cf81ee49ca6def2779cc202136e624feea5edd748fec074a",
+    "port-pr-3-final.json": "475c2ea24a9befd3e4c43aeea1547055cff9abd47fa06877ff8cb9f011f947fc",
+    "post-merge.json": "4bd69dba51fc4336cce9c4df6cc01b4ae3db5a7294fa2493fe8a869982a38417",
+    "probe-source.py.txt": "cd86c0cf142d43a9108874f2719d46c29456a5bc2e0c00eeb13e9010d6af8055",
+    "required-checks.json": "8baf038bc7fbee03c4c25079f75471cd819ecfdaf30940a22f17819313e243f2",
+    "response-01.json": "ac5962a1436376a16bc3d7b711a9183c8f2b6bbadd6d603c18dd318a7879ce6a",
+    "response-02.json": "d4a964354e4d626c8ebc0f2e72fff8d6440eca098041c4dd69de174e4638848c",
+    "response-03.json": "d8a40c17e324954705a75bac789dd0c7b6bd5fc401a2b3b37d87e51cc9e9abce",
+    "response-04.json": "affdc55279cda5319a0043b205859b01932f08ece17e58733cf3e67e20e0bd07",
+    "response-05.json": "267bcd00682016134130f1bbf10f416c15be5863d55883c01f9704bc5223e9f9",
+    "response-06.json": "96fabaf2893830caab0199b722f57c0ae115f214429be263e69b6daa0fbe4cb7",
+    "response-07.json": "b9d1f3136ef27d54147c1f4d8a63b05832ebfc97fc4ae1d60cacc9fe34a9dd11",
+    "response-08.json": "b7442ffb8b406fda5bb9b08c496f17daa9a7d6d102ecca615c9ab04c2f9a60ac",
+    "response-09.json": "5e1c76b78f5f4f3e2261727a5d39e522583179345a8d03c3a774c5a785849c90",
+    "response-10.json": "2692e59390e32c95e68ddbbc97ad5fd413591dcf7f0aa5804c4e3f3fd9caa318",
+    "response-11.json": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed",
+    "response-12.json": "af34d7e1c24c2c3bd1da5d50fee4e8711a488d218f814c6c4f644603390fdf52",
+    "response-13.json": "4c118cbf4981a388ada0b9142aa4234a73ed15ecd4161a3f22f1efc693a646ea",
+    "response-14.json": "1870d4388fb57f7ec6eb7b87c23de92d1f92882ec9234e14e380433b78257dfd",
+    "response-15.json": "e9bf3cc8624994d64c9ce7153b716f25105d0968d29d572b96287fc0bd3e2823",
+    "response-16.json": "47e964220c415b374f14172c98b43c58099361b1d817bfa63ad4c89c05f66166",
+    "response-17.json": "50372581e4f7465948eaba31d5000fbea08ce298e9205a06685c4578aea58924",
+    "response-18.json": "4baf3f9a20291b1ad5f6194be6c039893650702b9edc672c420f43508c329ad1",
+    "response-19.json": "76f8f6c80f297b9e02928f486679f25b44fce2ba7700f63bbacdd6cef8f71ee8",
+    "response-20.json": "ff025b4414ea35bfc6221ea83246f2eb83e2e9c5a6dcbbc418098d5e7a913c5c",
+    "response-21.json": "5722e248e39e11a7fa992627fc7bb247181cef9d3b91e63b559012c3533dc7b0",
+    "response-22.json": "6dae6bb6d133e9b1228cc95fa369dd381b9761b3f933d51cfb7c09b4aa957b21",
+    "response-23.json": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed",
+    "response-24.json": "af34d7e1c24c2c3bd1da5d50fee4e8711a488d218f814c6c4f644603390fdf52",
+    "response-25.json": "ca96d7d48e0adb32fb1db8589edca7bb7e17c52d1b14c07e795445222389759f",
+    "response-26.json": "027a4e673601aab2ab0c04ff56b73ae47ec93ad3508619b9345eb18a78724193",
+    "response-27.json": "4f04b7a33a832a1da3595d12e58b4c16166df5147e0d0618bdebcc70aa123d91",
+    "response-28.json": "22ea6228dc4f05abb5dac5f715ff5e7db88715f476acaff45b4efeb4e6d621bb",
+    "response-29.json": "af0f44078f63a38a8654963eeef6577a1930e724b9bd825bbb1e703ceb74dd68",
+    "response-30.json": "ab9283ed6123b5243aa75caab6074a61e092cec580e425436b07900c278f6c87",
+    "response-31.json": "5f3f174eab5abddaa6c3157f926833ace90d7e233502e7c767c39cd5e51d9147",
+    "response-32.json": "d2569b38e684b1aa0b71d4b4111b906de1f350d039e56af86558847d1ae47a2a",
+    "response-33.json": "db5e834564512586a69fe8dfebf7f1083e30e0e8a81629615b7d9ed8dea06013",
+    "response-34.json": "fd33c5c6dd7c156b3ce169513a57057f5144cab71afab3abc90c7bc50fe5dda1",
+    "response-35.json": "38e0b9de817f645c4bec37c0d4a3e58baecccb040f5718dc069a72c7385a0bed",
+    "response-36.json": "af34d7e1c24c2c3bd1da5d50fee4e8711a488d218f814c6c4f644603390fdf52",
+    "response-37.json": "a2f961ccd10da646827653b9f1796c339a3274dfde377f055fff00dfb0fe00e5"
+  },
+  "sanitization": {
+    "date": "2026-10-28",
+    "reason": "Remove private GitHub raw download URL tokens from committed API response fixtures.",
+    "redacted_responses": [
+      "response-07.json",
+      "response-08.json",
+      "response-19.json",
+      "response-20.json",
+      "response-31.json",
+      "response-32.json"
+    ],
+    "checksum_updates": "Response hashes in request_ledger and file hashes in this manifest now describe the sanitized files.",
+    "probe_source": "Archived probe patched to redact token query parameters before writing API responses; no live API calls were rerun.",
+    "source_digests": "Historical source_digests still identify the implementation at capture time."
+  }
+}

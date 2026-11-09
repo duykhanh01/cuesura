@@ -1,0 +1,78 @@
+{
+  "source": "synthetic, hand-written for the overload/capacity classification and codex self-reconnect; NOT harness output. Shapes follow the real 2026-10-28 captures (Claude Code 2.1.306 stream-json, codex-cli 0.165.0 exec --json); the messages follow the vendors' public error wording but were never observed live here, so they prove parser behaviour only. Kept apart from cases.synthetic.json, which the frozen spike-002 parser also reads.",
+  "cases": [
+    {
+      "name": "claude 529 overloaded after its own retries",
+      "vendor": "claude",
+      "events": [
+        { "type": "system", "subtype": "init", "session_id": "s-synthetic" },
+        { "type": "result", "subtype": "error_during_execution", "is_error": true, "api_error_status": 529, "result": "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}", "stop_reason": null, "safety_stops": 0, "usage": { "input_tokens": 0, "output_tokens": 0 }, "total_cost_usd": 0 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "overloaded", "usage": "reported", "denials": 0 }
+    },
+    {
+      "name": "claude overloaded without a status",
+      "vendor": "claude",
+      "events": [
+        { "type": "result", "subtype": "error_during_execution", "is_error": true, "api_error_status": null, "result": "API Error: Repeated 529 Overloaded errors", "stop_reason": null, "safety_stops": 0 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "overloaded", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "claude 503 service unavailable",
+      "vendor": "claude",
+      "events": [
+        { "type": "result", "subtype": "error_during_execution", "is_error": true, "api_error_status": 503, "result": "API Error: 503 Service Unavailable", "stop_reason": null, "safety_stops": 0 }
+      ],
+      "stderr": "",
+      "expect": { "failure": "overloaded", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "codex model at capacity",
+      "vendor": "codex",
+      "events": [
+        { "type": "thread.started", "thread_id": "t-synthetic" },
+        { "type": "turn.started" },
+        { "type": "turn.failed", "error": { "message": "Selected model is at capacity. Please try a different model." } }
+      ],
+      "stderr": "",
+      "expect": { "failure": "overloaded", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "codex reconnects then gives up on a 5xx",
+      "vendor": "codex",
+      "events": [
+        { "type": "turn.started" },
+        { "type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion: 503 Service Unavailable)" },
+        { "type": "error", "message": "unexpected status 503 Service Unavailable" }
+      ],
+      "stderr": "",
+      "expect": { "failure": "overloaded", "usage": "unavailable", "denials": 0 }
+    },
+    {
+      "name": "codex reconnects then completes the turn",
+      "vendor": "codex",
+      "events": [
+        { "type": "thread.started", "thread_id": "t-synthetic" },
+        { "type": "turn.started" },
+        { "type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion)" },
+        { "type": "turn.completed", "usage": { "input_tokens": 120, "cached_input_tokens": 0, "output_tokens": 30 } }
+      ],
+      "stderr": "",
+      "expect": { "failure": null, "usage": "reported", "denials": 0 }
+    },
+    {
+      "name": "codex turn failed is not cleared by an earlier reconnect",
+      "vendor": "codex",
+      "events": [
+        { "type": "turn.started" },
+        { "type": "error", "message": "Reconnecting... 1/5 (stream disconnected before completion)" },
+        { "type": "turn.failed", "error": { "message": "stream disconnected before completion" } }
+      ],
+      "stderr": "",
+      "expect": { "failure": "vendor_error", "usage": "unavailable", "denials": 0 }
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+# expect: unsupported_tag 5 56
+version: 1
+harnesses: { claude: { cmd: claude, auth: subscription, pool: claude } }
+pools: { claude: 1 }
+models: { sonnet: { harness: claude, id: sonnet, tier: !tier 2 } }
+roles:
+  coder: { binding: [{ model: sonnet }] }
+  fixer: { binding: [{ model: sonnet }] }
+  reviewer: { permissions: read_only, binding: [{ model: sonnet }] }
+  scout: { permissions: read_only, binding: [{ model: sonnet }] }
+workflows:
+  impl: { base: software_dev@1 }
+profiles:
+  standard: { workflow: impl }

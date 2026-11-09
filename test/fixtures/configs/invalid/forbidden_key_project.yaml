@@ -1,0 +1,6 @@
+# expect: forbidden_key 5 1
+# role: project
+version: 1
+gates: { build: make, unit: make test }
+yolo: true
+profile: standard

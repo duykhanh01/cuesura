@@ -1,0 +1,468 @@
+{
+  "attempt": "s0-claude-reviewer-1793172547",
+  "vendor": "claude",
+  "role": "reviewer",
+  "unit": "cusr-op-op-s0-claude-reviewer-1793172547.service",
+  "systemd_run_exit": 0,
+  "run_dir": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-claude-reviewer-1793172547",
+  "command": [
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/claude.json",
+    "--role",
+    "reviewer",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-claude-reviewer-1793172547",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-reviewer-1793172547-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid"
+  ],
+  "unit_argv": [
+    "/usr/bin/systemd-run",
+    "--user",
+    "--unit=cusr-op-op-s0-claude-reviewer-1793172547.service",
+    "--property=Restart=no",
+    "--property=KillMode=control-group",
+    "--property=TimeoutStopSec=15s",
+    "--property=RuntimeMaxSec=330s",
+    "--property=StandardOutput=append:/tmp/cusr-spike-002-real-dTgXz2/s0-claude-reviewer-1793172547-console.json",
+    "--property=StandardError=append:/tmp/cusr-spike-002-real-dTgXz2/s0-claude-reviewer-1793172547-unit.stderr",
+    "--quiet",
+    "--",
+    "/bin/sh",
+    "-c",
+    "trap \"\" TERM; exec \"$@\"",
+    "sh",
+    "/usr/bin/flock",
+    "--nonblock",
+    "/tmp/cusr-spike-002-real-dTgXz2/data/locks/op-s0-claude-reviewer-1793172547.lock",
+    "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+    "/home/dev/Personal/cuesura/scripts/spike-002/harness.ts",
+    "run",
+    "--config",
+    "/tmp/cusr-spike-002-owner-c6_um8ih/claude.json",
+    "--role",
+    "reviewer",
+    "--root",
+    "/tmp/cusr-spike-002-real-dTgXz2/data",
+    "--attempt-id",
+    "s0-claude-reviewer-1793172547",
+    "--worktree",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/worktree",
+    "--git-dir",
+    "/tmp/cusr-spike-002-real-dTgXz2/fixture/repo/.git",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/bin",
+    "--toolchain",
+    "/tmp/cusr-spike-002-tools/root/usr/lib/x86_64-linux-gnu",
+    "--prompt",
+    "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-reviewer-1793172547-prompt.md",
+    "--ledger",
+    "/tmp/cusr-spike-002-real-dTgXz2/ledger.jsonl",
+    "--allow-paid"
+  ],
+  "prompt_sha256": "05d184e055aee10665eb05c3d910185bee0aaedbaefbe501cc15a7fecc5a8d8f",
+  "config_sha256": "273f6deaeb7330bdc07f57d66a19392fbd5e1bb6b98de82717bc156a6c52211f",
+  "console_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-reviewer-1793172547-console.json",
+  "unit_stderr_path": "/tmp/cusr-spike-002-real-dTgXz2/s0-claude-reviewer-1793172547-unit.stderr",
+  "result": {
+    "role": "reviewer",
+    "status": "valid",
+    "issues": [],
+    "raw_digest": "sha256:57f5fd039c7b242c973c5110760cf44091c1acf62393a4a8dd14824ca0d65f91",
+    "result_path": "/tmp/cusr-spike-002-real-dTgXz2/data/runs/s0-claude-reviewer-1793172547/out/result.json"
+  },
+  "refused": null,
+  "exit": {
+    "schema_version": 1,
+    "operation_id": "op-s0-claude-reviewer-1793172547",
+    "attempt_id": "s0-claude-reviewer-1793172547",
+    "launch_nonce": "7203e36fbe1f9104d8283aa3b485b0a3",
+    "outcome": "exited",
+    "exit_code": 0,
+    "signal": null,
+    "started_at": "2026-10-28T07:29:16.481Z",
+    "ended_at": "2026-10-28T07:29:40.951Z",
+    "duration_ms": 24385,
+    "termination": {
+      "term_sent": false,
+      "kill_sent": false,
+      "group_empty_verified": true,
+      "descendant_scope": "unit_cgroup",
+      "descendants_killed": 0
+    },
+    "usage": {
+      "status": "unavailable",
+      "reason": "runner does not parse harness usage"
+    },
+    "artifacts": {
+      "events": {
+        "records": 20,
+        "bytes": 25702,
+        "generations": 1,
+        "truncated_records": 0
+      },
+      "stderr": {
+        "bytes": 0,
+        "digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "error": null
+  },
+  "native_process_observations": [
+    {
+      "at_elapsed_ms": 3339,
+      "pid": 76947,
+      "exe": "/usr/bin/flock",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 3339,
+      "pid": 76948,
+      "exe": "/home/dev/.nvm/versions/node/v24.22.1/bin/node",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 3339,
+      "pid": 77034,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532212]",
+      "mountns": "mnt:[4026532210]"
+    },
+    {
+      "at_elapsed_ms": 3339,
+      "pid": 77036,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 3397,
+      "pid": 77037,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 7331,
+      "pid": 77137,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 7382,
+      "pid": 77140,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 7548,
+      "pid": 77148,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 7863,
+      "pid": 77151,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 7916,
+      "pid": 77152,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 7916,
+      "pid": 77153,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 9669,
+      "pid": 77176,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 11100,
+      "pid": 77226,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 12188,
+      "pid": 77253,
+      "exe": "/usr/bin/dash",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 17777,
+      "pid": 77374,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 17777,
+      "pid": 77375,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 17838,
+      "pid": 77375,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 17838,
+      "pid": 77376,
+      "exe": "/usr/bin/cat",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 18114,
+      "pid": 77379,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 18167,
+      "pid": 77380,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 18812,
+      "pid": 77403,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 18885,
+      "pid": 77403,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 18946,
+      "pid": 77405,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19579,
+      "pid": 77415,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19579,
+      "pid": 77416,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19579,
+      "pid": 77417,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19579,
+      "pid": 77418,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19579,
+      "pid": 77419,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19630,
+      "pid": 77419,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19682,
+      "pid": 77420,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 19735,
+      "pid": 77420,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 19735,
+      "pid": 77422,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 19735,
+      "pid": 77423,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 19786,
+      "pid": 77429,
+      "exe": "/usr/bin/python3.10",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 22521,
+      "pid": 77466,
+      "exe": "/usr/bin/git",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 23616,
+      "pid": 77482,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 23882,
+      "pid": 77510,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532486]",
+      "mountns": "mnt:[4026532483]"
+    },
+    {
+      "at_elapsed_ms": 23882,
+      "pid": 77511,
+      "exe": "/usr/bin/bwrap",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24102,
+      "pid": 77521,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24154,
+      "pid": 77522,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24154,
+      "pid": 77523,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24154,
+      "pid": 77524,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24154,
+      "pid": 77525,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24233,
+      "pid": 77525,
+      "exe": "/tmp/cusr-spike-002-tools/root/usr/bin/socat",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532490]"
+    },
+    {
+      "at_elapsed_ms": 24234,
+      "pid": 77526,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532491]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 24234,
+      "pid": 77527,
+      "exe": "/home/dev/.local/share/claude/versions/2.1.306",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 24234,
+      "pid": 77528,
+      "exe": "/usr/bin/zsh",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    },
+    {
+      "at_elapsed_ms": 24289,
+      "pid": 77529,
+      "exe": "/usr/bin/python3.10",
+      "pidns": "pid:[4026532564]",
+      "mountns": "mnt:[4026532563]"
+    }
+  ],
+  "permission_marker_absent": true,
+  "worktree_readme_unchanged": true,
+  "gitfile_unchanged": true,
+  "final_source": "def add(a, b):\n    return a + b\n\ndef subtract(a, b):\n    return a - b\n"
+}

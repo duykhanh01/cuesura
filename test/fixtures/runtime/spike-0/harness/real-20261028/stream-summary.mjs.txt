@@ -1,0 +1,24 @@
+import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+import { summarizeStream } from '/home/dev/Personal/cuesura/scripts/spike-002/harness-stream.ts';
+const dir = process.argv[2];
+const sha = (b) => createHash('sha256').update(b).digest('hex');
+const read = (p) => (existsSync(p) ? readFileSync(p, 'utf8') : '');
+const rows = [];
+for (const a of readdirSync(dir).filter((x) => x.startsWith('s0-')).sort()) {
+  const vendor = a.split('-')[1];
+  const events = read(join(dir, a, 'events.jsonl'));
+  const stderr = read(join(dir, a, 'stderr.log'));
+  const result = read(join(dir, a, 'out', 'result.json'));
+  rows.push({
+    attempt: a, vendor,
+    inputs_sha256: { events: events ? sha(events) : null, stderr: stderr ? sha(stderr) : null },
+    result_json_usage: result ? JSON.parse(result).provenance.usage : null,
+    derived: summarizeStream(vendor, events, stderr),
+  });
+}
+const src = readFileSync('/home/dev/Personal/cuesura/scripts/spike-002/harness-stream.ts');
+const out = { kind: 'spike-0-stream-summary', derived_at: new Date().toISOString(), scope: 'Offline re-derivation from archived redacted events/stderr; no model call. result.json from the live runs is kept as historical (usage unavailable because that harness version did not parse vendor usage).', parser: { path: 'scripts/spike-002/harness-stream.ts', sha256: sha(src) }, rows };
+writeFileSync(join(dir, 'stream-summary.json'), JSON.stringify(out, null, 2) + '\n');
+for (const r of rows) console.log(r.attempt, r.derived.usage.status, r.derived.usage.cost_usd ?? '-', 'denials', r.derived.permission_denials.length, 'failure', r.derived.failure?.kind ?? null, 'warn', r.derived.warnings.length);
