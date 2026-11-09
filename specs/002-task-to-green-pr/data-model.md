@@ -10,7 +10,7 @@ của lõi 001; drain, slot và observation là dữ liệu/chi tiết chờ, kh
 | Dữ liệu | Nội dung và bất biến |
 | --- | --- |
 | Đề xuất cấu hình chạy | Task/revision, mode, profile, worker/reviewer harness/model/effort, fallback và digest; chỉ là đề xuất |
-| Xác nhận cấu hình chạy | Actor/provenance từ kênh người dùng đáng tin, digest bộ lựa chọn và task/revision; lưu bền, sai digest không spawn |
+| Xác nhận cấu hình chạy | Actor/provenance của caller có quyền `operate` (owner hoặc assistant, `trustedConfirmer`), digest bộ lựa chọn và task/revision; lưu bền, sai digest không spawn |
 | Snapshot cấu hình chạy | Mode và bộ lựa chọn đã xác nhận, liên kết FrozenPolicy/runtime; không viết lại snapshot lịch sử |
 | Prompt theo role | `FrozenRuntimeContext.role_prompts` (tuỳ chọn, không có ở snapshot cũ): role → tên trong `prompt_refs` của context; task cũ chạy không có prompt role |
 | Setup của project | `FrozenRuntimeContext.setup_commands` (tuỳ chọn, không có khi project không khai báo và ở snapshot cũ): `setup` tại frozen base, `prepare` chạy tuần tự trong sandbox như gate; lệnh thoát mã lỗi thì `setup_failed` lớp `infra`, hết thời gian thì lớp `timeout`; an toàn chạy lại khi retry/reconcile |

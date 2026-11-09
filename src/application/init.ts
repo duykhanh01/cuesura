@@ -115,32 +115,6 @@ function ownTemplates(root: string): string | null {
   return ours ? null : templates.join(', ');
 }
 
-/**
- * What `cusr init` offers for this repo. The PR template points to the write-pr skill, so they come as
- * one item; a repo with its own template gets the skill alone, since a second template would leave cusr
- * unable to choose and the skill works with any template.
- */
-export function initItems(root: string): InitItem[] {
-  const own = ownTemplates(root);
-  return [
-    {
-      id: 'write-pr',
-      label: 'write-pr: PR template and skill',
-      description:
-        own === null
-          ? 'PR template (Why, Changes, Evidence, Merge risk) and the skill that fills it'
-          : `The skill for writing PR descriptions; keeps your ${own}`,
-      unavailable: null,
-    },
-    {
-      id: 'assistant',
-      label: 'assistant: cusr skill and hooks for Claude Code, Codex and pi',
-      description: 'The skill for calling cusr, and the local hooks that wake the assistant',
-      unavailable: null,
-    },
-  ];
-}
-
 /** A file could not be written; `done` lists what was installed before it, which stays in place. */
 export class InitWriteError extends Error {
   override name = 'InitWriteError';
@@ -156,16 +130,82 @@ export class InitWriteError extends Error {
   }
 }
 
+/** A file the repo holds in a state `init` must not write over; nothing was written for it. */
+export class InitBlockedError extends InitWriteError {
+  override name = 'InitBlockedError';
+
+  constructor(path: string, cause: unknown) {
+    super(path, [], cause);
+    this.message = `cannot install ${path}: ${cause instanceof Error ? cause.message : String(cause)}`;
+  }
+}
+
+type PlanOpts = {
+  readonly dataDir: string;
+  /** Whether a harness is on this machine; defaults to looking in PATH. */
+  readonly installed?: (command: string) => boolean;
+};
+
+/** The assistant hook files as they must become, read only. Throws InitBlockedError on one it cannot take. */
+function planAssistant(
+  root: string,
+  opts: PlanOpts,
+): { readonly plans: readonly LocalPlan[]; readonly exclude: string } {
+  const planned = <T>(path: string, plan: () => T): T => {
+    try {
+      return plan();
+    } catch (e) {
+      throw new InitBlockedError(path, e);
+    }
+  };
+  const plans = [
+    planned(ASSISTANT_SETTINGS_PATH, () => planAssistantSettings(root, opts.dataDir)),
+    ...harnessPlanners(root, opts.dataDir, opts.installed).map((h) => planned(h.path, h.plan)),
+  ];
+  return { plans, exclude: planned(ASSISTANT_SETTINGS_PATH, () => excludePath(root)) };
+}
+
+function blockedReason(plan: () => unknown): string | null {
+  try {
+    plan();
+    return null;
+  } catch (e) {
+    if (!(e instanceof InitBlockedError)) throw e;
+    return `${e.message}; then run cusr init again`;
+  }
+}
+
+/**
+ * What `cusr init` offers for this repo. The PR template points to the write-pr skill, so they come as
+ * one item; a repo with its own template gets the skill alone, since a second template would leave cusr
+ * unable to choose and the skill works with any template. Without `opts` the assistant is not checked.
+ */
+export function initItems(root: string, opts?: PlanOpts): InitItem[] {
+  const own = ownTemplates(root);
+  return [
+    {
+      id: 'write-pr',
+      label: 'write-pr: PR template and skill',
+      description:
+        own === null
+          ? 'PR template (Why, Changes, Evidence, Merge risk) and the skill that fills it'
+          : `The skill for writing PR descriptions; keeps your ${own}`,
+      unavailable: null,
+    },
+    {
+      id: 'assistant',
+      label: 'assistant: cusr skill and hooks for Claude Code, Codex and pi',
+      description: 'The skill for calling cusr, and the local hooks that wake the assistant',
+      unavailable: opts === undefined ? null : blockedReason(() => planAssistant(root, opts)),
+    },
+  ];
+}
+
 /** Installs the chosen items. `force` replaces skill files that differ, never a template the user wrote. */
 export function installInitItems(
   root: string,
   ids: readonly InitItemId[],
-  opts: {
-    readonly force: boolean;
-    readonly dataDir: string;
-    /** Whether a harness is on this machine; defaults to looking in PATH. */
-    readonly installed?: (command: string) => boolean;
-  },
+  opts: PlanOpts & { readonly force: boolean },
 ): InitFile[] {
   const done: InitFile[] = [];
   const attempt = (path: string, step: () => InitFile) => {
@@ -180,21 +220,7 @@ export function installInitItems(
 
   // Read before anything is written: a build without the skill must not leave a partial install.
   const skill = ids.includes('assistant') ? cusrSkillFiles() : [];
-  let assistant: { readonly plans: readonly LocalPlan[]; readonly exclude: string } | null = null;
-  if (ids.includes('assistant')) {
-    const planned = <T>(path: string, plan: () => T): T => {
-      try {
-        return plan();
-      } catch (e) {
-        throw new InitWriteError(path, [], e);
-      }
-    };
-    const plans = [
-      planned(ASSISTANT_SETTINGS_PATH, () => planAssistantSettings(root, opts.dataDir)),
-      ...harnessPlanners(root, opts.dataDir, opts.installed).map((h) => planned(h.path, h.plan)),
-    ];
-    assistant = { plans, exclude: planned(ASSISTANT_SETTINGS_PATH, () => excludePath(root)) };
-  }
+  const assistant = ids.includes('assistant') ? planAssistant(root, opts) : null;
 
   if (ids.includes('write-pr')) {
     const own = ownTemplates(root);

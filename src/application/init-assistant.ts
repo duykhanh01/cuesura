@@ -95,6 +95,21 @@ function invocation(sub: string): RegExp {
   return new RegExp(`^[ \\t]*(?:${assignment})*(?:${plain}/)?cusr assistant ${sub}${tail}$`);
 }
 
+/** The directory the owner put before `cusr` in a hook command (`/usr/local/bin/`); '' for none. */
+function binaryDir(command: unknown): string {
+  if (typeof command !== 'string') return '';
+  return /(?:^|[ \t])([^\s'"`;&|<>()]*\/)cusr assistant /.exec(command)?.[1] ?? '';
+}
+
+/** The wanted hook, run through the binary the owner chose when the old hook named one. */
+function keepBinary(hook: Json, old: Json): Json {
+  const dir = binaryDir(old['command']);
+  const command = hook['command'];
+  return dir === '' || typeof command !== 'string'
+    ? hook
+    : { ...hook, command: command.replace(' cusr assistant ', ` ${dir}cusr assistant `) };
+}
+
 type HookSpec = {
   readonly mine: RegExp;
   readonly hook: Json;
@@ -126,7 +141,7 @@ function mergeEvent(existing: unknown, event: string, spec: HookSpec): unknown[]
       if (typeof command !== 'string' || !spec.mine.test(command)) hooks.push(hook);
       else if (placed) removed = true;
       else if (fits) {
-        hooks.push({ ...hook, ...spec.hook });
+        hooks.push({ ...hook, ...keepBinary(spec.hook, hook) });
         placed = true;
       } else {
         moved = hook;
@@ -138,7 +153,7 @@ function mergeEvent(existing: unknown, event: string, spec: HookSpec): unknown[]
   if (!placed)
     merged.push({
       ...(spec.matcher === undefined ? {} : { matcher: spec.matcher }),
-      hooks: [{ ...moved, ...spec.hook }],
+      hooks: [{ ...moved, ...keepBinary(spec.hook, moved) }],
     });
   return merged;
 }
@@ -198,7 +213,7 @@ function regularFile(full: string): boolean {
     throw e;
   }
   // Renaming over a symlink would cut the link to whatever it shares the settings with.
-  if (!isFile) throw new Error('it is not a regular file');
+  if (!isFile) throw new Error('it is not a regular file; replace it with one');
   return true;
 }
 
@@ -209,9 +224,10 @@ function currentSettings(root: string, path: string): { readonly raw: unknown } 
   try {
     return { raw: JSON.parse(readFileSync(full, 'utf8')) };
   } catch (e) {
-    throw new Error(`it is not valid JSON: ${e instanceof Error ? e.message : String(e)}`, {
-      cause: e,
-    });
+    throw new Error(
+      `it is not valid JSON (${e instanceof Error ? e.message : String(e)}); fix or delete it`,
+      { cause: e },
+    );
   }
 }
 
@@ -253,6 +269,8 @@ function planJson(
 /** What the settings file must become. Reads only, so a bad file stops `init` before any write. */
 export function planAssistantSettings(root: string, dataDir: string): LocalPlan {
   const blocked = gitBlock(root, ASSISTANT_SETTINGS_PATH);
+  if (blocked === TRACKED)
+    throw new Error(`${TRACKED}; run git rm --cached ${ASSISTANT_SETTINGS_PATH} and commit that`);
   if (blocked !== null) throw new Error(blocked);
   return planJson(root, ASSISTANT_SETTINGS_PATH, NOT_COMMITTED, (s) =>
     mergeAssistantHooks(s, dataDir),

@@ -105,18 +105,38 @@ export function buildInfo(): BuildInfo {
 }
 
 /**
+ * `help [command...]` as `[command...] --help`; anything before the first word is a global option.
+ * Applying it twice changes nothing.
+ */
+export function helpArgv(
+  argv: readonly string[],
+  globalOptions: readonly CliOption[] = [],
+): readonly string[] {
+  const valued = new Set(
+    globalOptions.filter((o) => o.flags.includes('<')).map((o) => o.flags.split(/[ ,]/)[0]),
+  );
+  let i = 0;
+  while (i < argv.length && (argv[i] as string).startsWith('-')) i += valued.has(argv[i]) ? 2 : 1;
+  if (argv[i] !== 'help') return argv;
+  return [...argv.slice(0, i), ...argv.slice(i + 1), '--help'];
+}
+
+/**
  * Runs one binary invocation and returns its exit code. Only `--version`, `--help` and the given
  * commands succeed; anything else is reported as not_available with exit 2, so a command that is not
  * implemented is never presented as available.
  */
 export async function runCli(
   spec: CliSpec,
-  argv: readonly string[],
+  rawArgv: readonly string[],
   io: CliIo,
   commands: readonly CliCommand[] = [],
 ): Promise<number> {
+  const argv = helpArgv(rawArgv, spec.globalOptions);
   const json = argv.includes('--json');
   let exitCode: number = ExitCode.ok;
+  // With --json the help text goes into one envelope instead of straight to stdout.
+  let helpText = '';
 
   const program = new Command(spec.name)
     .description(spec.description)
@@ -126,7 +146,7 @@ export async function runCli(
     .allowUnknownOption()
     .allowExcessArguments()
     .configureOutput({
-      writeOut: io.stdout,
+      writeOut: json ? (t) => (helpText += t) : io.stdout,
       writeErr: io.stderr,
       getOutHasColors: () => false,
       getErrHasColors: () => false,
@@ -188,11 +208,32 @@ export async function runCli(
     });
   }
 
+  const unknown = commands.length > 0 ? unknownHelpTarget(program, argv, spec.globalOptions) : null;
+  if (unknown !== null) {
+    const message = `${spec.name}: no command "${unknown.name}"; valid: ${unknown.valid.join(', ')}`;
+    if (json)
+      io.stdout(
+        renderEnvelope(
+          errorEnvelope({
+            code: 'invalid_arguments',
+            message,
+            details: { subcommands: unknown.valid },
+            request_id: null,
+          }),
+        ),
+      );
+    else io.stderr(`${message}\n`);
+    return ExitCode.usage;
+  }
+
   try {
     await program.parseAsync([...argv], { from: 'user' });
   } catch (e) {
     if (!(e instanceof CommanderError)) throw e;
-    if (e.exitCode === 0) return ExitCode.ok;
+    if (e.exitCode === 0) {
+      if (json) io.stdout(renderEnvelope(okEnvelope({ help: helpText })));
+      return ExitCode.ok;
+    }
     // Commander has already written its diagnostic to stderr.
     if (json) {
       const choices = subcommandChoices(groups, argv);
@@ -213,6 +254,38 @@ export async function runCli(
     return hookPath(argv) ? ExitCode.failure : ExitCode.usage;
   }
   return exitCode;
+}
+
+/**
+ * The command a help request names that does not exist (`cusr help task nonexistent`), with the names
+ * valid in its place; commander would print the help of the nearest parent instead.
+ */
+function unknownHelpTarget(
+  program: Command,
+  argv: readonly string[],
+  globalOptions: readonly CliOption[] = [],
+): { name: string; valid: string[] } | null {
+  if (!argv.includes('--help') && !argv.includes('-h')) return null;
+  const valued = new Set(
+    globalOptions.filter((o) => o.flags.includes('<')).map((o) => o.flags.split(/[ ,]/)[0]),
+  );
+  const words: string[] = [];
+  for (let i = 0; i < argv.length && words.length < 2; i++) {
+    const a = argv[i] as string;
+    if (valued.has(a)) i++;
+    else if (!a.startsWith('-')) words.push(a);
+  }
+  let parent = program;
+  for (const word of words) {
+    if (parent !== program && parent.commands.length === 0) return null;
+    const found = parent.commands.find((c) => c.name() === word);
+    if (found === undefined) {
+      const valid = parent.commands.map((c) => c.name());
+      return { name: [...(parent === program ? [] : [parent.name()]), word].join(' '), valid };
+    }
+    parent = found;
+  }
+  return null;
 }
 
 /** The subcommands of a group named without a valid one (`cusr queue`), so a caller can pick one. */

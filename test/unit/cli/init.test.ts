@@ -120,23 +120,68 @@ describe('cusr init', () => {
     expect(r.stdout).not.toContain('Commit these files');
   });
 
-  it('a settings file it cannot merge ends with an error and installs nothing', async () => {
+  it('--yes installs what it can when the settings file is blocked, and says how to unblock it (#269)', async () => {
     const root = gitRepo();
     mkdirSync(join(root, '.claude'));
     writeFileSync(join(root, ASSISTANT_SETTINGS_PATH), '{oops');
     const r = await run(['init', '--dir', root, '--yes'], picking([]).deps);
-    expect(r.code).toBe(1);
-    expect(r.stderr).toContain(
-      `cusr: cannot write ${ASSISTANT_SETTINGS_PATH}: it is not valid JSON`,
+    expect(r.code).toBe(0);
+    expect(r.stdout).toContain(`created   ${PR_TEMPLATE_TARGET}`);
+    expect(r.stdout).toContain(
+      `Not installed: assistant: cannot install ${ASSISTANT_SETTINGS_PATH}: it is not valid JSON`,
     );
+    expect(r.stdout).toContain('fix or delete it; then run cusr init again');
     expect(readFileSync(join(root, ASSISTANT_SETTINGS_PATH), 'utf8')).toBe('{oops');
-    expect(existsSync(join(root, '.github'))).toBe(false);
+    expect(existsSync(join(root, '.claude/skills/cusr'))).toBe(false);
+
+    const tracked = gitRepo();
+    mkdirSync(join(tracked, '.claude'));
+    writeFileSync(join(tracked, ASSISTANT_SETTINGS_PATH), '{}');
+    execFileSync('git', ['-C', tracked, 'add', ASSISTANT_SETTINGS_PATH]);
+    const j = await run(['init', '--dir', tracked, '--yes', '--json'], picking([]).deps);
+    expect(j.code).toBe(0);
+    const { data } = JSON.parse(j.stdout) as {
+      data: { files: InitFile[]; unavailable: { id: string; reason: string }[]; next: string[] };
+    };
+    expect(data.files).toContainEqual({ path: WRITE_PR_SKILL_PATH, status: 'created' });
+    expect(data.unavailable.map((u) => u.id)).toEqual(['assistant']);
+    expect(data.unavailable[0]?.reason).toContain(`git rm --cached ${ASSISTANT_SETTINGS_PATH}`);
+    expect(data.next).toContain('cusr doctor --project ID');
+  });
+
+  it('the checklist shows a blocked item as unavailable', async () => {
+    const root = gitRepo();
+    mkdirSync(join(root, '.claude'));
+    writeFileSync(join(root, ASSISTANT_SETTINGS_PATH), '{oops');
+    const { deps, shown } = picking(['write-pr']);
+    expect((await run(['init', '--dir', root], deps)).code).toBe(0);
+    expect(shown[0]?.find((c) => c.id === 'assistant')?.unavailable).toContain('not valid JSON');
+  });
+
+  it('a blocked item asked for anyway is a usage error, exit 2, not a write failure', async () => {
+    const root = gitRepo();
+    mkdirSync(join(root, '.claude'));
+    writeFileSync(join(root, ASSISTANT_SETTINGS_PATH), '{oops');
+    const r = await run(['init', '--dir', root], picking(['assistant']).deps);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toContain(
+      `cusr: cannot install ${ASSISTANT_SETTINGS_PATH}: it is not valid JSON`,
+    );
+  });
+
+  it('prints the next steps', async () => {
+    const root = gitRepo();
+    const r = await run(['init', '--dir', root, '--yes'], picking([]).deps);
+    expect(r.stdout).toContain('Next:\n');
+    expect(r.stdout).toContain(`path: ${root}`);
+    expect(r.stdout).toContain('  cusr doctor --project ID\n');
   });
 
   it('refuses a directory outside a Git repository', async () => {
     const r = await run(['init', '--dir', base, '--yes'], picking([]).deps);
     expect(r.code).toBe(2);
     expect(r.stderr).toContain('is not inside a Git repository');
+    expect(r.stderr).toContain('--dir <repo>');
   });
 });
 

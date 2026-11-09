@@ -12,8 +12,8 @@
 T135–T139. Thay skip theo XS bằng mode được người dùng xác nhận; không bắt buộc khác vendor.
 Commit sau gates, trước review; publish đúng SHA. Worker chuẩn bị message/title/body từ template
 frozen và tiếp tục sửa qua resume khi hợp lệ. Agent nhận task đề xuất từ `when to use`, daemon
-không suy rủi ro hoặc tự chọn lại binding. Bổ sung xác nhận bền từ kênh người dùng đáng tin trước
-spawn, không thay authority admin hiện có.
+không suy rủi ro hoặc tự chọn lại binding. Bổ sung xác nhận bền gắn digest trước spawn từ caller có
+quyền `operate` (kể cả assistant, PR #53), không thay authority admin hiện có.
 
 Amendment hiến chương 1.1.0 → 2.0.0 được chủ dự án yêu cầu khi review PR #8: nguyên tắc IV
 thay ưu tiên khác vendor bằng reviewer riêng session/chỉ đọc và review theo mode; nguyên tắc V

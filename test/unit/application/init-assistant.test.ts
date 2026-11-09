@@ -168,9 +168,45 @@ describe('mergeAssistantHooks', () => {
       DATA,
     ) as typeof WANT;
     expect(merged.hooks.Stop).toEqual([
-      WANT.hooks.Stop[0],
+      {
+        hooks: [
+          {
+            ...WANT.hooks.Stop[0]?.hooks[0],
+            command: commands.stop.replace(' cusr ', ' /opt/bin/cusr '),
+          },
+        ],
+      },
       { hooks: [{ type: 'command', command: 'echo not-cusr assistant hookup' }] },
     ]);
+  });
+
+  it('keeps the binary the owner put in the hook when run again (#269)', () => {
+    const once = mergeAssistantHooks(
+      {
+        hooks: {
+          Stop: [{ hooks: [{ type: 'command', command: '/usr/local/bin/cusr assistant hook' }] }],
+          SessionStart: [
+            {
+              matcher: 'startup',
+              hooks: [{ type: 'command', command: '/usr/local/bin/cusr assistant session-start' }],
+            },
+          ],
+        },
+      },
+      DATA,
+    ) as typeof WANT;
+    const commandsOf = (s: typeof WANT) =>
+      [...s.hooks.SessionStart, ...s.hooks.Stop].flatMap((g) => g.hooks.map((h) => h.command));
+    expect(commandsOf(once)).toEqual([
+      commands.sessionStart.replace(' cusr ', ' /usr/local/bin/cusr '),
+      commands.stop.replace(' cusr ', ' /usr/local/bin/cusr '),
+    ]);
+    expect(commandsOf(mergeAssistantHooks(once, '/other') as typeof WANT)).toEqual(
+      Object.values(assistantCommands('/other')).map((c) =>
+        c.replace(' cusr ', ' /usr/local/bin/cusr '),
+      ),
+    );
+    expect(mergeAssistantHooks(once, DATA)).toEqual(once);
   });
 
   it('leaves a hook of the owner that only mentions the cusr command, and finds the real one behind it', () => {
@@ -554,7 +590,7 @@ describe('cusr init: assistant', () => {
 
   it('stops before any write on a Codex file it cannot read', () => {
     const root = gitRepo({ [CODEX_HOOKS_PATH]: '{oops' });
-    expect(() => installAll(root)).toThrow(`cannot write ${CODEX_HOOKS_PATH}`);
+    expect(() => installAll(root)).toThrow(`cannot install ${CODEX_HOOKS_PATH}`);
     expect(existsSync(join(root, ASSISTANT_SETTINGS_PATH))).toBe(false);
   });
 

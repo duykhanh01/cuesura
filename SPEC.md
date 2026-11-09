@@ -539,7 +539,7 @@ Nhóm chỉ DONE khi kết quả tích hợp được merge vào branch đích c
 | `cusr` không kèm lệnh, trong terminal tương tác | Mở giao diện tương tác; ngoài terminal vẫn báo lỗi thiếu lệnh như hiện tại |
 | `cusr init`, `cusr doctor`, `cusr status`, `cusr dispatch` | Cấu hình repo, kiểm tra môi trường, sức khỏe và hướng dẫn chọn run settings |
 | `cusr task add/show/list/explain/history/logs/gates/gate-log` | Tạo và đọc task; `add` là tên chuẩn cho thao tác tạo |
-| `cusr task propose/confirm/recheck/continue/pause/resume/cancel`, `cusr queue pause/resume` | Thao tác có kiểm tra quyền, version và dedup |
+| `cusr task propose/confirm/recheck/continue/pause/resume/cancel/message`, `cusr queue pause/resume` | Thao tác có kiểm tra quyền, version và dedup; `message` gửi chỉ dẫn cho agent của task, không nới phạm vi |
 | `cusr task approve` | Escalation: quyền `operate` (assistant làm được); adopt PR: chỉ owner; không có approve merge |
 | `cusr task amend-policy` | Đổi model cho bước đang chờ sau khi hết thang/lượt (§9.3): không có `--confirm` thì chỉ xem trước (quyền đọc); `--confirm <policy_hash>` áp dụng, chỉ owner (admin) |
 | `cusr task retry`, `cusr yolo` | Không hỗ trợ, trả `unsupported_feature` (exit 2) kèm lệnh thay thế |

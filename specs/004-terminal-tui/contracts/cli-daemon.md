@@ -33,7 +33,6 @@ Không có `--json`, `task board`, `project list`, `task progress` và `request 
   "caller": {
     "actor": "owner",
     "roles": ["read", "operate", "admin"],
-    "scope": "all",
     "trusted_confirmer": true
   },
   "projects": [{ "id": "node-sandbox", "repo": "owner/repo" }],
@@ -41,8 +40,8 @@ Không có `--json`, `task board`, `project list`, `task progress` và `request 
 }
 ```
 
-`scope` là `all` hoặc `limited`; `limited` để giao diện ghi rõ đây là phạm vi của token (EC-009). `trusted_confirmer` do daemon tính
-từ grant, không nhận từ client. `profiles` là tên profile trong user config, để form tạo task liệt kê; đây là chỗ duy nhất chọn profile.
+`trusted_confirmer` do daemon tính từ grant (có `operate` là đúng, kể cả assistant), không nhận từ client.
+Phạm vi project theo token (`scope`) đã bỏ cùng bearer token. `profiles` là tên profile trong user config, để form tạo task liệt kê; đây là chỗ duy nhất chọn profile.
 
 ## `run_options`
 

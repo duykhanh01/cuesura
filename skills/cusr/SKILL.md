@@ -8,533 +8,330 @@ description: >-
 
 # cusr
 
-## Help
+Every command has `--help` with examples (`cusr help task add`, `cusr task propose --help --json`).
+Read it for flags this skill does not cover.
+
+## Connection
+
+External assistant callers only. Workers must not run `cusr`, not even on their own task.
+
+Every daemon command in this skill runs with this prefix, written out in each shell call (exports and functions
+from an earlier call may be gone). The examples below omit it:
 
 ```sh
-cusr --help
-cusr task --help
-cusr --version --json
-cusr dispatch --help
-cusr task add --help
-cusr task propose --help
-cusr task confirm --help
-cusr task recheck --help
-cusr task logs --help
-cusr task gates --help
-cusr task gate-log --help
-cusr project list --help
-cusr task options --help
-cusr task content --help
-cusr request show --help
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant cusr ...
 ```
 
-## Connection and argument values
+- `DATA_DIR` is a nonempty absolute path the operator gave you. Without one, stop and ask.
+- `CUSR_ACTOR=assistant` holds you to read/operate. Never drop it or set another actor: unset means the owner,
+  which you are not, even when a command would then succeed.
+- Use `--json` and check `ok`: `{schema_version, ok, data, error}`. Do not guess names, bindings or IDs; list them.
 
 ```sh
-# External assistant callers only. Workers must not invoke the control CLI,
-# including on their own task, even if this skill is visible to them.
-# DATA_DIR: nonempty absolute path supplied by the operator.
-# CUSR_ACTOR=assistant holds you to read/operate: you cannot adopt a PR or administer.
-# Never drop it or set another actor; unset means the owner, which you are not.
-# Refuse to proceed if the operator has not provided the intended connection.
-# Repeat both environment assignments on EVERY daemon invocation;
-# exports/functions from a previous shell call may not survive the next call.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr status --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr doctor --project "$PROJECT" --json
-# status: startup.{at, projections, timers} were counted when the daemon started, not now.
-# build.commit in status and in `cusr --version --json` differing means the CLI and the
-# daemon run different builds; tell the user (the daemon needs a restart).
-# doctor failing is exit 1, code unhealthy, data null: read error.details.checks, each
-# failed check with its fix. A passed unit or terminal probe is reused for 30 seconds.
-
-# PROJECT and BASE: operator-supplied configured project ID and target branch.
-# PROFILE, WORKER, REVIEWER, FALLBACKS: allowed run settings, matching the effective
-# project configuration. Do not guess names or bindings: list them.
-# `cusr project list --json` -> data.projects[] {id, repo} and data.profiles[] (profile names
-# in the user config); data.caller shows your actor, roles and scope (all or limited).
-# `cusr task options "$TASK_ID" --json` -> modes[] each with when_to_use, reviewers[] and
-# workers[] {choice, fallbacks[]} for that task, plus profile {id, source}. Copy a choice
-# verbatim into `task propose`. It is a list to choose from, not proof: the daemon
-# re-checks at start. truncated: true means the list was cut at 64 combinations.
-# options errors: config_invalid, options_unavailable (exit 1), conflict once the task
-# has started (6), task_not_found (4). Do not guess a choice after an error.
-# Read run-setting guidance with `cusr dispatch` before proposing a run. An empty
-# rules list with a default is valid: use the default. If default is null, ask the
-# operator for the values and guidance; do not guess.
-# TASK_ID, VERSION, RUN_DIGEST: task show -> task_id, version, run_config.digest.
-# Request IDs are UUIDs: retain one per mutation; exact delivery retries reuse it
-# with unchanged input/version. After a conflict or changed decision, reread state
-# before allocating a new ID. Do not create duplicate tasks after a timeout: see Look up after a timeout.
+cusr status --json    # daemon health; build.commit differing from `cusr --version --json` = restart needed
+cusr doctor --project "$PROJECT" --json
+# doctor failing: exit 1, code unhealthy, data null; error.details.checks lists each failed check with its fix.
+cusr project list --json
+# data.projects[] {id, repo}, data.profiles[], data.caller {actor, roles, trusted_confirmer}.
+# trusted_confirmer true: you may confirm run settings yourself (task confirm --run-config).
 ```
 
-## Add tasks
+Values: `PROJECT`/`BASE` come from the operator or `project list`. `TASK_ID`, `VERSION`, `RUN_DIGEST` come from
+`task show` (`task_id`, `version`, `run_config.digest`). Read `VERSION` fresh before each new mutation: it stays
+valid while only background work moved the task, and turns `stale_version` once its state changed.
+
+Request IDs: keep one UUID per mutation (`--request-id`). Resending the same command with the same ID and input
+never runs it twice. After a conflict or a changed decision, reread state before taking a new ID.
+
+## Add a task
+
+Ask the user before `task add`. Read `cusr dispatch` first, then show one summary: title, acceptance criteria,
+out of scope, and the proposed worker/mode/reviewer with the matched dispatch rule. Submit after the user approves
+or edits it; skip the summary only when the user says so, for that request only.
+
+Flow: add → `task options` → propose → `task show` → confirm `--run-config` yourself.
 
 ```sh
-# Ask the user before `task add`. Read `cusr dispatch` first, then show one summary:
-# title, acceptance criteria, out of scope, and the proposed worker/mode/reviewer with
-# the matched dispatch rule. Submit only after the user approves or edits it. Skip the
-# summary only when the user says to submit without asking; that covers that request only.
-# Then: submit -> propose run settings -> confirm the run digest yourself.
-# A complete run_config in the add input already supplies the proposal; the daemon checks it
-# against `task options` before creating the task (rejected, details.valid_values lists the choices).
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task add --project "$PROJECT" --title "$TITLE" --base "$BASE" \
-  --description "$DESCRIPTION" --acceptance "$ACCEPTANCE" \
-  --request-id "$ADD_REQUEST_ID" --json
-
-# Optional task flags: --depends-on ID,ID --priority N --scope PATH,GLOB
-# --scope (JSON: scope) lists repo-relative paths, directories or globs the task expects to
-# change, e.g. src/engine/**,docs/x.md. Globs use *, **, ? and [...] only; braces and extglobs are refused. The scheduler does not run it alongside a task sharing
-# those files. Declare it when you know the files. add/propose/confirm results carry slot_block
-# when it shares files with a task holding a slot: tell the user it will wait for that task.
-# --pr OWNER/REPO#N continues that open PR instead of opening a new one: --base must
-# be its base branch, and the user approves adopting it (see Escalation below). In a
-# JSON file the field is pr_ref. The PR keeps its title and body; workers only add commits.
-# --base must not be the branch of an unmerged PR: preflight stops such a task as
-# config_invalid/stacked_base; the daemon checks it again by itself and the task turns READY
-# once that PR is merged. Ask the user; continue that PR with --pr instead, or base the
-# task on the PR's base. Only the user may stack on purpose, on a task they add themselves with
-# labels ["stacked-base"] in --file; that label on a task you add is ignored.
-# --acceptance takes one criterion per line.
-# A run proposal needs --profile, --mode and --worker TOGETHER.
-# full-review also needs --reviewer; direct-pr must omit --reviewer.
-# If BOTH --mode and --worker are absent, --profile/--reviewer/--fallback/--reason
-# are ignored. If either is present without the required trio, the CLI errors.
-# Without --fallback, add and propose both get the worker's ladder rungs from `task options`;
-# --fallback '' empties the list, so the first escalation then ends the task (run_config_unconfirmed).
-# --acceptance is required: a task without acceptance is refused (invalid_arguments).
-
-# With --file, put ALL task fields and any run_config in the JSON object.
-# Do not mix --file with task/run flags: --title, --base, --description,
-# --acceptance, --priority and --depends-on do not override the file.
-# A complete run-flag proposal replaces the file's run_config, not individual keys.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task add --file "$TASK_FILE" --request-id "$ADD_REQUEST_ID" --json
+cusr task add --project "$PROJECT" --title "$TITLE" --base "$BASE" \
+  --description "$DESCRIPTION" --acceptance "$ACCEPTANCE" --request-id "$ID" --json
+cusr task add --file "$TASK_FILE" --request-id "$ID" --json
 ```
 
-`--file` takes a strict JSON object. Replace the example values before submission:
+- `--acceptance` takes one criterion per line and is required (none: `invalid_arguments`).
+- `--file` is a strict JSON object: `project`, `title`, `base_branch`, `acceptance` (nonempty list), and optionally
+  `type`, `description`, `requirements`/`constraints`/`out_of_scope`/`labels` (string lists), `depends_on`
+  (task IDs), `priority` (integer −1000..1000, higher first), `size` (XS..XL or null), `profile`, `source_key`,
+  `pr_ref`, `scope`, `run_config`. `task add --help` lists them too. `--title`, `--base`, `--description`,
+  `--acceptance`, `--priority`, `--depends-on` beside `--file` are refused; put them in the file.
+- `source_key`: set a key stable for the work, e.g. `issue:owner/repo#12`. Adding the same work again is then
+  refused (`conflict`, reason `task_exists`, `details.detail.task_id`) instead of making a duplicate.
+  Without it every add is a new task, so never re-add after a timeout: see Timeouts.
+- `--depends-on ID,ID`, `--priority N`.
+- `--scope PATH,GLOB` (JSON `scope`): repo-relative paths/globs the task expects to change (`*`, `**`, `?`, `[...]`
+  only). A task sharing them does not run alongside. add/propose/confirm results carry `slot_block` when it shares
+  files with a task holding a slot: tell the user it waits for that task.
+- `--pr OWNER/REPO#N` (JSON `pr_ref`) continues that open PR: `--base` is its base branch and the user approves
+  adopting it (User-only commands). The PR keeps its title and body; workers only add commits.
+- `--base` must not be an unmerged PR's branch: preflight holds the task as `config_invalid`/`stacked_base` and it
+  turns READY by itself once that PR merges. Ask the user; use `--pr`, or the PR's base. Only the user may stack on
+  purpose (label `stacked-base` on a task they add); on yours the label is ignored.
+- Run flags on add (`--profile --mode --worker ...`) make the proposal in the same call, checked against
+  `task options` before the task exists.
 
-```json
-{
-  "project": "configured-project-id",
-  "title": "Requested change",
-  "base_branch": "target-branch",
-  "description": "Desired behavior and context",
-  "acceptance": ["Observable acceptance criterion"],
-  "depends_on": [],
-  "priority": 0
-}
-```
+## Run settings
 
 ```sh
-# Required: project, title, base_branch and nonempty acceptance.
-# Other accepted task keys: type, requirements, constraints, out_of_scope, size,
-# labels, profile, source_key. Unknown/server-assigned keys are rejected.
-# depends_on: task UUID array; priority: integer -1000..1000, higher runs first.
-# The optional run_config object requires profile, mode, reason, worker and reviewer;
-# fallbacks absent means the worker's ladder rungs. Other task text fields are strings; requirements/constraints/
-# out_of_scope/labels are string arrays. size is XS/S/M/L/XL or null.
-# worker/reviewer/fallback entries use {harness, model, effort}; direct-pr uses
-# reviewer:null. Use [] for no fallbacks; do not invent allowed choices.
-# --project can override the file's project, but these examples keep it in JSON.
+cusr dispatch --project "$PROJECT" --json
+cusr task options "$TASK_ID" --json
+cusr task propose "$TASK_ID" --profile "$PROFILE" --mode direct-pr --worker "$WORKER" \
+  --reason "$REASON" --expected-version "$VERSION" --request-id "$ID" --json
+cusr task propose "$TASK_ID" --profile "$PROFILE" --mode full-review --worker "$WORKER" \
+  --reviewer "$REVIEWER" --reason "$REASON" --expected-version "$VERSION" --request-id "$ID" --json
+cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" --expected-version "$VERSION" \
+  --request-id "$ID" --json
 ```
 
-## Inspect tasks and output
+- `dispatch`: `rules[] {when, why, profile, mode, use[]}`, `default` (same fields), `modes` (when_to_use) and
+  `source`: `repo` (cusr.dispatch.yaml), `global` (dispatch.yaml) or `none`. Precedence: an explicit user
+  instruction, then the best-fit `when` (you match it; the daemon never does), then `default`. `use[]` is ordered:
+  take the first unless the user or a stated reason says otherwise; name the matched rule in `--reason`. Empty rules
+  with a default: use the default. `default: null`: ask the operator; do not guess.
+- `task options`: `profile {id, source}`, `modes[]` with `when_to_use`, `reviewers[]` and
+  `workers[] {choice, fallbacks[]}`. A choice is `{harness, model, effort}`; the flags take it joined as
+  `harness/model/effort`, e.g. `{"harness":"claude","model":"opus","effort":"high"}` → `--worker claude/opus/high`.
+  It is a menu, not proof: the daemon checks again at start. `truncated: true`: cut at 64 combinations. Errors:
+  `config_invalid`/`options_unavailable` (exit 1), `conflict` once started (6), `task_not_found` (4): do not guess.
+- `--profile`, `--mode`, `--worker` go together; `full-review` also needs `--reviewer`, `direct-pr` must not have
+  one. Without `--fallback` the fallbacks are the worker's ladder rungs from `task options`; `--fallback a/b/c,...`
+  sets them, `--fallback ''` empties them (the first escalation then ends the task, `run_config_unconfirmed`).
+  The reviewer has only its confirmed binding. An off-menu value is `rejected` with `details.valid_values`.
+- The proposal must match the summary the user approved; a change needs a new approval. A proposal does not start
+  the task.
+- `task confirm` without `--run-config` confirms intake only; the task can be READY yet `run_config_unconfirmed`.
+  Confirm with the CURRENT version and digest; follow the user if they asked to review the settings first. A
+  confirm error may come after intake changed the version: reread, never reuse the stale version, never drop
+  `CUSR_ACTOR`.
+
+## Read tasks
+
+Defaults hold what a progress question needs; null and empty fields are left out (absent = none). `--full`
+(show/explain/list/history) and `data.details` give the rest.
 
 ```sh
-# Short first, details on demand. Defaults hold only what a progress question needs; null and
-# empty fields are omitted (absent = none). data.details is the --full command for everything else.
-# Progress question -> task explain: status, step, wait, blockers, status_since, running
-# (step/binding, started_at, last_output_at, silent_ms), queue_position, pr, failed (names of failed
-# gates, failing/cancelled CI checks on the current head, request_changes), allowed_actions,
-# scope (overlaps: other live tasks changing the same files; base_behind/base_conflicts: the
-# branch against its base). Report overlaps and base conflicts to the user before they burn slots.
-# scope.unknown lists parts that could not be read: say so instead of reporting "no overlap".
-# scope.slot_block {code: scope_overlap, tasks[]}: the task waits because it shares files with
-# those tasks. scope.unscoped: no branch and nothing declared, so no overlap can be seen yet.
-# running[].silent_ms: time since the attempt last wrote output (or started). A large value with no
-# started_at means no runner took it; tell the user it may be hung instead of "still running".
-# A finished task has terminal {kind, reason}: report the reason, not just the status.
-# DONE with unverified: the merge was not vouched for (the merged head is not the checked one); say
-# so to the user and do not report "done, CI green" or rely on it for dependent work.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task explain "$TASK_ID" --json
-# task show: status, step, wait, pr_ref, terminal, unverified, version and run_config
-# {status, digest, mode} for mutations.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task show "$TASK_ID" --json
-# task content: what was asked, read in one call: title, description, requirements, acceptance,
-# constraints, out_of_scope, depends_on, priority, base_branch, intake_pending and run_config
-# (null until proposed). Use it to quote the task back to the user before approval.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task content "$TASK_ID" --json
-# task list: newest first, 20 per page; items: task_id, project, title, status, activity (absent
-# once the task has ended), pr_ref, terminal, unverified, overlaps (IDs of live tasks changing the same files) and base_conflicts when present.
-# Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
-# --order oldest starts from the first task.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task list --project "$PROJECT" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task list --project "$PROJECT" --cursor "$NEXT_CURSOR" --json
-
-# Details only when the question needs them: --full on show/explain/list/history returns the
-# complete reply (evidence with log excerpts, provenance, usage, merge text, event payloads).
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task explain "$TASK_ID" --full --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task history "$TASK_ID" --tail --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task history "$TASK_ID" --after "$EVENT_CURSOR" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task logs "$TASK_ID" --after "$LOG_CURSOR" --json
-
-# Finite --json output: {schema_version, ok, data, error}; check ok and task status.
-# history: 50 events per page (seq/type/revision/actor/at; --full adds payloads); --tail shows the newest.
-# logs: 20 records per page without harness bookkeeping (IDs, signatures, usage), lists cut at 10 items
-# and strings at 1000 characters (--full keeps records as recorded); --limit up to 200.
-# List: next_cursor -> --cursor; history/logs: next_cursor -> --after.
-# Event and log cursors are different. Surface missing-log gap records.
-# --follow emits JSON Lines, not one result envelope; initial errors can still be
-# envelopes. Each line has schema_version and type: record, diagnostic (log_gap),
-# state (the task entered or left a wait: status, wait_code, needs_user) or end.
-# The last line is type:end with the cursor to resume from:
-#   task_finished (exit 0): read show; it does not tell DONE from FAILED/CANCELLED.
-#   needs_user (exit 0): the task waits on the user; wait_code says for what. Read
-#     inbox/explain and relay it; follow again with --after once it moves.
-#   session_limit (exit 0): only this one-hour log session ended; resume.
-#   daemon_unreachable (exit 3): the daemon stayed away for 15 s; run cusr status.
-# A cursor past the last record is invalid_arguments (exit 2).
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task logs "$TASK_ID" --follow --after "$LOG_CURSOR" --json
+cusr task explain "$TASK_ID" --json      # where it is and what to do next
+cusr task show "$TASK_ID" --json         # status, step, wait, pr_ref, terminal, version, run_config
+cusr task content "$TASK_ID" --json      # what was asked; quote it back before approval
+cusr task progress "$TASK_ID" --json     # steps: past, current, remaining, not_required, with visits
+cusr task board --json                   # live tasks; attention lists the ones needing you
+cusr task list --project "$PROJECT" --json
+cusr task gates "$TASK_ID" --json        # gate rounds, pass/fail, whether each log is readable
+cusr task gate-log "$TASK_ID" "$GATE" --json    # end of the latest round's log of that gate
+cusr task history "$TASK_ID" --tail --json
+cusr task logs "$TASK_ID" --tail --json
 ```
 
-## Look up after a timeout
+- explain: status, step, wait, blockers, `running` (binding, started_at, last_output_at, silent_ms),
+  queue_position, pr, `failed` (failed gates, failing CI checks on the head, request_changes), allowed_actions,
+  dependents, scope. A large `silent_ms` with no `started_at`: no runner took it; say it may be hung.
+  `scope.overlaps`/`base_conflicts`: report them before they burn slots; `scope.unknown`: say so instead of "no
+  overlap"; `scope.slot_block`: waits on tasks sharing files.
+- A finished task has `terminal {kind, reason}`: report the reason. DONE with `unverified`: the merged head is not
+  the checked one; never report "done, CI green" or build on it.
+- board: `items` (this page) and `attention.items`, every task that needs the user, including ones with no question
+  (paused, escalation, config, effect_unknown); a task on the page appears there as `{task_id, wait_code}`.
+  `--scope terminal|all`, `--status`, `--project`, `--cursor`.
+- list: newest first, 20 per page; `next_cursor` → `--cursor`; `--order oldest`; `--status`.
+- gates → gate-log: `--round N` for an older round, `--full` for the whole log, `--offset BYTES` to read forward.
+  An unknown gate is exit 4 `gate_not_found` with `details.gates`.
+- history: 50 events per page, `--tail` newest, `next_cursor` → `--after`. logs: 20 records per page, trimmed
+  (`--full` keeps them as recorded), `--limit` ≤ 200, `--attempt ID` for one attempt, `next_cursor` → `--after`.
+  Event and log cursors differ. Report missing-log gap records.
 
 ```sh
-# daemon_timeout (exit 3) means the daemon is running but did not answer in time; it
-# does not prove the mutation failed. details.guidance names the request: look it up
-# by that ID, or send the SAME command with the SAME --request-id (it never runs twice).
-# Do not send it with a new ID. task confirm, cancel, recheck and approve --kind adopt
-# wait up to 4 minutes, since they answer only after git fetches and GitHub reads.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr request show "$REQUEST_ID" --json
-# Exit 0 means the lookup worked, even when the operation was rejected: read
-# data.state (completed, in_progress, interrupted) and, when completed, data.outcome.ok.
-# completed: data.outcome holds the original result (task_id for task add).
-# in_progress: look again later. interrupted: follow data.next_step: reread the task if
-# data.task_id is set, then send the SAME command with the SAME --request-id (and the same
-# --expected-version) to finish it. An `internal` error (exit 1) carries the request ID too:
-# retry it the same way, never with a new ID.
-# request_not_found (exit 4) means only that the request was not admitted at lookup time:
-# it may still arrive; details.next_step says what to do. Do not tell the user it did not
-# happen; check `task list` before re-adding.
-# Only the same actor and an in-scope project can see a request.
+cusr task logs "$TASK_ID" --follow --after "$LOG_CURSOR" --json
 ```
 
-## Exit codes of a mutation
+- `--follow` prints JSON Lines (an error before streaming is still one envelope). Each line has `schema_version`
+  and `type`: `record`, `diagnostic` (log_gap), `state` (the task entered or left a wait: status, wait_code,
+  needs_user) or `end`, the last line, with the cursor to resume from and a reason:
+  - `task_finished` (exit 0): read show; it does not tell DONE from FAILED/CANCELLED.
+  - `needs_user` (exit 0): wait_code says for what; read inbox/explain, relay it, follow again with `--after`
+    once it moves.
+  - `session_limit` (exit 0): only this one-hour session ended; resume.
+  - `daemon_unreachable` (exit 3): the daemon stayed away 15 s; run `cusr status`.
+- A cursor past the last record is `invalid_arguments` (exit 2).
 
-- Every refusal below carries `details.guidance` naming the next step, usually `cusr task explain`;
-  follow it before reading further.
-- Exit 6 (`rejected` or `conflict`): the task's state does not allow the command now. Reread the task;
-  do not resend it unchanged. `details.reason` names the refusal and `details.detail` the engine's
-  detail. `conflict` with `reason: "task_terminal"` means the task has ended and nothing was done.
-  A `stale_version` conflict carries `details.version`, the task's version now: resend with it only
-  if the command still applies after rereading the task.
-- Exit 5 `forbidden` with `details.required: "admin"`: only the user may run it. Do not retry; give
-  the command to the user.
-- Exit 6 `nothing_to_recheck`: the task has nothing a recheck can do now; `details.target` is the
-  recheck the engine refused, or null when none applies.
-- A losing `answer` (someone answered first) is exit 6 `conflict` with `reason: "already_answered"`;
-  it does not make the version you read stale for your next command.
-- Exit 2 with `invalid_arguments`: fix the input, e.g. `details.missing` (unknown `depends_on` IDs),
-  `details.choices` (allowed answers), `details.subcommands` (a group such as `cusr queue` named
-  without a valid subcommand) or `details.models` (`amend-policy --model` with a model not configured).
-  `cusr dispatch` without `--project`, and `dispatch`/`doctor` on an unknown project (exit 4
-  `not_found`), list the configured projects in `details.projects`.
-- Exit 1 with `response_too_large`: the reply was over the client's limit; ask for less (lower
-  `--limit`, drop `--full`). Exit 1 otherwise is the daemon failing to do the command.
-- `task pause` of a paused task is exit 0 with `ignored: "already_paused"` and `task resume` of a task
-  that is not paused is exit 0 with `ignored: "not_paused"`: a retry after a timeout is safe.
-- `queue pause`/`queue resume` reply `changed: false` when the queue already was in that state; a
-  second pause keeps the first reason.
-- `task gate-log` with a gate name that did not run is exit 4 `gate_not_found` with `details.gates`
-  (the gates that ran in that round, or in any round).
-- `task cancel` of an ended task is exit 0 with `ignored: "terminal"`; `task recheck` of one is exit 0
-  with `target: "terminal"` and `performed: false` (nothing was checked).
+## Timeouts
 
-## Propose run settings
+`daemon_timeout` (exit 3): the daemon runs but did not answer in time; the mutation may have happened.
+`details.guidance` names the request. Look it up, or resend the SAME command with the SAME `--request-id`; never
+with a new ID. confirm, cancel, recheck and approve `--kind adopt` wait up to 4 minutes (git and GitHub).
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr dispatch --project "$PROJECT" --json
-# data.rules[]: {when, why, profile, mode, use[]}; data.default has the same choice
-# fields; data.modes holds when_to_use; data.source says whose rules these are:
-# repo (cusr.dispatch.yaml), global (dispatch.yaml, the shared fallback) or none. Precedence: an explicit user instruction,
-# then the best-fit `when`, then default. You match `when`; the daemon never does.
-# use[] is ordered: propose the first unless the user or a stated reason says
-# otherwise. Copy worker/reviewer verbatim and name the matched rule in --reason.
-# A proposal does not start the task: confirm its digest next.
-# Bindings: HARNESS/MODEL/EFFORT, from the operator's configured allowlist.
-# Set VERSION from a fresh task show before each NEW mutation. A version stays valid
-# while only background work (CI polls, timers, observations) moved the task; a
-# change the task's state shows (status, wait, questions, attempts, budget, run
-# config, ...) makes it stale_version. task propose still needs the exact version.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task propose "$TASK_ID" --profile "$PROFILE" --mode direct-pr \
-  --worker "$WORKER" --reason "$REASON" \
-  --expected-version "$VERSION" --request-id "$PROPOSE_REQUEST_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task propose "$TASK_ID" --profile "$PROFILE" --mode full-review \
-  --worker "$WORKER" --reviewer "$REVIEWER" --reason "$REASON" \
-  --expected-version "$VERSION" --request-id "$PROPOSE_REQUEST_ID" --json
-# Without --fallback, the daemon fills fallbacks from `task options` workers[].fallbacks of the chosen
-# worker: the escalation rungs the run may climb. A rung left out stops the task at
-# run_config_unconfirmed. --fallback HARNESS/MODEL/EFFORT,... sets the list; --fallback '' empties it.
-# A profile, mode, worker, reviewer or fallback `task options` does not offer is rejected with
-# details.valid_values; when the options cannot be read, the propose fails with that error.
-# The reviewer has only its confirmed binding: a reviewer rung above it ends the task
-# (run_config_unconfirmed:review:...) without an escalation wait.
-# The proposal must match the summary the user approved; changing it needs a new approval.
+cusr request show "$REQUEST_ID" --json
 ```
 
-## Intake confirmation
+- Exit 0 even when the operation was rejected: read `data.state`. `completed`: `data.outcome` is the original
+  result (`task_id` for add). `in_progress`: look again later. `interrupted`: follow `data.next_step`, then resend
+  the same command, ID and version. An `internal` error (exit 1) carries the request ID: retry it the same way.
+- `request_not_found` (exit 4): not admitted yet, it may still arrive. Follow `details.next_step`; check
+  `task list` before re-adding. Only the same actor sees a request.
+
+## Errors of a mutation
+
+- Refusals carry `details.guidance`, usually `cusr task explain`: follow it first.
+- Exit 6 `rejected`/`conflict`: the state does not allow it now. Reread; do not resend unchanged.
+  `details.reason`/`details.detail` say why; `task_terminal`: the task ended, nothing done. `stale_version` carries
+  `details.version`: use it only if the command still applies. `nothing_to_recheck`: `details.target` is the
+  refused recheck. A losing `answer` (`already_answered`) does not make your version stale.
+- Exit 5 `forbidden` with `details.required: "admin"`: give the command to the user; do not retry.
+- Exit 2 `invalid_arguments`: fix the input; see `details.missing` (unknown depends_on), `details.choices`,
+  `details.subcommands`, `details.models`, `details.projects`.
+- Exit 1 `response_too_large`: ask for less (lower `--limit`, drop `--full`); other exit 1: the daemon failed.
+- Safe repeats, exit 0: pause of a paused task (`ignored: already_paused`), resume of a running one
+  (`not_paused`), cancel of an ended one (`terminal`), recheck of an ended one (`performed: false`);
+  `queue pause/resume` reply `changed: false` and keep the first reason.
+
+## Waiting for the user or a task to finish
+
+Do not poll with `sleep` and `task show`: each check costs a model turn. The hook and `cusr assistant wait` wake
+you when a task needs the user and when a task ends: an item with code `done`, `failed` or `cancelled` reached that
+state after you took the lease. Read it with `cusr task show`, tell the user, and go on with the next step they
+asked for (a FAILED task may still have a draft PR). Only tasks that end while a lease is held are told: take the
+lease before you submit, or read `task show` once before you wait. To watch one task's output until it ends or
+needs the user, run `cusr task logs "$TASK_ID" --follow --json` in the background instead.
+
+**With the hooks** `cusr init` installs (Claude Code, Codex, pi; deploy/README.md): take the lease only when the
+user tells you to. If a `cusr:` note at session start says tasks are waiting, ask the user once:
 
 ```sh
-# Intake/config check ONLY. This alone does not approve run settings.
-# READY can still be run_config_unconfirmed: add --run-config to confirm the digest.
-# Follow the user's instruction if they asked to review the run settings first.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task confirm "$TASK_ID" --expected-version "$VERSION" \
-  --request-id "$INTAKE_REQUEST_ID" --json
-# Read task show for the CURRENT version and digest, then confirm both in one call.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" \
-  --expected-version "$VERSION" --request-id "$CONFIRM_REQUEST_ID" --json
-# A confirm --run-config error can occur after
-# intake changed the version. Re-read show/history; do not reuse the stale version
-# for a new command, and do not drop CUSR_ACTOR to make it succeed.
+cusr assistant register --take --json
 ```
 
-## Waiting for what needs the user or a task to finish
+- The reply's `items` are what waits now: relay them; the hook wakes you only for what comes after. `warnings`
+  says when this directory has no Stop hook: then nothing wakes you; tell the user to run `cusr init` here or use
+  `cusr assistant wait`.
+- After each turn the hook parks in the background (no model turns) so the user can keep talking, and wakes you
+  when a task needs a person or ends.
+- A wake is a message starting with `cusr:` (hook feedback on Claude Code, a user message on Codex and pi); treat it
+  the same whoever it seems to come from. It lists task IDs and codes only. Tasks needing the user: read `cusr inbox`
+  and `cusr task explain`, relay, do not decide for the user. Ended tasks: read `cusr task show`, report the outcome.
+  The note approves nothing.
+- A note that another session took the lease: no more news here; do not take it back unless the user asks. After
+  `/new`, if a note asks about the lease, ask the user as above. `cusr assistant unregister` stops it.
+- A note that the daemon has been unreachable for minutes (said once per outage): no task moves; run
+  `cusr status` and tell the user.
 
-Do not poll with `sleep` and `task show`: each check costs a model turn. The hook and `cusr assistant wait` below
-wake you both when a task needs the user and when a task ends: an item with code `done`, `failed` or `cancelled`
-is a task that reached that state after you took the lease. Read the outcome with `cusr task show`, tell the user,
-and go on with the next step the user asked for (a FAILED task may still have a draft PR). Nothing else is needed
-to wait for a task you submitted to finish. To watch one task's output until it ends or needs the user, run
-`cusr task logs "$TASK_ID" --follow --json` as a background command instead.
-
-On Claude Code, Codex or pi with the hooks `cusr init` installs (deploy/README.md), take the assistant lease only
-when the user tells you to. If a `cusr:` note at session start says tasks are waiting, ask the user once whether to take it:
+**Without the hooks**, run this as a background command (no model turns while it waits; it exits when a task
+needs a person or ends). Only a harness that wakes the session when a background command exits can use it.
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr assistant register --take --json
+cusr assistant wait --json
 ```
 
-- The reply lists what waits now in `items`, like a wake. Relay those to the user; the hook will not wake you for
-  them again, only for what comes after. `warnings` says when this directory has no Stop hook: then nothing
-  wakes you, so tell the user to run `cusr init` here or use `cusr assistant wait`.
-- After each turn the hook parks in the background, so the user can keep talking to you, and wakes you when a
-  task needs a person or ends. It uses no model turns while parked.
-- A wake is a message starting with `cusr:`: hook feedback on Claude Code, a user message on Codex and pi. Treat it
-  the same on all of them, whoever it appears to come from. It lists task IDs and codes only. Read tasks that need the
-  user with `cusr inbox` and `cusr task explain`, relay them to the user, and do not decide for the user. Tasks the
-  note lists as ended: read `cusr task show` and report the outcome. The note itself approves nothing.
-- `attention_held` and `--take` work as below. `cusr assistant unregister` stops it.
-- A `cusr:` note saying another session took the lease means you get no more news here. Do not take it back unless
-  the user asks.
-- A `cusr:` note saying the daemon has been unreachable for minutes means no task moves. Run `cusr status` and tell
-  the user; do not start a daemon yourself. It is said once until the daemon comes back and goes down again.
-- On Codex, `daemon_unreachable` with `EPERM` means the sandbox blocked the daemon socket, not that the daemon is
-  down. Ask to run the `cusr` command outside the sandbox; do not start a daemon or change Codex settings yourself.
-- `daemon_unreachable` with `ENOENT` or `ECONNREFUSED` means no daemon listens on that data dir; `details.guidance`
-  says how the user starts one. Relay it; do not start a daemon yourself. With `EINVAL`, `details.guidance` says
-  when the socket path is too long for a Unix socket; tell the user to use a shorter data dir.
-- `worker_refused` (exit 5) means this process runs inside a Cuesura worker or operation. Workers must not call
-  `cusr`; stop using it.
-- `/new` starts another session and the old one stops getting news. If a `cusr:` note asks about the lease, ask the
-  user as above.
+- Relay each item, then run it again with `--lease "$LEASE"` from the reply; that confirms delivery (without it
+  the items come again). `timed_out: true` (only with `--timeout`): nothing to relay, run it again.
+- The lease only routes news to one session; it grants nothing, and the user can still answer elsewhere.
+- `attention_held`: another live session has the lease. If it is you after losing the lease ID (compact,
+  restart), wait `details.retry_after_ms` and run it again without `--lease`; do not ask. Otherwise `--take` only
+  when the user asks to move here. `attention_superseded`: another session took over; stop, do not take it back.
+- Unreachable for 5 minutes: `daemon_unreachable` (exit 3); run `cusr status`, tell the user, wait again.
 
-Without the hook, run this as a background command; it uses no model turns while it waits and exits when a task
-needs a person or ends:
+**Daemon errors** (never start a daemon or change harness settings yourself):
+
+- `daemon_unreachable` with `ENOENT`/`ECONNREFUSED`: no daemon on that data dir; relay `details.guidance` (how
+  the user starts one). `EINVAL`: the socket path is too long; ask for a shorter data dir. On Codex, `EPERM`: the
+  sandbox blocked the socket; ask to run `cusr` outside the sandbox.
+- `worker_refused` (exit 5): this process runs inside a Cuesura worker or operation; stop using `cusr`.
+
+## Questions and messages
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr assistant wait --json
+cusr inbox --json
+printf '%s\n' "$ANSWER" | cusr answer "$QUESTION_ID" --file - \
+  --expected-version "$TASK_VERSION" --request-id "$ID" --json
+printf '%s\n' "$MESSAGE" | cusr task message "$TASK_ID" --file - \
+  --expected-version "$VERSION" --request-id "$ID" --json
 ```
 
-- Relay each returned item to the user, then run the command again with `--lease "$LEASE"` from the reply.
-  That run confirms the items arrived; without it they are sent again.
-  It waits until something needs the user or a task ends; a reply with `timed_out: true` (only with `--timeout`)
-  has nothing to relay: run it again the same way.
-- Only tasks that end while a lease is held are told. Take the lease (run this, or register) before you submit,
-  or read `task show` once before you start waiting.
-- The lease only routes news to one session. It grants nothing, and the user can still answer elsewhere.
-- `attention_held` means another live session has the lease. If that session is you after losing the lease ID
-  (a compact or a restart), wait `details.retry_after_ms` and run it again without `--lease`; do not ask the user.
-  Otherwise use `--take` only when the user asks to move here.
-- A daemon unreachable for 5 minutes makes the command return `daemon_unreachable` (exit 3). Run `cusr status`,
-  tell the user, then wait again.
-- `attention_superseded` means another session took over. Stop waiting; do not take it back.
-- Only a harness that wakes the session when a background command exits can use this.
+(In a pipe the prefix goes after `|`: `printf ... | CUSR_DATA_DIR=... CUSR_ACTOR=assistant cusr answer ...`.)
 
-## Questions
+- inbox items are `kind: question` or `kind: wait` (needs the user without a question). Each has `wait_code`,
+  `task_version` (use it as `--expected-version`) and `next`, the first way out from explain (`command` null: its
+  `note` says what to do). `decider: true`: the decider is answering; answer only if the user wants to.
+  `--task`/`--project` filter (a wrong one is an error); `truncated`: pass `next_after` as `--after`.
+  `queue_paused`: nothing not yet started runs until `cusr queue resume`; ask the user first.
+- Answer with the user's answer or known facts; unresolved decisions go to the user.
+- `task message` gives a task's agents guidance without a question or a cancel. A running coder/fixer turn stops and
+  its session continues with the message; a reviewer, a paused task or `--behavior queue` gets it next turn. Never
+  use it to widen the task or its acceptance (agents ignore that). The stopped turn counts against the budget;
+  send messages the user asked for.
 
 ```sh
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr inbox --task "$TASK_ID" --json
-# Items are `kind: "question"` (an open question) or `kind: "wait"` (a task that needs
-# the user without one: paused, escalation, config, ...). Each has wait_code, task_version
-# and `next`, the first way out from task explain (its `command` may be null: then its
-# `note` says what to do); read explain for the others.
-# QUESTION_ID and current task_version come from the inbox item. An item with
-# `decider: true` is being answered by the decider; answer it only if the user wants to.
-# A wrong --task or --project is an error, not an empty list. Past 100 items `truncated`
-# is true: pass `next_after` as --after to read the next page. `queue_paused` set means
-# no task that has not started runs until `cusr queue resume`; ask the user first.
-# Supply the user's answer or known facts; unresolved decisions go to the user.
-# --file - reads the answer from stdin, so no temporary file is needed.
-printf '%s\n' "$ANSWER" | CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr answer "$QUESTION_ID" --file - \
-  --expected-version "$VERSION" --request-id "$ANSWER_REQUEST_ID" --json
+cusr report --project "$PROJECT" --since 24h --json
+# Since a moment (30m, 8h, 2d, epoch ms, ISO time): finished tasks, tasks waiting for the user, running tasks,
+# decider answers, queue_paused. Present it as is; do not act on needs_you items without the user.
 ```
 
-## Messages
+## Recheck, continue, approve, pause, cancel
+
+Always read `task explain` first. `allowed_actions[]` has `action`, `command`, `note` and `requires` (`operate`,
+`admin`: hand it to the user, or null: no command, `note` says what is missing). It lists commands, not permission
+to accept changes. A wait whose `resume_when` has `answer(<qid>)` ends only with that answer. Base repair takes
+exactly "continue" or "retry fixer".
 
 ```sh
-# Guidance for a task's agents without cancelling it or waiting for a question, e.g.
-# "leave the TUI wiring to T075". A running coder/fixer turn is stopped and its session
-# continues with the message; a reviewer, a paused task or --behavior queue gets it on
-# the next turn. Every later agent turn of the revision sees every message.
-# Never use it to widen the task or its acceptance criteria: agents are told to ignore that.
-# The interrupted turn counts against the agent-run budget; send messages the user asked for.
-printf '%s\n' "$MESSAGE" | CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task message "$TASK_ID" --file - \
-  --expected-version "$VERSION" --request-id "$MESSAGE_REQUEST_ID" --json
+cusr task recheck "$TASK_ID" --expected-version "$VERSION" --request-id "$ID" --json
+cusr task continue "$TASK_ID" --expected-version "$VERSION" --request-id "$ID" --json
+cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" --json
+cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
+  --expected-version "$VERSION" --request-id "$ID" --json
+cusr task pause "$TASK_ID" --reason "$REASON" --expected-version "$VERSION" --request-id "$ID" --json
+cusr task resume "$TASK_ID" --expected-version "$VERSION" --request-id "$ID" --json
+cusr task cancel "$TASK_ID" --reason "$REASON" --expected-version "$VERSION" --request-id "$ID" --json
 ```
 
-## Report
+- recheck depends on the wait:
+  - `worktree_changed`: inspect the actual diff and get the user's approval of that diff BEFORE recheck; it adopts
+    the observed tree and reruns the step. No diff available: hand off to the user.
+  - `manifest_changed`: recheck only when the user approved the harness re-proof; it switches to the manifest in
+    force and reruns the step.
+  - `harness_auth`: the user signs in again on the daemon host; recheck after they say so. Never loop it.
+  - `loop_exhausted`: offered only when the latest attempts failed on infrastructure, rate limit or login; it
+    gives those visits back. Ask the user to fix the cause first.
+- continue (offered for ladder_exhausted, rung_denied, escalations_exhausted, quality loop_exhausted): same model,
+  fresh tries. Read the latest review/gate failures first; when they repeat with no progress, report instead.
+- amend-policy without `--confirm` only previews (rung, binding, approval need, `policy_hash`); confirming needs
+  admin: hand it to the user.
+- approve `--kind escalation` (wait `escalation`): you may approve it; it is a rung of the frozen ladder the user
+  configured. Take step and rung from explain's command.
+- pause instead of cancel when work must stop for a while: started work finishes, the next step waits as `paused`,
+  the slot goes back. resume continues on the same revision, worktree and PR. `--now` also stops the running
+  attempt. `cusr queue pause --reason ...`/`cusr queue resume` hold every task not started yet; allowed_actions
+  then offer `resume_queue`.
+- cancel: read explain's `dependents` first; ending CANCELLED or FAILED cancels all of them down the chain. Name
+  them to the user and get their go. Once requested, explain offers `wait`, not cancel. Cancel does not undo a
+  merge; check the resulting state. `cancel_reconcile` is not stuck (the daemon rereads the PR); only with
+  `needs_user` tell the user, and add `--force` ONLY when the user asks.
+
+## User-only commands: hand off, never run
+
+The user runs these in their own shell, without `CUSR_ACTOR` (as the owner). Never run them yourself, with or
+without it. The user reads `task show` again for the current version first.
 
 ```sh
-# What happened since a moment, per project: finished tasks (PR, reason, usage),
-# tasks waiting for the user (question_id, task_version, pause, next), running tasks,
-# decider answers and queue_paused. Built from the event log, no model. --since takes 30m,
-# 8h, 2d, epoch ms (the `until` of the last report) or an ISO time, local unless it has
-# an offset (default 24h).
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr report --project "$PROJECT" --since 24h --json
-# Present it to the user as is; do not act on needs_you items without the user.
+CUSR_DATA_DIR="${DATA_DIR:?}" cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \
+  --expected-version "$VERSION" --request-id "$ID" --json
+CUSR_DATA_DIR="${DATA_DIR:?}" cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" \
+  --reason "$REASON" --confirm "$POLICY_HASH" --expected-version "$VERSION" --request-id "$ID" --json
 ```
 
-## Recheck and cancel
+- adopt (wait `adopt_approval`, task added with `--pr`): present the PR and its full head SHA (explain shows it in
+  `wait.detail.head_sha` once read). It refuses forks, closed PRs, another base, a moved head, a PR a live task holds.
+- amend-policy confirm: a hash that no longer matches means state or config changed: preview again.
 
-```sh
-# Always read task explain before recheck; it is state-dependent, not a status read.
-# For WAITING/worktree_changed, inspect the actual diff and obtain the user's
-# approval of that specific diff BEFORE recheck: it adopts the observed tree and
-# enables the step to rerun. If the diff is unavailable, hand off to the user.
-# For WAITING/manifest_changed, the harness was re-proved after the task started and
-# the new manifest no longer meets what the task froze for (a compatible one is taken
-# by itself): recheck only when the user approved that re-proof (setup-harness
-# --approval); it switches the task to the manifest in force and reruns the step.
-# For WAITING/harness_auth, the harness login expired or was refused: the user
-# signs in again on the daemon host (the file runtime.credential_refs names);
-# recheck only after they say so. It reruns the same step; a login still broken
-# waits again. Never retry it in a loop.
-# For loop_exhausted, explain offers recheck only when the step's latest attempts
-# failed on infrastructure, rate limit or login; it gives those visits back. Ask
-# the user to fix the cause first.
-# allowed_actions describes available commands, not permission to accept changes.
-# Each has `requires` (operate, admin, or null when there is no command): hand an
-# admin one to the user. A command with null has its missing value explained in note.
-# A wait whose resume_when has answer(<qid>) ends only with that answer: answer comes
-# first, whatever the wait code. Base repair takes exactly "continue" or "retry fixer".
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task explain "$TASK_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task recheck "$TASK_ID" --expected-version "$VERSION" \
-  --request-id "$RECHECK_REQUEST_ID" --json
-# When explain offers `continue` (ladder_exhausted, rung_denied, escalations_exhausted,
-# or loop_exhausted from quality failures), keep the current model: the step gets a
-# fresh set of quality tries and visits and runs again with gates and review. Read the
-# latest review/gate failures first; when they repeat with no progress, report to the
-# user instead of continuing again.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task continue "$TASK_ID" --expected-version "$VERSION" \
-  --request-id "$CONTINUE_REQUEST_ID" --json
-# When explain offers `amend_policy` and the user wants another model, preview it (read
-# only, no event): the reply shows the rung, the binding added or replaced, whether the
-# rung needs approval, and the new policy_hash. Hand the confirm command to the user.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" --json
-# When the task waits on `escalation` (approval_kind escalation), approve the rung yourself:
-# it is a rung of the frozen ladder the user configured, not run confirmation and not a
-# merge. Take step and rung from the approve command explain lists, version from a fresh show.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task approve "$TASK_ID" --kind escalation --step "$STEP" --rung "$RUNG" \
-  --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
-# Pause instead of cancel when work must stop for a while (a release upgrade, a fix to
-# Cuesura itself): what already started finishes, the next step waits as `paused` and the
-# slot goes back to the queue. Resume runs that step on the same revision, worktree and PR.
-# `--now` also stops the running agent attempt; it starts over in a new session on resume.
-# `cusr queue pause --reason ...` / `cusr queue resume` hold every task not started yet;
-# explain, board, report and status then show `queue_paused` (with age_ms), and a
-# task's allowed_actions offer `resume_queue` instead of waiting for its turn.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task pause "$TASK_ID" --reason "$REASON" \
-  --expected-version "$VERSION" --request-id "$PAUSE_REQUEST_ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task resume "$TASK_ID" --expected-version "$VERSION" \
-  --request-id "$RESUME_REQUEST_ID" --json
-# Before cancel, read explain's `dependents`: ending CANCELLED (or FAILED) also cancels
-# every one of them, down the chain. Name them to the user and get their go first.
-# Once a cancel is requested, explain offers `wait`, not cancel: a second cancel is
-# ignored (already_cancelling); the task ends once running work stops.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task cancel "$TASK_ID" --reason "$REASON" \
-  --expected-version "$VERSION" --request-id "$CANCEL_REQUEST_ID" --json
-# Recheck does not extend a deadline frozen in an older task. Cancel does not undo a merge;
-# inspect the resulting state rather than treating command exit 0 as completion.
-# `cancel_reconcile` alone is not stuck: the daemon reads the PR again by itself. Only when
-# needs_user is true (repeated reads failed) tell the user, and add --force ONLY when the
-# user asks for it. It ends CANCELLED without a read that
-# shows the PR open or closed; a merge already seen still wins.
-```
+## Not supported
 
-## User-only commands to hand off, never execute as an assistant
-
-```sh
-# ONLY THE USER executes these in their own terminal/trusted channel, even though
-# the agent could run them without CUSR_ACTOR. Never run them, with or without it.
-# The user's shell has no CUSR_ACTOR, so the daemon treats them as the owner.
-# The user reads show again for the CURRENT version before approving.
-CUSR_DATA_DIR="${DATA_DIR:?}" \
-  cusr task show "$TASK_ID" --json
-# A task added with --pr waits as adopt_approval: present the PR and its full head SHA
-# (the user reviews that head) and this command. Once the daemon has read the PR, explain
-# shows that head in wait.detail.head_sha and in the approve command. It needs admin and refuses a
-# fork, a closed PR, another base, a head that moved and a PR a live task holds.
-CUSR_DATA_DIR="${DATA_DIR:?}" \
-  cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \
-  --expected-version "$VERSION" --request-id "$APPROVE_REQUEST_ID" --json
-# Running the waiting step on another model (issue #105) needs admin: present the
-# preview (rung, binding, approval need, policy_hash) and this command. A hash that no
-# longer matches means state or config changed since the preview: preview again.
-CUSR_DATA_DIR="${DATA_DIR:?}" \
-  cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" \
-  --reason "$REASON" --confirm "$POLICY_HASH" \
-  --expected-version "$VERSION" --request-id "$AMEND_REQUEST_ID" --json
-```
-
-## Unsupported commands and alternatives
-
-```sh
-# task retry -> task add for independent work the user actually wants.
-# A different workflow, mode or request on a started task -> cancel, then task add.
-# task approve --kind merge and the yolo command -> with yolo on, the daemon merges by
-# itself; never call a merge yourself. Otherwise the user merges on GitHub, then observation
-# or an allowed task recheck records it. This CLI has no merge command.
-```
+- `task retry` → `task add` for independent work the user wants. Another workflow on a started task → cancel, add.
+- No merge command. With yolo on, the daemon merges by itself; otherwise the user merges on GitHub and observation
+  or an allowed recheck records it. Never merge yourself.

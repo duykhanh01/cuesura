@@ -214,6 +214,21 @@ const PROJECT = {
   description: 'Project ID (default: resolved from the task)',
 };
 
+/** The command a person typed, for messages; `kind` is the daemon's name for it. */
+const COMMAND_NAMES: Readonly<Record<string, string>> = {
+  task_propose_run: 'task propose',
+  approve_adopt: 'task approve',
+  approve_escalation: 'task approve',
+};
+
+function commandName(kind: string): string {
+  return COMMAND_NAMES[kind] ?? kind.replace(/^task_/, 'task ').replaceAll('_', '-');
+}
+
+const ID = '019a0000-0000-7000-8000-000000000001';
+const FROM_SHOW =
+  'Take --expected-version (version) and the run_config digest from cusr task show.';
+
 function version(values: Values): number | null {
   const raw = values['expectedVersion'];
   const n = raw === undefined ? NaN : Number(raw);
@@ -231,7 +246,11 @@ async function mutate(
 ): Promise<number> {
   const expected = version(values);
   if (expected === null)
-    return usage(`${kind} requires --expected-version with a non-negative integer`, json, io);
+    return usage(
+      `${commandName(kind)} requires --expected-version with a non-negative integer`,
+      json,
+      io,
+    );
   const requestId = values['requestId'] ?? uuidv7();
   const send = (project: string | null) =>
     call(
@@ -315,9 +334,33 @@ function readJsonFile(path: string): Record<string, unknown> | string {
   }
 }
 
+/** Flags that describe the task itself; with --file the file does instead. */
+const TASK_FLAGS = [
+  ['title', '--title'],
+  ['base', '--base'],
+  ['description', '--description'],
+  ['acceptance', '--acceptance'],
+  ['priority', '--priority'],
+  ['dependsOn', '--depends-on'],
+] as const;
+
 export const addCommand: CliCommand = {
   name: 'task add',
   description: 'Add a task from a JSON file or flags and return immediately',
+  help: `The --file JSON object takes project, title, base_branch and acceptance (a list, at least one),
+and optionally: strings type, description, profile, source_key and pr_ref (owner/repo#n); lists of
+strings requirements, constraints, out_of_scope, labels and scope (paths or globs); depends_on (task
+IDs); priority (integer -1000..1000); size (XS|S|M|L|XL or null); run_config (object). --title, --base, --description,
+--acceptance, --priority and --depends-on cannot be combined with --file.
+Set source_key to a key stable for the work (e.g. issue:acme#12): adding the same work again is then
+refused as conflict task_exists with error.details.detail.task_id, instead of making a second task.
+
+Then: cusr task options <id> lists modes and bindings; cusr task propose sets one (or pass the run
+flags here); cusr task show gives version and run_config digest; cusr task confirm --run-config confirms.
+
+Examples:
+  cusr task add --file task.json --json
+  cusr task add --project acme --title "Fix login" --base main --acceptance "Login works" --json`,
   options: [
     DATA_DIR,
     REQUEST_ID,
@@ -360,6 +403,13 @@ export const addCommand: CliCommand = {
     let task: Record<string, unknown>;
     let fileRun: unknown;
     if (values['file'] !== undefined) {
+      const mixed = TASK_FLAGS.filter(([key]) => values[key] !== undefined).map(([, flag]) => flag);
+      if (mixed.length > 0)
+        return usage(
+          `task add --file cannot be combined with ${mixed.join(', ')}; put them in the JSON file`,
+          json,
+          io,
+        );
       const file = readJsonFile(values['file']);
       if (typeof file === 'string') return usage(file, json, io);
       const { project: fileProject, run_config, ...rest } = file;
@@ -372,6 +422,9 @@ export const addCommand: CliCommand = {
       const { title, base } = values;
       if (project === undefined || title === undefined || base === undefined)
         return usage('task add requires --file or all of --project, --title, and --base', json, io);
+      const priority = values['priority'] === undefined ? undefined : Number(values['priority']);
+      if (priority !== undefined && !Number.isInteger(priority))
+        return usage('--priority must be an integer', json, io);
       task = {
         title,
         base_branch: base,
@@ -384,7 +437,7 @@ export const addCommand: CliCommand = {
           .split(',')
           .map((s) => s.trim())
           .filter((s) => s !== ''),
-        ...(values['priority'] === undefined ? {} : { priority: Number(values['priority']) }),
+        ...(priority === undefined ? {} : { priority }),
       };
     }
     if (values['pr'] !== undefined) task['pr_ref'] = values['pr'];
@@ -595,9 +648,20 @@ Examples:
 export const proposeCommand: CliCommand = {
   name: 'task propose',
   description: 'Propose a task execution mode and model bindings for confirmation',
+  help: `Pick the values from cusr task options <id>: a choice {harness, model, effort} is written
+harness/model/effort, e.g. claude/opus/high. ${FROM_SHOW}
+Confirm afterwards with cusr task confirm --run-config <digest>.
+
+Example:
+  cusr task propose ${ID} --expected-version 3 --profile default --mode direct-pr \\
+    --worker claude/opus/high --reason "small change" --json`,
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION, ...RUN_OPTIONS],
   run(values, json, io) {
+    if (version(values) === null)
+      return Promise.resolve(
+        usage('task propose requires --expected-version with a non-negative integer', json, io),
+      );
     const run = runProposal(values);
     if (run === undefined || typeof run === 'string')
       return Promise.resolve(
@@ -618,6 +682,10 @@ export const confirmCommand: CliCommand = {
   name: 'task confirm',
   description:
     'Confirm a task and revalidate its configuration; use --run-config to confirm the proposed run',
+  help: `${FROM_SHOW} Without --run-config this confirms the task, not the run.
+
+Example:
+  cusr task confirm ${ID} --expected-version 4 --run-config sha256:... --json`,
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -644,6 +712,7 @@ export const confirmCommand: CliCommand = {
 export const cancelCommand: CliCommand = {
   name: 'task cancel',
   description: 'Request task cancellation; completed external actions are preserved',
+  help: `${FROM_SHOW}\n\nExample:\n  cusr task cancel ${ID} --expected-version 5 --reason "not needed" --json`,
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -679,6 +748,7 @@ export const recheckCommand: CliCommand = {
   name: 'task recheck',
   description:
     'Recheck task configuration, pull request, drain, or worktree based on its current state',
+  help: `Runs the check the current wait needs: config, PR, drain or worktree. ${FROM_SHOW}\n\nExample:\n  cusr task recheck ${ID} --expected-version 5 --json`,
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
   run: (values, json, io) =>
@@ -697,6 +767,7 @@ export const pauseCommand: CliCommand = {
   name: 'task pause',
   description:
     'Pause a task: work already started finishes, no new step starts until it is resumed',
+  help: `${FROM_SHOW}\n\nExample:\n  cusr task pause ${ID} --expected-version 5 --reason "wait for #12" --json`,
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -727,6 +798,7 @@ export const pauseCommand: CliCommand = {
 export const resumeCommand: CliCommand = {
   name: 'task resume',
   description: 'Resume a paused task from the step it stopped at',
+  help: `${FROM_SHOW}\n\nExample:\n  cusr task resume ${ID} --expected-version 6 --json`,
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
   run: (values, json, io) => mutate(values, 'task_resume', values['id'] as string, {}, json, io),
@@ -736,6 +808,7 @@ export const messageCommand: CliCommand = {
   name: 'task message',
   description:
     'Send guidance from a text file to the agents of a task; it never widens the task or its acceptance criteria',
+  help: `${FROM_SHOW}\n\nExample:\n  echo "Keep the public API unchanged" | cusr task message ${ID} --expected-version 5 --file - --json`,
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -808,6 +881,7 @@ export const queuePauseCommand: CliCommand = {
   name: 'queue pause',
   description:
     'Stop starting tasks that have not started yet; started tasks go on. Kept across daemon restarts',
+  help: `Example:\n  cusr queue pause --reason "maintenance" --json`,
   options: [
     DATA_DIR,
     REQUEST_ID,
@@ -826,6 +900,7 @@ export const queuePauseCommand: CliCommand = {
 export const queueResumeCommand: CliCommand = {
   name: 'queue resume',
   description: 'Let tasks that have not started yet be queued and started again',
+  help: `Example:\n  cusr queue resume --json`,
   options: [DATA_DIR, REQUEST_ID],
   run: (values, json, io) => mutateQueue(values, 'queue_resume', {}, json, io),
 };
@@ -833,6 +908,7 @@ export const queueResumeCommand: CliCommand = {
 export const continueCommand: CliCommand = {
   name: 'task continue',
   description: 'Keep a task on its current model after its quality loop ran out',
+  help: `${FROM_SHOW}\n\nExample:\n  cusr task continue ${ID} --expected-version 7 --json`,
   args: ['<id>'],
   options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
   run: (values, json, io) => mutate(values, 'task_continue', values['id'] as string, {}, json, io),
@@ -860,6 +936,7 @@ function unsupported(
 export const approveCommand: CliCommand = {
   name: 'task approve',
   description: 'Approve a model escalation (operate) or adopting a PR (admin)',
+  help: `${FROM_SHOW} cusr task explain names the step and rung waiting for approval.\n\nExamples:\n  cusr task approve ${ID} --expected-version 7 --kind escalation --step code --rung 1 --json\n  cusr task approve ${ID} --expected-version 2 --kind adopt --head-sha <40-hex sha> --json`,
   args: ['<id>'],
   options: [
     DATA_DIR,
@@ -919,6 +996,11 @@ export const amendPolicyCommand: CliCommand = {
     'Without --confirm this only previews: it prints the rung, the binding it replaces or adds, whether the',
     'rung needs approval, and the new policy hash. Run it again with --confirm <policy_hash> to apply exactly',
     'that change; the task then goes on from the waiting step with its worktree, evidence and history.',
+    '',
+    'Examples:',
+    `  cusr task amend-policy ${ID} --model opus --json`,
+    `  cusr task amend-policy ${ID} --expected-version 7 --model opus --reason "loop ran out" \\`,
+    '    --confirm <policy_hash> --json',
   ].join('\n'),
   args: ['<id>'],
   options: [
@@ -1019,6 +1101,7 @@ export const dispatchCommand: CliCommand = {
   name: 'dispatch',
   description:
     'Show the guidance for choosing run settings; cusr.dispatch.yaml overrides the config',
+  help: `Prints the rules and default for choosing mode and bindings, and source: repo (cusr.dispatch.yaml),\nglobal (dispatch.yaml beside the user config) or none. Check the choice against cusr task options.\n\nExample:\n  cusr dispatch --project acme --json`,
   options: [DATA_DIR, { flags: '--project <id>', description: 'Project ID' }],
   async run(values, json, io) {
     if (values['project'] !== undefined)
@@ -1044,6 +1127,7 @@ export const dispatchCommand: CliCommand = {
 export const answerCommand: CliCommand = {
   name: 'answer',
   description: 'Answer a question from a text file; the first valid answer is accepted',
+  help: `Take <question> and --expected-version (task_version) from cusr inbox.\n\nExample:\n  echo "Use the v2 endpoint" | cusr answer <question-id> --expected-version 5 --file - --json`,
   args: ['<question>'],
   options: [
     DATA_DIR,
@@ -1105,7 +1189,11 @@ export const doctorCommand: CliCommand = {
   description: 'Check daemon health, host prerequisites, credentials, and harness capabilities',
   help: `Healthy: exit 0 with the checks in data.checks. Any failed check: exit 1, error code unhealthy,
 and the checks, each failed one with its fix, in error.details.checks (data is null).
-A passed systemd unit or terminal probe is reused for 30 seconds; a failed one runs again.`,
+A passed systemd unit or terminal probe is reused for 30 seconds; a failed one runs again.
+
+Examples:
+  cusr doctor --json
+  cusr doctor --project acme --json`,
   options: [DATA_DIR, { flags: '--project <id>', description: 'Include checks for this project' }],
   run: (values, json, io) =>
     query(

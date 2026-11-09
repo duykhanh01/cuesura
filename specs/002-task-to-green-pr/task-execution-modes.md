@@ -53,8 +53,9 @@ Có thể gộp một lượt tương tác cho cả intake và cấu hình chạ
 và bằng chứng xác nhận bao phủ đúng task/bộ lựa chọn; không yêu cầu hai lượt chat chỉ vì có hai phạm vi.
 
 Không xác nhận cấu hình chạy ngầm do timeout, auto-confirm của caller hoặc lựa chọn được đánh dấu sẵn.
-Daemon chỉ chấp nhận lựa chọn hợp lệ trong allowlist/capability và có bằng chứng xác nhận từ
-kênh người dùng đáng tin; một cờ do assistant tự khai không phải bằng chứng. Cơ chế xác thực
+Daemon chỉ chấp nhận lựa chọn hợp lệ trong allowlist/capability và có xác nhận gắn digest từ
+caller có quyền `operate`; assistant có quyền này nên tự xác nhận được bằng `task confirm --run-config`
+(`trustedConfirmer`, PR #53, hiến chương 4.0.0). Một cờ trong payload không phải bằng chứng. Cơ chế xác thực
 xác nhận không được mở rộng token operate thành quyền admin hay cho worker thấy control token.
 
 Xác nhận phải gắn với task/revision và digest của bộ lựa chọn, có actor/provenance; ghi bền để

@@ -19,7 +19,7 @@ cột mới trong `command_ledger`. Không thêm task status, event type hay l�
 | `last_updated_at` | Thời điểm cập nhật thành công cuối |
 | `stale` | Đúng khi lần làm mới Home gần nhất thất bại ở board, health hoặc `project_list` cần đọc; khóa mọi thao tác ghi mới (FR-044) |
 | `stale_tasks` | Task có đọc chi tiết gần nhất thất bại; khóa thao tác ghi mới trên task đó (FR-044) |
-| `caller` | Actor, vai trò, phạm vi, `trusted_confirmer` từ `project_list` |
+| `caller` | Actor, vai trò, `trusted_confirmer` từ `project_list` |
 | `screen_stack` | Màn hình đang mở, gồm các hộp thoại |
 | `selected_task_id` | Giữ theo task ID, không theo dòng (EC-013) |
 | `filters` | Project và status. Mỗi lần mở đều bắt đầu không lọc (FR-008) |

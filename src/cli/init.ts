@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import {
+  InitBlockedError,
   InitWriteError,
   PR_TEMPLATE_TARGET,
   initItems,
@@ -36,7 +37,9 @@ function gitRoot(dir: string): string | null {
 /** Filesystem failures end as one envelope like any other error, with what was installed before them. */
 function failed(e: unknown, root: string, json: boolean, io: CliIo): number {
   const write = e instanceof InitWriteError;
-  const code = write ? 'write_failed' : 'init_failed';
+  // A file in a state init must not write over is for the person to fix, not a failure of init.
+  const code =
+    e instanceof InitBlockedError ? 'invalid_arguments' : write ? 'write_failed' : 'init_failed';
   const message = e instanceof Error ? e.message : String(e);
   const files = write ? e.done : [];
   if (json)
@@ -56,6 +59,14 @@ function failed(e: unknown, root: string, json: boolean, io: CliIo): number {
     if (files.length > 0) io.stderr('cusr: the files above stay installed; run cusr init again.\n');
   }
   return exitCodeForError(code);
+}
+
+/** What the person runs after init: cusr knows the repo only once the cusrd config names it. */
+function nextSteps(root: string): string[] {
+  return [
+    `declare the repo under projects in the config cusrd starts with: ID: { path: ${root}, base_branch: BRANCH }`,
+    'cusr doctor --project ID',
+  ];
 }
 
 function describe(f: InitFile): string {
@@ -82,7 +93,10 @@ Examples:
   cusr init --yes --data-dir ~/cuesura-dogfood/data`,
     options: [
       { flags: '--dir <path>', description: 'Repo to set up (default: the current directory)' },
-      { flags: '--yes', description: 'Install every item without asking' },
+      {
+        flags: '--yes',
+        description: 'Install every item that can be installed without asking',
+      },
       { flags: '--force', description: 'Replace skill files that differ from the shipped copy' },
       {
         flags: '--data-dir <dir>',
@@ -92,16 +106,33 @@ Examples:
     async run(values, json, io) {
       const dir = values['dir'] ?? process.cwd();
       const root = gitRoot(dir);
-      if (root === null) return badFlag(`${dir} is not inside a Git repository.`, {}, json, io);
+      if (root === null)
+        return badFlag(
+          `${dir} is not inside a Git repository; run cusr init inside one, or pass --dir <repo>.`,
+          {},
+          json,
+          io,
+        );
+      const dataDir = resolveDataDir(values['dataDir']);
       let items;
       try {
-        items = initItems(root);
+        items = initItems(root, { dataDir });
       } catch (e) {
         return failed(e, root, json, io);
       }
+      const unavailable = items.flatMap((i) =>
+        i.unavailable === null ? [] : [{ id: i.id, reason: i.unavailable }],
+      );
       let ids: readonly InitItemId[];
       if (values['yes'] === 'true') {
         ids = items.filter((i) => i.unavailable === null).map((i) => i.id);
+        if (ids.length === 0)
+          return badFlag(
+            `nothing can be installed in this repo: ${unavailable.map((u) => `${u.id}: ${u.reason}`).join('; ')}`,
+            { root, unavailable },
+            json,
+            io,
+          );
       } else if (json || !deps.interactive()) {
         return badFlag(
           'cusr init asks what to install: run it in a terminal, or pass --yes.',
@@ -124,18 +155,18 @@ Examples:
       }
       let files: InitFile[];
       try {
-        files = installInitItems(root, ids, {
-          force: values['force'] === 'true',
-          dataDir: resolveDataDir(values['dataDir']),
-        });
+        files = installInitItems(root, ids, { force: values['force'] === 'true', dataDir });
       } catch (e) {
         return failed(e, root, json, io);
       }
+      const skipped = unavailable.filter((u) => !ids.includes(u.id));
+      const next = nextSteps(root);
       if (json) {
-        io.stdout(renderEnvelope(okEnvelope({ root, files })));
+        io.stdout(renderEnvelope(okEnvelope({ root, files, unavailable: skipped, next })));
         return ExitCode.ok;
       }
       io.stdout(`${root}\n${files.map(describe).join('')}`);
+      for (const u of skipped) io.stdout(`Not installed: ${u.id}: ${u.reason}\n`);
       if (files.some((f) => f.status === 'kept'))
         io.stdout('Pass --force to replace the files kept above.\n');
       const written = files.filter(
@@ -146,6 +177,7 @@ Examples:
           'Commit these files. cusr reads the PR template from the base commit, so new tasks use it once the commit is there.\n',
         );
       else if (written.length > 0) io.stdout('Commit these files.\n');
+      io.stdout(`Next:\n${next.map((n) => `  ${n}\n`).join('')}`);
       return ExitCode.ok;
     },
   };

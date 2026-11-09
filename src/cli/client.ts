@@ -266,6 +266,11 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
 export const statusCommand: CliCommand = {
   name: 'status',
   description: 'Show daemon health, recovery status, and execution slot',
+  help: `Exit 3 with daemon_unreachable when cusrd is not running; cusr doctor checks the host.
+
+Examples:
+  cusr status
+  cusr --data-dir ~/.cusr status --json`,
   options: [
     {
       flags: '--data-dir <dir>',

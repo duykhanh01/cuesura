@@ -4,13 +4,14 @@ import {
   DATA_DIR,
   buildInfo,
   exitOnClosedPipe,
+  helpArgv,
   packageVersion,
   processIo,
   runCli,
 } from './program.ts';
 import { refuseWorker } from './worker-guard.ts';
 
-const argv = process.argv.slice(2);
+const argv = helpArgv(process.argv.slice(2), [DATA_DIR]);
 const term = process.env['TERM'];
 const refused = refuseWorker(argv, process.env, processIo);
 

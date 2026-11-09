@@ -10,8 +10,10 @@ server gắn task ID/requester đáng tin, không nhận `AuthzContext` do calle
 Áp dụng [M01–M08](../task-execution-modes.md): agent nhận task đọc chỉ dẫn `when to use` để đề xuất;
 daemon chỉ validate lựa chọn tường minh. Trước spawn đầu, người dùng xem task/revision, profile,
 mode, worker harness/model/effort và reviewer binding nếu `full-review`, cùng fallback đã cho phép.
-Xác nhận từ kênh người dùng đáng tin gắn với digest bộ lựa chọn; assistant không tự khai `confirmed`
-để vượt bước này, quyền operate không được nâng lên. Task do assistant tạo mặc định chờ xác nhận intake; auto-confirm intake và hạn mức tạo task theo
+Xác nhận gắn với digest bộ lựa chọn và ghi actor/kênh. Caller có quyền `operate`, kể cả assistant, là
+người xác nhận đáng tin (`trustedConfirmer`, `src/domain/run-config.ts`; quyết định từ PR #53, hiến chương
+4.0.0): assistant tự xác nhận được bộ lựa chọn đã đề xuất bằng `task confirm --run-config DIGEST`, quyền
+operate không được nâng lên admin. Task do assistant tạo mặc định chờ xác nhận intake; auto-confirm intake và hạn mức tạo task theo
 client chỉ do người dùng cấu hình. Auto-confirm intake không miễn xác nhận chạy. `task add` từ requester
 có trong `intake.auto_confirm` của user config tạo task không chờ intake (`TaskCreated` mang
 `intake_auto_confirmed: true`); payload không có trường nào để caller tự khai việc này.
@@ -39,7 +41,7 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | `cusr task pause ID --reason TEXT [--now]`, `cusr task resume ID` | operate; version/dedup; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; `--file -` đọc stdin; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
 | `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
-| `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
+| `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`repo` là `cusr.dispatch.yaml` của repo, `global` là `dispatch.yaml` cạnh user config, hoặc `none`), `modes`, `rules`, `default`. Lấy từ `cusr.dispatch.yaml` ở `origin/<base_branch>` của repo (không fetch), không có thì `dispatch.yaml` cạnh user config ([architecture §5.1](../../../docs/architecture.md)); đọc mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
 | `cusr inbox [--task ID] [--project ID] [--limit N] [--after CURSOR]`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; inbox: xem [Inbox](#inbox). Answer: câu trả lời đầu thắng, ràng buộc revision/version; `--file -` đọc stdin. Câu trả lời thua trả `conflict` (`reason: "already_answered"`, `answered_by`), exit 6, như `question_not_open`; event `AnswerRejected` nó ghi không đổi phần task mà version so sánh, nên version bên thua đã đọc vẫn dùng được cho mutation tiếp theo |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | operate; task/revision/policy hash đúng, không cấp merge. Engine chỉ xin duyệt nấc còn ngân sách escalation và nằm trong bộ đã xác nhận: hết ngân sách thì chờ `escalations_exhausted`, nấc ngoài bộ thì task kết thúc `run_config_unconfirmed` mà không mở wait `escalation` (issue #263) |
 | `cusr task approve ID --kind adopt --head-sha SHA` | admin; task khai `--pr`/`pr_ref`, chưa start; PR mở, cùng repo (không fork), đúng base, head đúng SHA, không task sống nào đang giữ PR |
@@ -308,7 +310,7 @@ NormalizedUser để runtime còn biết allowlisted remote.
 | User `runtime.concurrency` | Số task giữ execution slot cùng lúc (FR-044.01); số nguyên 1–64, mặc định 1; đọc khi cusrd khởi động, đổi thì restart; không thuộc snapshot của task. `GET /v1/health` trả `slots` (mọi slot đang giữ, theo thứ tự cấp, kèm `reserved_at` và `borrower_task_id`), `loans` (chỗ đang cho mượn) và `concurrency` |
 | User `runtime.slot_reservation_hours` | Số giờ task chờ CI/merge/người/cooldown giữ chỗ slot (FR-044.02); số nguyên 1–720, mặc định 24; tính từ lúc bắt đầu giữ, đọc khi cusrd khởi động; hết hạn thì slot thành slot trống. `cusr task explain` trả `slot.hold` (`running`, `reserved` hoặc `borrowed`) |
 | User `runtime.harness_isolation.<harness>` | internal_required mặc định hoặc allow_external_verified; mode sau chỉ được chọn khi S0.1 proof còn hợp lệ, không nhận từ cusr.yaml/task/agent |
-| User `projects.<id>.dispatch`, `runtime.dispatch` | Bản của project thay toàn bộ bản `runtime`, không merge rule. Gồm `profile`, `rules[]` (tùy chọn) và `default` bắt buộc. Mỗi rule có `when`, `why`, `use`, `reviewer?`; `default` có `use`, `reviewer?`, `why?`. `use` là một hoặc một mảng có thứ tự `{harness, model, effort}`, cả ba khóa bắt buộc; `reviewer` cùng dạng. Có `reviewer` là `full-review`, không có là `direct-pr`. Lúc nạp: profile tồn tại và cho phép, mode được phép theo `runtime.modes`, `use` khớp binding của `coder` và `fixer`, `reviewer` khớp binding của `reviewer`. Daemon không đọc `when`, không xếp `use`; không thuộc hash chính sách của task |
+| `dispatch.yaml` cạnh user config, `cusr.dispatch.yaml` ở gốc repo | `projects.<id>.dispatch` và `runtime.dispatch` cũ đã bỏ: config cũ vẫn khởi động, cusrd cảnh báo và bỏ qua. File của repo thay toàn bộ file chung, không merge rule. Gồm `profile`, `rules[]` (tùy chọn) và `default` bắt buộc. Mỗi rule có `when`, `why`, `use`, `reviewer?`; `default` có `use`, `reviewer?`, `why?`. `use` là một hoặc một mảng có thứ tự `{harness, model, effort}`, cả ba khóa bắt buộc; `reviewer` cùng dạng. Có `reviewer` là `full-review`, không có là `direct-pr`. Lúc nạp: profile tồn tại và cho phép, mode được phép theo `runtime.modes`, `use` khớp binding của `coder` và `fixer`, `reviewer` khớp binding của `reviewer`. Daemon không đọc `when`, không xếp `use`; không thuộc hash chính sách của task |
 | User `runtime.limits` | Các trần có default ở research R-04/R-11; số nguyên dương, hữu hạn; task mới chụp snapshot/hash |
 | User `runtime.tool_paths` | git/gh/systemd-run/bwrap/flock absolute executable; hash/version được doctor ghi |
 | User `runtime.credential_refs` | File reference cho GitHub/harness, không copy secret vào snapshot |
@@ -459,13 +461,17 @@ không nhận input giữa chừng; mặc định assistant là `steer`, ngườ
 ## Confirm/recheck PENDING và health
 
 Confirm/recheck không mở slot hay worktree trước triage. Khi cấu hình/năng lực sai, giữ needs_info
-và detail config_invalid/capability_missing; chỉ lệnh mới mới thử lại, không poll base. Khi hợp lệ,
+và detail config_invalid/capability_missing. Lỗi do môi trường (capability_missing, hoặc config_invalid
+chỉ gồm check `stacked_base`) được daemon tự preflight lại chỉ đọc theo backoff (FR-002.03, issue #249);
+lỗi cấu hình thật chờ người sửa rồi confirm/recheck bằng request mới. Khi hợp lệ,
 task chờ slot READY; lúc cấp slot đọc/chốt base mới nhất lại trước RUNNING. Không chụp hai FrozenPolicy
 cùng task/revision chỉ vì confirm rồi start: kết quả kiểm tra sớm là candidate, snapshot duy nhất
 chốt nguyên tử lúc bắt đầu theo FR-002.01.
 
-Health gồm writer/schema/integrity/replay, claims chưa rõ, runner/capabilities và lần observation
-cuối/hạn còn lại. Clock/next timer do code; không LLM, không coi health xanh thay gate/test/build.
+Health (`cusr status`) gồm writer, store, dispatch, recovery (bước replay, claims chưa rõ, spool), slot,
+queue và `startup`; không có runner/capabilities hay lần observation cuối: `cusr doctor --project` kiểm
+capability, `task explain` cho observation của từng task. Clock/next timer do code; không LLM, không coi
+health xanh thay gate/test/build.
 
 `GET /v1/health` (`cusr status`) có `build` (`version`, `commit`, `built_at` của bản daemon đang chạy;
 `commit` là `null` khi chạy từ source) và `startup` (`at`, `projections`, `timers`): số đếm lúc daemon
