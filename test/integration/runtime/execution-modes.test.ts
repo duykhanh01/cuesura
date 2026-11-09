@@ -1740,7 +1740,7 @@ describe('a review round without progress at the end of the ladder (#192, #247)'
     expectReplays(d);
   });
 
-  it('a review rejecting the same files again after that turn ends the task past the ladder', () => {
+  it('a review rejecting the same files again after that turn waits past the ladder', () => {
     for (const paths of [[blocking.file], []]) {
       const { d, t } = toRepeated(dbPath(tempDir()));
       completePost(d, t.id);
@@ -1751,9 +1751,10 @@ describe('a review round without progress at the end of the ladder (#192, #247)'
       completePost(d, t.id);
       untilFixer(d, t);
 
-      expect(d.task(t.id).terminal).toEqual({
-        kind: 'FAILED',
-        reason: 'ladder_exhausted:fix_review',
+      expect(d.task(t.id).terminal).toBeNull();
+      expect(d.task(t.id).wait?.detail).toMatchObject({
+        code: 'ladder_exhausted',
+        step: 'fix_review',
       });
       expect(d.pending(t.id, 'start_agent')).toEqual([]);
       expect(types(d, t).filter((x) => x === 'AnswerTurnGranted')).toHaveLength(1);
@@ -1761,7 +1762,7 @@ describe('a review round without progress at the end of the ladder (#192, #247)'
     }
   });
 
-  it('a fixer failing with a new signature in that turn ends the task past the ladder', () => {
+  it('a fixer failing with a new signature in that turn waits past the ladder', () => {
     const { d, t } = toRepeated(dbPath(tempDir()));
     completePost(d, t.id);
     untilFixer(d, t);
@@ -1771,9 +1772,10 @@ describe('a review round without progress at the end of the ladder (#192, #247)'
       signature: 'something else',
     });
 
-    expect(d.task(t.id).terminal).toEqual({
-      kind: 'FAILED',
-      reason: 'ladder_exhausted:fix_review',
+    expect(d.task(t.id).terminal).toBeNull();
+    expect(d.task(t.id).wait?.detail).toMatchObject({
+      code: 'ladder_exhausted',
+      step: 'fix_review',
     });
     expect(d.pending(t.id, 'start_agent')).toEqual([]);
   });

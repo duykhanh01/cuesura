@@ -62,6 +62,7 @@ import {
 import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
 import { createDecider } from './decider.ts';
+import { createDeputyAbsent } from './deputy-absent.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
 import { FileContentStore } from '../adapters/publish-content.ts';
 import { queueCommands, readQueuePause } from './queue-pause.ts';
@@ -429,6 +430,14 @@ export async function productionControl(opts: {
       },
       ...(opts.log === undefined ? {} : { log: opts.log }),
     });
+    const deputyAbsent = createDeputyAbsent({
+      store,
+      clock: opts.clock,
+      newId: opts.newId,
+      // Only `roles.deputy` for now: until the deputy runs, a `decider` role keeps the #247 behaviour.
+      configured: async () => (await currentUser('deputy role'))?.roles['deputy'] !== undefined,
+      ...(opts.log === undefined ? {} : { log: opts.log }),
+    });
     const drainDeps = {
       store,
       process: process_,
@@ -495,6 +504,7 @@ export async function productionControl(opts: {
       dataDir: opts.dataDir,
       newId: opts.newId,
       decider,
+      held: deputyAbsent,
       observe,
       drain: (taskId) => drainRound(drainDeps, taskId),
       autoConfirmIntake: async (requester) =>
@@ -537,6 +547,7 @@ export async function productionControl(opts: {
         drainAll,
         () => pendingPreflight.round(),
         () => decider.round(),
+        () => deputyAbsent.round(),
         retentionRound({
           store,
           dataDir: opts.dataDir,

@@ -7,7 +7,7 @@ import { runConfigConfirmed } from '../engine/run-config.ts';
  * tell this: a task waiting on CI or a cooldown also offers actions, yet it is progressing within its
  * limits. A `Record` makes a new code fail to compile until it is classified here.
  */
-const NEEDS_USER: Record<DetailCode, boolean> = {
+export const NEEDS_USER: Readonly<Record<DetailCode, boolean>> = {
   missing_acceptance: true,
   needs_confirmation: true,
   adopt_approval: true,
@@ -66,6 +66,7 @@ const NEEDS_USER: Record<DetailCode, boolean> = {
   fix_no_src_change: true,
   cancel_reconcile: false,
   paused: true,
+  plan_amendment: true,
 };
 
 /**
@@ -106,7 +107,7 @@ export function effectUnknownOverdue(
  */
 export const CANCEL_READS_BEFORE_ATTENTION = 5;
 
-function cancelReadsStuck(s: Waiting): boolean {
+export function cancelReadsStuck(s: Waiting): boolean {
   const reads = s.wait?.detail.code === 'cancel_reconcile' ? s.wait.detail['cancel_reads'] : null;
   return typeof reads === 'number' && reads >= CANCEL_READS_BEFORE_ATTENTION;
 }

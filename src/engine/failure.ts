@@ -329,6 +329,10 @@ function askAbout(
     attempt_id: e.attempt_id,
     body: `${e.kind} failed in step '${step}': ${f.failure_class}${f.message ? ` (${f.message})` : ''}`,
     resume,
-    detail: { effect_id_failed: e.id, class: f.failure_class },
+    detail: {
+      effect_id_failed: e.id,
+      class: f.failure_class,
+      ...(f.failure === undefined ? {} : { failure: f.failure }),
+    },
   });
 }

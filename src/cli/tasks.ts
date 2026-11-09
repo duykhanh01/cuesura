@@ -23,6 +23,7 @@ import {
 } from '../application/limits.ts';
 import { TASK_STATUSES } from '../domain/state.ts';
 import { UuidSchema } from '../shared/brand.ts';
+import { parseDuration } from '../shared/duration.ts';
 import type { CliCommand, CliIo } from './program.ts';
 import {
   renderBoard,
@@ -211,6 +212,29 @@ function runProposal(values: Values): Record<string, unknown> | string | undefin
   };
 }
 
+/** Every write command records why it was sent (FR-052); a command with its own --reason reuses it. */
+const REASON = {
+  flags: '--reason <text>',
+  description: 'Why this command is sent, recorded with it (required inside a deputy turn)',
+};
+/** A deputy states what it expects from a command that buys more time (FR-042). */
+const TRIAL = [
+  { flags: '--hypothesis <text>', description: 'Deputy: what is believed to be wrong' },
+  { flags: '--expect <text>', description: 'Deputy: what should be seen if the hypothesis holds' },
+];
+
+/** The command-level fields of a write; sent only when given, so an older daemon still takes it. */
+function commandMeta(values: Values): Record<string, unknown> | string {
+  const h = values['hypothesis'];
+  const x = values['expect'];
+  if ((h === undefined) !== (x === undefined))
+    return '--hypothesis and --expect must be given together';
+  return {
+    ...(values['reason'] === undefined ? {} : { reason: values['reason'] }),
+    ...(h === undefined || x === undefined ? {} : { trial: { hypothesis: h, expect: x } }),
+  };
+}
+
 const REQUEST_ID = {
   flags: '--request-id <uuid>',
   description: 'Request ID for safe retries (default: a new UUIDv7, included in the result)',
@@ -261,6 +285,8 @@ async function mutate(
       json,
       io,
     );
+  const meta = commandMeta(values);
+  if (typeof meta === 'string') return usage(meta, json, io);
   const requestId = values['requestId'] ?? uuidv7();
   const send = (project: string | null) =>
     call(
@@ -273,6 +299,7 @@ async function mutate(
         task_id: taskId,
         expected_version: expected,
         payload,
+        ...meta,
       },
       requestId,
       timeoutMs,
@@ -459,6 +486,8 @@ Examples:
     const flagged = runProposal(values);
     if (typeof flagged === 'string') return usage(flagged, json, io);
     const run = flagged ?? fileRun;
+    const meta = commandMeta(values);
+    if (typeof meta === 'string') return usage(meta, json, io);
     const requestId = values['requestId'] ?? uuidv7();
     return print(
       await call(
@@ -471,6 +500,7 @@ Examples:
           task_id: null,
           expected_version: null,
           payload: { task, ...(run === undefined ? {} : { run_config: run }) },
+          ...meta,
         },
         requestId,
       ),
@@ -702,6 +732,7 @@ Example:
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
+    REASON,
     {
       flags: '--run-config <digest>',
       description: 'Run configuration digest from cusr task show',
@@ -760,7 +791,7 @@ export const recheckCommand: CliCommand = {
     'Recheck task configuration, pull request, drain, or worktree based on its current state',
   help: `Runs the check the current wait needs: config, PR, drain or worktree. ${FROM_SHOW}\n\nExample:\n  cusr task recheck ${ID} --expected-version 5 --json`,
   args: ['<id>'],
-  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
+  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION, REASON],
   run: (values, json, io) =>
     mutate(
       values,
@@ -810,7 +841,7 @@ export const resumeCommand: CliCommand = {
   description: 'Resume a paused task from the step it stopped at',
   help: `${FROM_SHOW}\n\nExample:\n  cusr task resume ${ID} --expected-version 6 --json`,
   args: ['<id>'],
-  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
+  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION, REASON],
   run: (values, json, io) => mutate(values, 'task_resume', values['id'] as string, {}, json, io),
 };
 
@@ -825,6 +856,8 @@ export const messageCommand: CliCommand = {
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
+    REASON,
+    ...TRIAL,
     { flags: '--file <file>', description: 'Text file containing the message; - reads stdin' },
     {
       flags: '--behavior <behavior>',
@@ -867,6 +900,8 @@ async function mutateQueue(
   json: boolean,
   io: CliIo,
 ): Promise<number> {
+  const meta = commandMeta(values);
+  if (typeof meta === 'string') return usage(meta, json, io);
   const requestId = values['requestId'] ?? uuidv7();
   return print(
     await call(
@@ -879,6 +914,7 @@ async function mutateQueue(
         task_id: null,
         expected_version: null,
         payload,
+        ...meta,
       },
       requestId,
     ),
@@ -911,7 +947,7 @@ export const queueResumeCommand: CliCommand = {
   name: 'queue resume',
   description: 'Let tasks that have not started yet be queued and started again',
   help: `Example:\n  cusr queue resume --json`,
-  options: [DATA_DIR, REQUEST_ID],
+  options: [DATA_DIR, REQUEST_ID, REASON],
   run: (values, json, io) => mutateQueue(values, 'queue_resume', {}, json, io),
 };
 
@@ -920,8 +956,35 @@ export const continueCommand: CliCommand = {
   description: 'Keep a task on its current model after its quality loop ran out',
   help: `${FROM_SHOW}\n\nExample:\n  cusr task continue ${ID} --expected-version 7 --json`,
   args: ['<id>'],
-  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION],
+  options: [DATA_DIR, REQUEST_ID, PROJECT, EXPECTED_VERSION, REASON, ...TRIAL],
   run: (values, json, io) => mutate(values, 'task_continue', values['id'] as string, {}, json, io),
+};
+
+export const failCommand: CliCommand = {
+  name: 'task fail',
+  description:
+    'End a waiting task as FAILED with a reason; work not yet published goes to a draft PR first',
+  help: `Only while the task waits. ${FROM_SHOW}\n\nExample:\n  cusr task fail ${ID} --expected-version 7 --reason "the approach cannot meet the acceptance" --json`,
+  args: ['<id>'],
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    PROJECT,
+    EXPECTED_VERSION,
+    { flags: '--reason <text>', description: 'Why the task ends, recorded as its failure reason' },
+  ],
+  run(values, json, io) {
+    if (values['reason'] === undefined)
+      return Promise.resolve(usage('task fail requires --reason', json, io));
+    return mutate(
+      values,
+      'task_fail',
+      values['id'] as string,
+      { reason: values['reason'] },
+      json,
+      io,
+    );
+  },
 };
 
 function unsupported(
@@ -953,6 +1016,8 @@ export const approveCommand: CliCommand = {
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
+    REASON,
+    ...TRIAL,
     { flags: '--kind <kind>', description: 'Approval kind: escalation or adopt' },
     { flags: '--step <step>', description: 'Step requesting escalation' },
     { flags: '--rung <n>', description: 'Requested escalation rung' },
@@ -998,17 +1063,43 @@ export const retryCommand: CliCommand = {
   run: (_values, json, io) => unsupported('task_retry', json, io),
 };
 
+/** `+N` more agent runs; a bare number is refused so it cannot be read as a new total. */
+function agentRunsDelta(raw: string | undefined): number | undefined | string {
+  if (raw === undefined) return undefined;
+  const m = /^\+([1-9][0-9]{0,2})$/.exec(raw.trim());
+  return m === null ? '--agent-runs takes +N, the number of runs to add (1-999)' : Number(m[1]);
+}
+
+/** `+duration` moves the current deadline later; an ISO time sets it. */
+function deadlineChange(
+  raw: string | undefined,
+): { at: number } | { extend_ms: number } | undefined | string {
+  if (raw === undefined) return undefined;
+  if (raw.startsWith('+')) {
+    const d = parseDuration(raw.slice(1));
+    return d.ok && d.value > 0
+      ? { extend_ms: d.value }
+      : '--deadline +DURATION needs a positive duration such as +2h';
+  }
+  const at = Date.parse(raw);
+  return Number.isNaN(at) || !/^\d{4}-\d{2}-\d{2}T/.test(raw)
+    ? '--deadline takes an ISO time (2026-11-10T08:00:00Z) or +DURATION'
+    : { at };
+}
+
 export const amendPolicyCommand: CliCommand = {
   name: 'task amend-policy',
   description:
-    'Run the waiting step on another model after its quality loop ran out (admin); preview first, then --confirm',
+    'Run the waiting step on another model, add agent runs or move the deadline; preview first, then --confirm',
   help: [
-    'Without --confirm this only previews: it prints the rung, the binding it replaces or adds, whether the',
-    'rung needs approval, and the new policy hash. Run it again with --confirm <policy_hash> to apply exactly',
-    'that change; the task then goes on from the waiting step with its worktree, evidence and history.',
+    'Without --confirm this only previews: it prints what changes (the rung and binding, the run cap or the',
+    'deadline) and the new policy hash. Run it again with --confirm <policy_hash> to apply exactly that',
+    'change; the task then goes on from the waiting step with its worktree, evidence and history.',
+    '--deadline +2h moves the current deadline two hours later; an ISO time sets it.',
     '',
     'Examples:',
     `  cusr task amend-policy ${ID} --model opus --json`,
+    `  cusr task amend-policy ${ID} --agent-runs +3 --json`,
     `  cusr task amend-policy ${ID} --expected-version 7 --model opus --reason "loop ran out" \\`,
     '    --confirm <policy_hash> --json',
   ].join('\n'),
@@ -1023,17 +1114,31 @@ export const amendPolicyCommand: CliCommand = {
       flags: '--effort <level>',
       description: 'Effort: low, medium or high (default: the current rung effort)',
     },
+    { flags: '--agent-runs <+n>', description: 'Agent runs to add to the cap, written +N' },
+    {
+      flags: '--deadline <time|+duration>',
+      description: 'New deadline as an ISO time, or +DURATION to move the current one later',
+    },
     { flags: '--reason <text>', description: 'Why the policy changes, recorded in task history' },
     { flags: '--confirm <hash>', description: 'Policy hash from the preview; applies the change' },
+    ...TRIAL,
   ],
   run(values, json, io) {
     const taskId = values['id'] as string;
     const model = values['model'];
-    if (model === undefined)
-      return Promise.resolve(usage('task amend-policy requires --model', json, io));
+    const runs = agentRunsDelta(values['agentRuns']);
+    const deadline = deadlineChange(values['deadline']);
+    if (typeof runs === 'string') return Promise.resolve(usage(runs, json, io));
+    if (typeof deadline === 'string') return Promise.resolve(usage(deadline, json, io));
+    if (model === undefined && runs === undefined && deadline === undefined)
+      return Promise.resolve(
+        usage('task amend-policy requires --model, --agent-runs or --deadline', json, io),
+      );
     const change = {
-      model,
+      ...(model === undefined ? {} : { model }),
       ...(values['effort'] === undefined ? {} : { effort: values['effort'] }),
+      ...(runs === undefined ? {} : { agent_runs_delta: runs }),
+      ...(deadline === undefined ? {} : { deadline }),
     };
     const hash = values['confirm'];
     if (hash === undefined)
@@ -1143,6 +1248,7 @@ export const answerCommand: CliCommand = {
     DATA_DIR,
     REQUEST_ID,
     EXPECTED_VERSION,
+    REASON,
     { flags: '--file <file>', description: 'Text file containing the answer; - reads stdin' },
   ],
   async run(values, json, io) {
@@ -1163,6 +1269,8 @@ export const answerCommand: CliCommand = {
         io,
       );
     }
+    const meta = commandMeta(values);
+    if (typeof meta === 'string') return usage(meta, json, io);
     const requestId = values['requestId'] ?? uuidv7();
     const question = values['question'] as string;
     const where = await call(
@@ -1185,6 +1293,7 @@ export const answerCommand: CliCommand = {
           task_id: found.task_id,
           expected_version: expected,
           payload: { question_id: question, answer },
+          ...meta,
         },
         requestId,
       ),

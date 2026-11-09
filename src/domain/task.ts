@@ -16,11 +16,21 @@ export const AttachmentRefSchema = z
 
 export const RequesterSchema = z
   .object({
-    kind: z.enum(['human', 'assistant', 'source']),
+    kind: z.enum(['human', 'assistant', 'source', 'deputy']),
     id: z.string().min(1),
   })
   .strict();
 export type Requester = z.infer<typeof RequesterSchema>;
+
+export const TaskGoalSchema = z
+  .object({
+    id: UuidSchema,
+    unit_key: z.string().min(1).nullable(),
+    role: z.enum(['unit', 'final']),
+    depends_on_units: z.array(z.string().min(1)),
+  })
+  .strict();
+export type TaskGoal = z.infer<typeof TaskGoalSchema>;
 
 /** `owner/repo#number` of an existing pull request. */
 export const PR_REF_PATTERN = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+#[1-9][0-9]*$/;
@@ -57,6 +67,11 @@ export const CanonicalTaskSchema = z
      * so the hashes of other tasks do not change.
      */
     scope: z.array(z.string().min(1)).min(1).optional(),
+    /**
+     * The goal this task belongs to, frozen at intake; absent for a task outside any planned goal, so the
+     * hashes of other tasks do not change. Dependencies inside a goal name unit keys (R-29).
+     */
+    goal: TaskGoalSchema.optional(),
   })
   .strict();
 export type CanonicalTask = z.infer<typeof CanonicalTaskSchema>;

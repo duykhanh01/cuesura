@@ -54,6 +54,7 @@ export const LAZY_COMMANDS: readonly LazyCommand[] = [
   tasks('task cancel', 'cancelCommand'),
   tasks('task recheck', 'recheckCommand'),
   tasks('task continue', 'continueCommand'),
+  tasks('task fail', 'failCommand'),
   tasks('task pause', 'pauseCommand'),
   tasks('task resume', 'resumeCommand'),
   tasks('task message', 'messageCommand'),

@@ -10,7 +10,7 @@ import { answerQuestion } from '../application/answer.ts';
 import { approveEscalation } from '../application/approve.ts';
 import { statusSinceReader, taskBoard } from '../application/board.ts';
 import { cancelTask } from '../application/cancel.ts';
-import { continueTask } from '../application/continue.ts';
+import { continueTask, failWaitingTask } from '../application/continue.ts';
 import { messageTask, pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps, type DoctorProbeCache } from '../application/doctor.ts';
 import { AttentionDesk, type DeciderWatch } from '../application/attention.ts';
@@ -72,7 +72,18 @@ export type TaskControlDeps = TaskServiceDeps & {
    * is told after an answer, cancel or pause so a run the person overtook stops.
    */
   readonly decider?: DeciderWatch & { readonly recheck?: (taskId: string) => Promise<void> };
+  /** Other waits the daemon ends or hands on by itself; the assistant is not woken for them (007). */
+  readonly held?: DeciderWatch;
 };
+
+/** One watch for the attention desk: held by either. */
+function heldByEither(
+  a: DeciderWatch | undefined,
+  b: DeciderWatch | undefined,
+): DeciderWatch | undefined {
+  if (a === undefined || b === undefined) return a ?? b;
+  return { holds: (s) => a.holds(s) || b.holds(s), version: () => a.version() + b.version() };
+}
 
 /** The explanation with what the branch touches and how it stands against its base (issue #210). */
 async function withScope(
@@ -143,6 +154,7 @@ export function taskControl(deps: TaskControlDeps): {
     approve_escalation: CommandHandler;
     approve_adopt: CommandHandler;
     task_continue: CommandHandler;
+    task_fail: CommandHandler;
     task_amend_policy: CommandHandler;
     task_pause: CommandHandler;
     task_resume: CommandHandler;
@@ -165,7 +177,9 @@ export function taskControl(deps: TaskControlDeps): {
     store,
     now: deps.now,
     ...(deps.dataDir === undefined ? {} : { dataDir: deps.dataDir }),
-    ...(deps.decider === undefined ? {} : { decider: deps.decider }),
+    ...(heldByEither(deps.decider, deps.held) === undefined
+      ? {}
+      : { decider: heldByEither(deps.decider, deps.held) as DeciderWatch }),
   });
   const queuePause = (): QueuePause | null =>
     deps.dataDir === undefined ? null : readQueuePause(deps.dataDir);
@@ -198,6 +212,9 @@ export function taskControl(deps: TaskControlDeps): {
       approve_adopt: (admitted, input, caller) =>
         approveAdopt(deps.confirm, admitted, input, caller),
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
+      task_fail: overtakes((admitted, input, caller) =>
+        failWaitingTask(deps, admitted, input, caller),
+      ),
       task_amend_policy: (admitted, input, caller) => amendPolicy(deps, admitted, input, caller),
       task_pause: overtakes((admitted, input, caller) => pauseTask(deps, admitted, input, caller)),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { AuthzRole } from '../domain/policy.ts';
+import { TrialSchema, type AuthzRole, type Trial } from '../domain/policy.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
 import { AmendPayloadSchema } from './amend-policy.ts';
 import { HashSchema, UuidSchema, type Uuid } from '../shared/brand.ts';
@@ -28,6 +28,7 @@ export const COMMAND_PAYLOADS = {
   task_cancel: z.object({ reason: Reason, force: z.literal(true).optional() }).strict(),
   task_recheck: z.object({}).strict(),
   task_continue: z.object({}).strict(),
+  task_fail: z.object({ reason: Reason }).strict(),
   task_amend_policy: AmendPayloadSchema,
   task_pause: z.object({ reason: Reason, now: z.boolean().optional() }).strict(),
   task_resume: z.object({}).strict(),
@@ -54,7 +55,8 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   task_cancel: 'operate',
   task_recheck: 'operate',
   task_continue: 'operate',
-  task_amend_policy: 'admin',
+  task_fail: 'operate',
+  task_amend_policy: 'operate',
   task_pause: 'operate',
   task_resume: 'operate',
   task_message: 'operate',
@@ -64,6 +66,27 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   approve_escalation: 'operate',
   approve_adopt: 'admin',
 };
+
+/** What the deputy may send (FR-034); anything else from it is `forbidden` `deputy_kind`. */
+const DEPUTY_KINDS: ReadonlySet<CommandKind> = new Set([
+  'answer',
+  'task_continue',
+  'task_recheck',
+  'approve_escalation',
+  'task_amend_policy',
+  'task_message',
+  'task_pause',
+  'task_resume',
+  'task_fail',
+]);
+
+/** Commands that buy a task more time or another try; from the deputy they carry a trial (FR-042). */
+const EXTENSION_KINDS: ReadonlySet<CommandKind> = new Set([
+  'task_continue',
+  'task_amend_policy',
+  'task_message',
+  'approve_escalation',
+]);
 
 /** Commands on the daemon's own queue: no project, task or version. */
 export const GLOBAL_COMMANDS: readonly CommandKind[] = ['queue_pause', 'queue_resume'];
@@ -88,6 +111,9 @@ export const CommandSchema = z
     task_id: UuidSchema.nullable(),
     expected_version: z.number().int().nonnegative().nullable(),
     payload: z.unknown(),
+    // 007 (FR-052, FR-042): why the caller sends it, and the deputy's hypothesis for an extension.
+    reason: Reason.nullable().optional(),
+    trial: TrialSchema.nullable().optional(),
   })
   .strict();
 export type CommandInput = z.input<typeof CommandSchema>;
@@ -98,7 +124,11 @@ export type AdmitError =
   | { code: 'invalid_command'; issues: string[] }
   | LedgerError;
 
-export type Admitted = Admission & { command_hash: string };
+export type Admitted = Admission & {
+  command_hash: string;
+  reason: string | null;
+  trial: Trial | null;
+};
 
 export type CommandDeps = {
   store: Store;
@@ -194,6 +224,10 @@ export function admitCommand(
   }
   if (issues.length > 0) return err({ code: 'invalid_command', issues });
 
+  const reason = cmd.reason ?? null;
+  const trial = cmd.trial ?? null;
+  const turnId = actor === 'deputy' ? ((caller as Caller).turn_id ?? null) : null;
+  // Fields are hashed only when present, so a command without them keeps the hash it always had.
   const command_hash = hashCanonical({
     kind,
     project: cmd.project,
@@ -201,7 +235,16 @@ export function admitCommand(
     expected_version: cmd.expected_version,
     payload: payload.data,
     actor,
+    ...(reason === null ? {} : { reason }),
+    ...(trial === null ? {} : { trial }),
+    ...(turnId === null ? {} : { turn_id: turnId }),
   });
+  // A replay is recognized before any check of the current state, so a command that took effect is
+  // answered again with its result even after its turn ended (FR-055).
+  if (deps.store.readCommand(cmd.request_id) === null && actor === 'deputy') {
+    const refused = deputyRefusal(deps.store, turnId, kind, reason, trial);
+    if (refused !== null) return err(refused);
+  }
   // IDs are drawn even for a replay; only the first admission's IDs are ever stored and returned.
   const assigned = Array.from({ length: ASSIGNED_IDS }, () => deps.newId());
   const r = deps.store.admitCommand({
@@ -213,7 +256,29 @@ export function admitCommand(
     task_id: kind === 'task_add' ? (assigned[0] as string) : cmd.task_id,
     assigned_ids: kind === 'task_add' ? assigned.slice(1) : assigned,
     now: deps.now(),
+    reason,
+    turn_id: turnId,
+    trial,
   });
   if (!r.ok) return r;
-  return ok({ ...r.value, command_hash });
+  return ok({ ...r.value, command_hash, reason, trial });
+}
+
+/** FR-051 for a new command of the deputy: its turn runs, the kind is its own, and it says why. */
+function deputyRefusal(
+  store: Store,
+  turnId: string | null,
+  kind: CommandKind,
+  reason: string | null,
+  trial: Trial | null,
+): AdmitError | null {
+  if (turnId === null || !store.deputy.isRunningTurn(turnId))
+    return { code: 'forbidden', reason: 'turn', required: 'a running deputy turn' };
+  if (!DEPUTY_KINDS.has(kind))
+    return { code: 'forbidden', reason: 'deputy_kind', required: 'a command of the deputy table' };
+  const issues: string[] = [];
+  if (reason === null) issues.push('reason: required for the deputy');
+  if (trial === null && EXTENSION_KINDS.has(kind))
+    issues.push(`trial: required for ${kind} from the deputy (--hypothesis and --expect)`);
+  return issues.length === 0 ? null : { code: 'invalid_command', issues };
 }

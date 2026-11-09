@@ -229,12 +229,22 @@ export type FrozenExecutionContext = z.infer<typeof FrozenExecutionContextSchema
 export const AUTHZ_ROLES = ['read', 'operate', 'admin'] as const;
 export type AuthzRole = (typeof AUTHZ_ROLES)[number];
 
+/** The hypothesis and success criterion a deputy states with a command that buys more time (FR-042). */
+export const TrialSchema = z
+  .object({ hypothesis: z.string().min(1).max(2_048), expect: z.string().min(1).max(2_048) })
+  .strict();
+export type Trial = z.infer<typeof TrialSchema>;
+
 export const AuthzContextSchema = z
   .object({
     actor: z.string().min(1),
     roles: z.array(z.enum(AUTHZ_ROLES)),
     issued_by: z.string().min(1),
     issued_at: z.number().int().nonnegative(),
+    // Additive (007, FR-052): what the command said about itself, absent when it said nothing.
+    reason: z.string().min(1).max(4_096).optional(),
+    trial: TrialSchema.optional(),
+    turn_id: z.string().min(1).optional(),
   })
   .strict();
 export type AuthzContext = z.infer<typeof AuthzContextSchema>;

@@ -50,7 +50,9 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
     const out = allowedActions(state(code), { recheckable: true });
     expect(out.length).toBeGreaterThan(0);
     const text = JSON.stringify(out);
-    expect(text).not.toMatch(/amend/i);
+    // An amendment is offered only for the limits it lifts (007, FR-031).
+    if (!['agent_runs_exhausted', 'agent_runs_insufficient', 'deadline'].includes(code))
+      expect(text).not.toMatch(/amend/i);
     expect(text).not.toMatch(/yolo/i);
     expect(text).not.toMatch(/--kind merge/);
     expect(text).not.toMatch(/extend the deadline|more attempts|retry/i);
@@ -59,10 +61,10 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
 
   it.each<[DetailCode, string[]]>([
     ['merge', ['merge_manually', 'recheck', 'cancel']],
-    ['deadline', ['merge_manually', 'recheck', 'cancel', 'task_add']],
-    ['ci_wait_exhausted', ['merge_manually', 'recheck', 'cancel', 'task_add']],
+    ['deadline', ['amend_policy', 'merge_manually', 'recheck', 'cancel', 'task_add']],
+    ['ci_wait_exhausted', ['continue', 'merge_manually', 'recheck', 'cancel', 'task_add']],
     ['ladder_exhausted', ['merge_manually', 'recheck', 'cancel', 'task_add']],
-    ['agent_runs_exhausted', ['merge_manually', 'recheck', 'cancel', 'task_add']],
+    ['agent_runs_exhausted', ['amend_policy', 'merge_manually', 'recheck', 'cancel', 'task_add']],
     ['head_changed', ['fix_external', 'recheck', 'merge_manually', 'cancel']],
     ['target_mismatch', ['fix_external', 'recheck', 'cancel']],
     [
@@ -86,8 +88,12 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
     expect(actions(code)).toEqual(expected);
   });
 
-  it('without a PR the spent limits leave only cancel and an independent task', () => {
-    expect(actions('deadline', { pr_ref: null }, false)).toEqual(['cancel', 'task_add']);
+  it('without a PR the spent limits leave raising them, cancel and an independent task', () => {
+    expect(actions('deadline', { pr_ref: null }, false)).toEqual([
+      'amend_policy',
+      'cancel',
+      'task_add',
+    ]);
   });
 
   it('never offers a recheck the service would refuse', () => {
@@ -118,7 +124,7 @@ describe('allowed actions for every wait detail (T111, FR-029)', () => {
       ]);
       expect(out[0]?.command).toBe(`cusr task continue ${ID} --expected-version 9`);
       expect(out[1]?.command).toBe(`cusr task amend-policy ${ID} --model MODEL`);
-      expect(out[1]?.requires).toBe('admin');
+      expect(out[1]?.requires).toBe('operate');
       expect(JSON.stringify(out)).not.toMatch(/more attempts|retry/i);
     },
   );

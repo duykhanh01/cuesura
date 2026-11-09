@@ -13,8 +13,10 @@ import {
   ACTOR_HEADER,
   CALLER_ACTORS,
   isCallerActor,
+  TURN_HEADER,
   type CallerActor,
 } from '../application/authz.ts';
+import { DEPUTY_TURN_ENV } from '../runner/process-env.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import {
   CONTROL_SOCKET,
@@ -138,9 +140,17 @@ export function clientErrorEnvelope(
   });
 }
 
+/** The deputy turn this process runs in, if any. */
+export function deputyTurn(env: NodeJS.ProcessEnv = process.env): string | null {
+  const v = env[DEPUTY_TURN_ENV];
+  return v === undefined || v === '' ? null : v;
+}
+
 export function readClientActor(
   env: NodeJS.ProcessEnv = process.env,
 ): Result<CallerActor, ClientError> {
+  // Inside a deputy turn the actor is the deputy, whatever CUSR_ACTOR the session inherited (FR-050).
+  if (deputyTurn(env) !== null) return ok('deputy');
   const v = env['CUSR_ACTOR'];
   if (v === undefined || v === '') return ok('owner');
   return isCallerActor(v)
@@ -154,6 +164,8 @@ export function readClientActor(
 export type CallOptions = {
   readonly socketPath: string;
   readonly actor: CallerActor;
+  /** The deputy turn to send for actor `deputy`; default: this process's `CUSR_DEPUTY_TURN`. */
+  readonly turn?: string | null;
   readonly method: 'GET' | 'POST';
   readonly path: string;
   readonly body?: unknown;
@@ -193,6 +205,9 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
         path: opts.path,
         headers: {
           [ACTOR_HEADER]: opts.actor,
+          ...(opts.actor === 'deputy' && (opts.turn ?? deputyTurn()) !== null
+            ? { [TURN_HEADER]: (opts.turn ?? deputyTurn()) as string }
+            : {}),
           ...(payload === null
             ? {}
             : {

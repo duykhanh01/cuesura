@@ -152,6 +152,8 @@ export const ReviewDataSchema = z
           file: z.string().optional(),
           line: z.number().int().optional(),
           msg: z.string(),
+          // Additive (007, R-18): the reviewer's key for this issue across rounds.
+          key: z.string().min(1).max(128).optional(),
         })
         .strict(),
     ),
@@ -368,6 +370,8 @@ export const StopDataSchema = z
 export const FailureDataSchema = z
   .object({
     failure_class: z.enum(FAILURE_CLASSES),
+    // Additive (007, FR-002): the agent changed a zone it may only read; the owner looks first.
+    failure: z.literal('boundary_violation').optional(),
     signature: z.string().optional(),
     reset_at: z.number().int().nonnegative().optional(),
     usage: UsageSchema.optional(),
@@ -752,6 +756,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .strict(),
   // An operator keeps the task on its current model after its quality loop ran out (issue #101).
   z.object({ kind: z.literal('continue') }).strict(),
+  // An operator ends a waiting task with its reason, through the draft-PR path of #247 (007, FR-032).
+  z.object({ kind: z.literal('fail'), reason: z.string().min(1).max(4_096) }).strict(),
   // A person holds the task at its next step boundary, and lets it go on (issue #142).
   z
     .object({
@@ -822,6 +828,7 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'amend',
   'recheck',
   'continue',
+  'fail',
   'pause',
   'unpause',
   'message',

@@ -134,6 +134,8 @@ export const DETAIL_CODES = [
   'paused',
   // A task on an existing PR waits for an admin to adopt that PR at a named head (issue #174).
   'adopt_approval',
+  // A scope amendment of the task's goal plan awaits the owner's confirmation (007, FR-075).
+  'plan_amendment',
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
@@ -475,6 +477,8 @@ export type ReviewEvidence = {
     file?: string | undefined;
     line?: number | undefined;
     msg: string;
+    /** Stable across review rounds for the same issue (R-18); absent on reviews recorded before it. */
+    key?: string | undefined;
   }[];
   /** The reviewer's summary; absent for verdicts recorded before it was kept. */
   summary?: string;
@@ -567,7 +571,8 @@ export type PrBodyState = {
   revision: number;
 };
 
-export type CiWait = { started_at: number; polls: number };
+/** `window_from`: polls of the head before its current window; absent for its first window. */
+export type CiWait = { started_at: number; polls: number; window_from?: number };
 
 /** version increases with every event. */
 /** One decider run on this task: what it cost, what it said and whether that answered the question. */

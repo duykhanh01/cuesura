@@ -431,6 +431,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         if (s.runtime_ref !== null && typeof head === 'string') {
           const w = s.run.ci_wait[head];
           s.run.ci_wait[head] = {
+            ...w,
             started_at: w?.started_at ?? (p.request['at'] as number | undefined) ?? 0,
             polls: (w?.polls ?? 0) + 1,
           };
@@ -962,6 +963,11 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         };
       }
       s.visit_credits = credits;
+      for (const k of event.payload.counters ?? []) delete s.class_counters[k];
+      const cw = event.payload.ci_window;
+      const w = cw === undefined ? undefined : s.run.ci_wait[cw.head];
+      if (cw !== undefined && w !== undefined)
+        s.run.ci_wait[cw.head] = { started_at: cw.at, polls: w.polls, window_from: w.polls };
       break;
     }
     case 'AnswerTurnGranted': {

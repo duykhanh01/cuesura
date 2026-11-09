@@ -17,6 +17,10 @@ export type CommandRecord = {
   admitted_at: number;
   completed_at: number | null;
   result: unknown;
+  /** 007: absent on rows older than migration 008. */
+  reason: string | null;
+  turn_id: string | null;
+  trial: unknown;
 };
 
 type CommandRow = {
@@ -31,6 +35,9 @@ type CommandRow = {
   admitted_at: number;
   completed_at: number | null;
   result_json: string | null;
+  reason: string | null;
+  turn_id: string | null;
+  trial_json: string | null;
 };
 
 function toRecord(r: CommandRow): CommandRecord {
@@ -46,6 +53,9 @@ function toRecord(r: CommandRow): CommandRecord {
     admitted_at: r.admitted_at,
     completed_at: r.completed_at,
     result: r.result_json === null ? null : (JSON.parse(r.result_json) as unknown),
+    reason: r.reason,
+    turn_id: r.turn_id,
+    trial: r.trial_json === null ? null : (JSON.parse(r.trial_json) as unknown),
   };
 }
 
@@ -81,6 +91,9 @@ export function admitCommand(
     task_id: string | null;
     assigned_ids: readonly string[];
     now: number;
+    reason?: string | null;
+    turn_id?: string | null;
+    trial?: unknown;
   },
 ): Result<Admission, LedgerError> {
   try {
@@ -98,8 +111,8 @@ export function admitCommand(
       return ok({ kind: 'existing', record: prior });
     }
     db.prepare(
-      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, project, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL)`,
+      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, project, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json, reason, turn_id, trial_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL, ?, ?, ?)`,
     ).run(
       input.request_id,
       input.actor,
@@ -109,6 +122,9 @@ export function admitCommand(
       input.task_id,
       canonicalJson(input.assigned_ids),
       input.now,
+      input.reason ?? null,
+      input.turn_id ?? null,
+      input.trial === null || input.trial === undefined ? null : canonicalJson(input.trial),
     );
     db.exec('COMMIT');
   } catch (e) {

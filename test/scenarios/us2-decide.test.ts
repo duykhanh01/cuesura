@@ -654,7 +654,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     });
   });
 
-  it('amend without admin returns not_admin without events (US1 scenario 6)', () => {
+  it('amend without operate or admin returns not_admin without events (US1 scenario 6, 007 FR-031)', () => {
     const sim = run();
     const policy = buildPolicy({
       task_id: TASK.id,
@@ -663,10 +663,7 @@ describe('US2 - Canonical task creation and deterministic decisions', () => {
     });
     const before = sim.events.length;
     expect(
-      sim.when(
-        { kind: 'amend', policy, diff: {}, reason: 'Add runs' },
-        { authz: authz(['operate']) },
-      ),
+      sim.when({ kind: 'amend', policy, diff: {}, reason: 'Add runs' }, { authz: authz(['read']) }),
     ).toEqual({ kind: 'rejected', code: 'not_admin' });
     expect(sim.events.length).toBe(before);
     expect(

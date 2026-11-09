@@ -83,12 +83,7 @@ describe('task amend-policy over the control socket (issue #105)', () => {
     });
     expect(store().readTask(t.id)?.policy_ref?.version).toBe(1);
 
-    const asAssistant = await sd.command(
-      'assistant',
-      command({ model: 'sol', effort: 'high', policy_hash: hash }),
-    );
-    expect(asAssistant.code).toBe(ExitCode.forbidden);
-
+    // Since 007 (FR-031) an operator applies it too; amend-policy-limits.test.ts sends it as the assistant.
     const other = await sd.command(
       'owner',
       command({ model: 'sol', effort: 'low', policy_hash: hash }),

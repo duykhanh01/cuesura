@@ -8,7 +8,14 @@
 import { chmodSync, lstatSync, unlinkSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
-import { ACTOR_HEADER, callerFor, CALLER_ACTORS, type Caller } from '../application/authz.ts';
+import {
+  ACTOR_HEADER,
+  callerFor,
+  CALLER_ACTORS,
+  LEASE_HEADER,
+  TURN_HEADER,
+  type Caller,
+} from '../application/authz.ts';
 import { CONTROL_SOCKET, errorEnvelope, type Envelope, type EnvelopeError } from '../cli/output.ts';
 
 export const MAX_BODY_BYTES = 1024 * 1024;
@@ -45,8 +52,8 @@ function send(res: ServerResponse, reply: Reply): void {
   res.end(body);
 }
 
-function declaredActor(req: IncomingMessage): string | null {
-  const h = req.headers[ACTOR_HEADER];
+function header(req: IncomingMessage, name: string): string | null {
+  const h = req.headers[name];
   return typeof h === 'string' ? h.trim() : null;
 }
 
@@ -109,7 +116,11 @@ export function createControlServer(
     },
     (req, res) => {
       void (async () => {
-        const caller = callerFor(declaredActor(req));
+        // The turn is checked against `deputy_turns` by the handlers, after a replay is recognized.
+        const caller = callerFor(header(req, ACTOR_HEADER), {
+          turn_id: header(req, TURN_HEADER),
+          lease: header(req, LEASE_HEADER),
+        });
         if (caller === null)
           return send(
             res,

@@ -25,6 +25,10 @@ export function forbiddenGuidance(reason: unknown, required: unknown): string {
     return `The command names another project than the task's (${String(required)}); send it with --project ${String(required)}, or leave --project out.`;
   if ((reason === 'role' && required === 'admin') || reason === 'not_admin')
     return 'This command needs the admin role, which only the user has. Do not retry it: give the command to the user to run.';
+  if (reason === 'turn')
+    return 'This deputy turn is not running any more, so nothing was changed. End the turn; a later turn sees the task as it is.';
+  if (reason === 'deputy_kind')
+    return 'The deputy may not run this command. Do not retry it: hand the incident over with cusr deputy handoff --decision handover.';
   return 'This caller may not run this command. Do not retry it: give the command to the user to run.';
 }
 

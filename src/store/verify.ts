@@ -34,7 +34,10 @@ export type VerifyReport = {
  * canonical JSON.
  */
 export function verifyProjections(db: Database): VerifyReport {
-  const rows = db.prepare('SELECT * FROM events ORDER BY global_seq').all() as EventRow[];
+  // Goal events fold into goals, not tasks.
+  const rows = db
+    .prepare("SELECT * FROM events WHERE stream = 'task' ORDER BY global_seq")
+    .all() as EventRow[];
   const byTask = new Map<string, DomainEvent[]>();
   for (const r of rows) {
     const list = byTask.get(r.task_id) ?? [];

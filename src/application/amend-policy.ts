@@ -4,12 +4,14 @@
  * change is a `PolicyAmended` event carrying policy version + 1 and a new hash; nothing is rewritten.
  *
  * Two steps, so the owner sees what changes before it does: the `amend_policy_preview` query builds the
- * amended policy and returns its hash, and the `task_amend_policy` command (admin) rebuilds it and
+ * amended policy and returns its hash, and the `task_amend_policy` command (operate since 007) rebuilds it and
  * submits it only when the hash is the one previewed. The new binding sits on the rung the step would
  * run next: inserted above the current rung when the step was raising, or in place of the current rung
  * when it was not (a step out of visits). The rung's state follows the escalation rules of the task's
  * profile in the user config: a model outside `allow_models` is refused, a tier above
- * `auto_up_to_tier` needs the usual escalation approval or is refused when `above: deny`.
+ * `auto_up_to_tier` needs the usual escalation approval or is refused when `above: deny`. Since 007 the
+ * same command also raises the run cap (`--agent-runs +N`) or moves the deadline (`--deadline`), with or
+ * without a model, so the deputy can lift a limit with a recorded reason (FR-031).
  */
 import { z } from 'zod';
 import { validateConfig } from '../config/validate.ts';
@@ -40,20 +42,35 @@ import { decisionError } from './engine-verdict.ts';
 import { taskView, type AppError } from './queries.ts';
 import { submit } from './triage.ts';
 
-export type ModelChange = { model: string; effort?: Effort | undefined; reason: string };
+/** `+duration` moves the current deadline later by that much; `at` sets it (007, FR-031). */
+export type DeadlineChange = { readonly at: number } | { readonly extend_ms: number };
+
+/** At least one of a model, more agent runs or a later deadline. */
+export type ModelChange = {
+  model?: string | undefined;
+  effort?: Effort | undefined;
+  agent_runs_delta?: number | undefined;
+  deadline?: DeadlineChange | undefined;
+  reason: string;
+};
+
+type ModelDiff = {
+  readonly step: string;
+  readonly rung: number;
+  readonly placement: 'insert' | 'replace';
+  readonly from: string | null;
+  readonly to: string;
+  readonly state: RungState;
+  readonly max_escalations?: { from: number | null; to: number };
+  readonly extra_visits?: Record<string, { from: number; to: number }>;
+};
 
 export type AmendPlan = {
   readonly policy: FrozenPolicy;
-  readonly diff: {
-    readonly step: string;
+  readonly diff: Partial<ModelDiff> & {
     readonly wait_code: DetailCode;
-    readonly rung: number;
-    readonly placement: 'insert' | 'replace';
-    readonly from: string | null;
-    readonly to: string;
-    readonly state: RungState;
-    readonly max_escalations?: { from: number | null; to: number };
-    readonly extra_visits?: Record<string, { from: number; to: number }>;
+    readonly agent_runs?: { from: number; to: number };
+    readonly deadline?: { from: number; to: number };
   };
 };
 
@@ -65,7 +82,8 @@ export type PlanError = {
     | 'model_denied'
     | 'unchanged'
     | 'not_effective'
-    | 'invalid_policy';
+    | 'invalid_policy'
+    | 'no_limit';
   detail: string;
 };
 
@@ -73,18 +91,31 @@ const fail = (code: PlanError['code'], reason: PlanError['reason'], detail: stri
   err<PlanError>({ code, reason, detail });
 
 /**
- * Builds the amended policy for `change` from the task's state and current policy. Pure: the same
- * inputs give the same policy and hash, which is what binds a confirmation to its preview.
+ * Waits on a limit where more runs or a later deadline may be set (FR-030); `agent_runs_insufficient` only
+ * by more runs. A spent backoff or CI window is lifted by `continue`; an amendment there raises limits only.
  */
-export function planModelAmendment(input: {
-  state: TaskState;
-  current: FrozenPolicy;
-  change: ModelChange;
-  models: Record<string, ModelInfo>;
-  escalation: EscalationPolicy;
-  authz: AuthzContext;
-}): Result<AmendPlan, PlanError> {
-  const { state: s, current, change, models } = input;
+const LIMIT_WAITS: readonly DetailCode[] = [
+  'agent_runs_exhausted',
+  'agent_runs_insufficient',
+  'deadline',
+  'backoff_exhausted',
+  'ci_wait_exhausted',
+];
+
+type ModelPart = { steps: FrozenPolicy['steps']; limits: FrozenPolicy['limits']; diff: ModelDiff };
+
+/** The ladder change that runs the waiting step on `change.model`, and the visits it needs. */
+function modelPart(
+  input: {
+    state: TaskState;
+    current: FrozenPolicy;
+    models: Record<string, ModelInfo>;
+    escalation: EscalationPolicy;
+  },
+  model: string,
+  effort: Effort | undefined,
+): Result<ModelPart & { code: DetailCode }, PlanError> {
+  const { state: s, current, models } = input;
   const waiting = continuable(s);
   if (waiting === null)
     return fail(
@@ -96,9 +127,9 @@ export function planModelAmendment(input: {
   const sp = current.steps[step];
   if (sp === undefined)
     return fail('conflict', 'amend_not_applicable', `step '${step}' runs no agent`);
-  const info = models[change.model];
+  const info = models[model];
   if (info === undefined)
-    return fail('invalid_request', 'unknown_model', `model '${change.model}' is not configured`);
+    return fail('invalid_request', 'unknown_model', `model '${model}' is not configured`);
 
   const cur = s.rungs.by_step[step] ?? 0;
   const target = targetRung(s, sp, step).rung;
@@ -107,9 +138,9 @@ export function planModelAmendment(input: {
   const binding: Binding = {
     ...base,
     harness: info.harness,
-    model: change.model,
+    model,
     model_id: info.id,
-    effort: change.effort ?? base.effort,
+    effort: effort ?? base.effort,
   };
   const replaced = insert ? null : (sp.ladder[target]?.binding ?? null);
   if (replaced !== null && bindingName(replaced) === bindingName(binding))
@@ -154,35 +185,128 @@ export function planModelAmendment(input: {
     maxEscalations = { from: current.limits.max_escalations, to: esc.used + 1 };
     limits.max_escalations = esc.used + 1;
   }
+  return ok({
+    code,
+    steps,
+    limits,
+    diff: {
+      step,
+      rung: target,
+      placement: insert ? 'insert' : 'replace',
+      from: replaced === null ? null : bindingName(replaced),
+      to: bindingName(binding),
+      state,
+      ...(maxEscalations === undefined ? {} : { max_escalations: maxEscalations }),
+      ...(Object.keys(visits).length === 0 ? {} : { extra_visits: visits }),
+    },
+  });
+}
 
-  const diff: AmendPlan['diff'] = {
-    step,
-    wait_code: code,
-    rung: target,
-    placement: insert ? 'insert' : 'replace',
-    from: replaced === null ? null : bindingName(replaced),
-    to: bindingName(binding),
-    state,
-    ...(maxEscalations === undefined ? {} : { max_escalations: maxEscalations }),
-    ...(Object.keys(visits).length === 0 ? {} : { extra_visits: visits }),
-  };
+/** When the task started, for a deadline measured from its start. */
+function startedAt(s: TaskState, current: FrozenPolicy, now: number): number {
+  return (
+    s.started_at ??
+    (s.deadline_at !== null && current.limits.max_wall_ms !== null
+      ? s.deadline_at - current.limits.max_wall_ms
+      : now)
+  );
+}
+
+/**
+ * Builds the amended policy for `change` from the task's state and current policy. Pure: the same
+ * inputs give the same policy and hash, which is what binds a confirmation to its preview. A model
+ * change needs a wait of the quality loop; more runs or a later deadline need the task waiting.
+ */
+export function planModelAmendment(input: {
+  state: TaskState;
+  current: FrozenPolicy;
+  change: ModelChange;
+  models: Record<string, ModelInfo>;
+  escalation: EscalationPolicy;
+  authz: AuthzContext;
+  now?: number;
+}): Result<AmendPlan, PlanError> {
+  const { state: s, current, change } = input;
+  const now = input.now ?? 0;
+  const limitsOnly = change.model === undefined;
+  if (limitsOnly && change.agent_runs_delta === undefined && change.deadline === undefined)
+    return fail('invalid_request', 'unchanged', 'name --model, --agent-runs or --deadline');
+
+  let part: (ModelPart & { code: DetailCode }) | null = null;
+  if (change.model !== undefined) {
+    const m = modelPart(input, change.model, change.effort);
+    if (!m.ok) return m;
+    part = m.value;
+  }
+  const code = part?.code ?? s.wait?.detail.code;
+  if (
+    part === null &&
+    (s.status !== 'WAITING' ||
+      code === undefined ||
+      !(LIMIT_WAITS.includes(code) || continuable(s) !== null))
+  )
+    return fail(
+      'conflict',
+      'amend_not_applicable',
+      'more runs or a later deadline need the task waiting on a limit',
+    );
+  if (code === 'agent_runs_insufficient' && change.agent_runs_delta === undefined)
+    return fail('conflict', 'amend_not_applicable', 'agent_runs_insufficient needs --agent-runs');
+
+  const limits = structuredClone(part?.limits ?? current.limits);
+  let agentRuns: { from: number; to: number } | undefined;
+  if (change.agent_runs_delta !== undefined) {
+    const from = current.limits.max_agent_runs;
+    if (from === null) return fail('invalid_request', 'no_limit', 'the task has no run cap');
+    agentRuns = { from, to: from + change.agent_runs_delta };
+    limits.max_agent_runs = agentRuns.to;
+  }
+  let deadline: { from: number; to: number } | undefined;
+  if (change.deadline !== undefined) {
+    const wall = current.limits.max_wall_ms;
+    if (wall === null) return fail('invalid_request', 'no_limit', 'the task has no deadline');
+    const started = startedAt(s, current, now);
+    const from = started + wall;
+    const to = 'at' in change.deadline ? change.deadline.at : from + change.deadline.extend_ms;
+    if (to <= from || to <= now)
+      return fail(
+        'invalid_request',
+        'not_effective',
+        'the new deadline must be later than the current one and than now',
+      );
+    deadline = { from, to };
+    limits.max_wall_ms = to - started;
+  }
+
   const amended = proposeAmendment({
     current,
-    change: { steps, limits },
+    change: { steps: part?.steps ?? current.steps, limits },
     reason: change.reason,
-    authz: input.authz,
+    // The profile rules above bound the change; the policy itself is built as an admin would.
+    authz: { ...input.authz, roles: ['admin'] },
   });
   if (!amended.ok)
     return fail('invalid_request', 'invalid_policy', amended.error.detail ?? amended.error.code);
   // The floor may map past the new rung; then the amendment would not move the step at all.
-  const next = amended.value.steps[step]!;
-  if (targetRung(s, next, step).rung !== target)
-    return fail(
-      'conflict',
-      'not_effective',
-      `the task floor keeps step '${step}' above rung ${target}`,
-    );
-  return ok({ policy: amended.value, diff });
+  if (part !== null) {
+    const step = part.diff.step;
+    const next = amended.value.steps[step]!;
+    if (targetRung(s, next, step).rung !== part.diff.rung)
+      return fail(
+        'conflict',
+        'not_effective',
+        `the task floor keeps step '${step}' above rung ${part.diff.rung}`,
+      );
+  }
+  return ok({
+    policy: amended.value,
+    diff: {
+      ...(part?.diff ?? {}),
+      wait_code: code as DetailCode,
+      ...(agentRuns === undefined ? {} : { agent_runs: agentRuns }),
+      ...(deadline === undefined ? {} : { deadline }),
+    },
+  });
 }
 
 export type AmendDeps = {
@@ -191,22 +315,36 @@ export type AmendDeps = {
   readonly confirm: Pick<ConfirmDeps, 'configInputs'>;
 };
 
-const ChangeSchema = z
-  .object({
-    model: z.string().min(1).max(128),
-    effort: z.enum(EFFORTS).optional(),
-    reason: z.string().min(1).max(4_096),
-  })
-  .strict();
+const DeadlineSchema = z.union([
+  z.object({ at: z.number().int().positive() }).strict(),
+  z.object({ extend_ms: z.number().int().positive() }).strict(),
+]);
 
-export const AmendPayloadSchema = ChangeSchema.extend({ policy_hash: HashSchema }).strict();
+const ChangeFields = {
+  model: z.string().min(1).max(128).optional(),
+  effort: z.enum(EFFORTS).optional(),
+  agent_runs_delta: z.number().int().positive().max(1_000).optional(),
+  deadline: DeadlineSchema.optional(),
+};
+const someChange = (c: { model?: unknown; agent_runs_delta?: unknown; deadline?: unknown }) =>
+  c.model !== undefined || c.agent_runs_delta !== undefined || c.deadline !== undefined;
+const SOME_CHANGE = { message: 'name model, agent_runs_delta or deadline' };
+
+export const AmendPayloadSchema = z
+  .object({ ...ChangeFields, reason: z.string().min(1).max(4_096), policy_hash: HashSchema })
+  .strict()
+  .refine(someChange, SOME_CHANGE);
 
 // The reason is not part of the policy, so it does not change the hash a preview returns.
-const PreviewSchema = ChangeSchema.extend({
-  kind: z.literal('amend_policy_preview'),
-  task_id: UuidSchema,
-  reason: z.string().min(1).max(4_096).optional(),
-}).strict();
+const PreviewSchema = z
+  .object({
+    ...ChangeFields,
+    kind: z.literal('amend_policy_preview'),
+    task_id: UuidSchema,
+    reason: z.string().min(1).max(4_096).optional(),
+  })
+  .strict()
+  .refine(someChange, SOME_CHANGE);
 
 const configInvalid = (message: string, diagnostics: string[] = []): AppError => ({
   code: 'config_invalid',
@@ -255,6 +393,7 @@ async function planFor(
       allow_models: profile.allow_models,
     },
     authz,
+    now: deps.now(),
   });
   if (!plan.ok)
     return err({
@@ -290,22 +429,28 @@ export async function amendPolicyPreview(
   if (!q.success)
     return err({
       code: 'invalid_request',
-      message: 'task_id and model are required',
+      message: 'task_id and one of model, agent_runs_delta or deadline are required',
       details: { issues: q.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`) },
     });
   const s = deps.store.readTask(q.data.task_id);
   if (s === null || !authorize(caller, { role: 'read' }).ok)
     return err({ code: 'task_not_found', message: `no task ${q.data.task_id}`, details: {} });
-  // The plan is built as an admin would submit it; the command itself still requires admin.
-  const authz: AuthzContext = { ...authzContext(caller, deps.now()), roles: ['admin'] };
-  const change = { ...q.data, reason: q.data.reason ?? 'preview' };
+  const authz: AuthzContext = authzContext(caller, deps.now());
+  const { kind: _k, task_id: _t, ...fields } = q.data;
+  const change = { ...fields, reason: q.data.reason ?? 'preview' };
   const plan = await planFor(deps, s, change, authz);
   if (!plan.ok) return plan;
+  const d = q.data.deadline;
   return ok({
     ...previewView(s, plan.value),
     command:
-      `cusr task amend-policy ${s.id} --model ${q.data.model}` +
+      `cusr task amend-policy ${s.id}` +
+      (q.data.model === undefined ? '' : ` --model ${q.data.model}`) +
       (q.data.effort === undefined ? '' : ` --effort ${q.data.effort}`) +
+      (q.data.agent_runs_delta === undefined ? '' : ` --agent-runs +${q.data.agent_runs_delta}`) +
+      (d === undefined
+        ? ''
+        : ` --deadline ${'at' in d ? new Date(d.at).toISOString() : `+${d.extend_ms}ms`}`) +
       ` --reason REASON --confirm ${plan.value.policy.policy_hash} --expected-version ${s.version}`,
   });
 }

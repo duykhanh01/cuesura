@@ -155,21 +155,20 @@ describe('task amend-policy (issue #105)', () => {
     });
   });
 
-  it('applies only for an admin and only while the task waits on an exhausted limit', () => {
+  it('applies for an operator (007, FR-031) and only while the task waits on an exhausted limit', () => {
     const sim = run();
     toCode(sim);
-    expect(plan(sim, {})).toMatchObject({
+    expect(plan(sim, { model: 'sol' })).toMatchObject({
       ok: false,
       error: { code: 'conflict', reason: 'amend_not_applicable' },
     });
     toEscalationsExhausted(sim);
-    const { decision } = amend(sim, { model: 'sol' }, ASSISTANT);
-    expect(decision).toMatchObject({ kind: 'rejected', code: 'not_admin' });
-    expect(sim.s.wait?.detail.code).toBe('escalations_exhausted');
-    expect(sim.s.policy_ref?.version).toBe(1);
+    expectAccepted(amend(sim, { model: 'sol' }, ASSISTANT).decision);
+    expect(sim.s.policy_ref?.version).toBe(2);
+    expect(sim.s.status).toBe('RUNNING');
   });
 
-  it('has nothing to amend once a denied rung ended the task (#247)', () => {
+  it('waits on a denied rung, where amend-policy can put another model (007, R-15)', () => {
     const sim = run({
       roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [{ model: 'opus' }] } },
       escalation: { above: 'deny' },
@@ -177,10 +176,12 @@ describe('task amend-policy (issue #105)', () => {
     toCode(sim);
     fail(sim, 'quality', 'C1');
     fail(sim, 'quality', 'C1');
-    expect(sim.s.status).toBe('FAILED');
-    expect(sim.s.terminal).toEqual({ kind: 'FAILED', reason: 'rung_denied:code:1' });
-    const p = plan(sim, { model: 'sol' });
-    expect(p.ok).toBe(false);
+    expect(sim.s.status).toBe('WAITING');
+    expect(sim.s.wait?.detail).toMatchObject({ code: 'rung_denied', step: 'code', rung: 1 });
+    expect(plan(sim, { model: 'sol' })).toMatchObject({
+      ok: true,
+      value: { diff: { step: 'code', wait_code: 'rung_denied' } },
+    });
   });
 
   it('runs a step that ran out of visits on the new model in place of its current rung', () => {

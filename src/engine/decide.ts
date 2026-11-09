@@ -53,7 +53,7 @@ import {
   settleSlot,
 } from './runtime.ts';
 import { onStart } from './start.ts';
-import { continuable, onContinue } from './continue.ts';
+import { continuable, onContinue, onFail } from './continue.ts';
 import { targetRung } from './escalation.ts';
 import { onPause, onUnpause, stoppedByPause } from './pause.ts';
 import { afterMessageStop, onMessage, stoppedByMessage } from './message.ts';
@@ -117,9 +117,14 @@ function dispatch(ctx: Ctx, t: Trigger): void {
   if (!ctx.hasState) reject('unknown_task');
   if (ctx.state.id !== ctx.env.task_id) reject('invalid_trigger', { reason: 'task_id_mismatch' });
   // Reject amendments without admin authorization before emitting any events.
-  if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin')) reject('not_admin');
+  // 007 (FR-031): an operator may amend; the application keeps the change within the profile.
+  if (t.kind === 'amend' && !hasRole(ctx.env.authz, 'admin') && !hasRole(ctx.env.authz, 'operate'))
+    reject('not_admin');
   // Terminal tasks still accept outstanding operation receipts and releases so they cannot retain a slot forever.
 
+  // `task fail` on an ended task is refused like on any task that does not wait (007, T019).
+  if (t.kind === 'fail' && isTerminal(ctx.state.status))
+    reject('invalid_trigger', { reason: 'fail_not_waiting' });
   if (isTerminal(ctx.state.status) && !AFTER_TERMINAL.includes(t.kind)) {
     ctx.emit('SignalIgnored', { reason: 'terminal', trigger_kind: t.kind });
     return;
@@ -268,6 +273,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'continue':
       onContinue(ctx);
+      return;
+    case 'fail':
+      onFail(ctx, t);
       return;
     case 'pause':
       onPause(ctx, t);

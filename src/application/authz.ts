@@ -1,37 +1,61 @@
-import type { AuthzContext, AuthzRole } from '../domain/policy.ts';
+import type { AuthzContext, AuthzRole, Trial } from '../domain/policy.ts';
 
 // Server-side authorization (contracts/cli-daemon.md). Only processes of the daemon's UID reach the
 // control socket (directory 0700, socket 0600), and any of them could act as the owner. The actor a
 // caller declares is therefore a guardrail for well-behaved callers, not a security boundary: an
 // assistant that declares itself is held to read/operate, so it cannot administer by mistake.
 
-export const CALLER_ACTORS = ['owner', 'assistant'] as const;
+export const CALLER_ACTORS = ['owner', 'assistant', 'deputy'] as const;
 export type CallerActor = (typeof CALLER_ACTORS)[number];
 
 /** Header carrying the declared actor; absent means the owner. */
 export const ACTOR_HEADER = 'x-cusr-actor';
+/** The deputy turn a `deputy` caller acts in (FR-050); checked against `deputy_turns` on every command. */
+export const TURN_HEADER = 'x-cusr-turn';
+/** The assistant lease the caller holds, when it knows one (R-26). */
+export const LEASE_HEADER = 'x-cusr-lease';
 
 export type Grant = { actor: string; roles: AuthzRole[] };
-export type Caller = { grant: Grant };
+export type Caller = {
+  grant: Grant;
+  /** From the request headers; only the deputy's turn is checked. */
+  turn_id?: string | null;
+  lease?: string | null;
+  /** Set once a command is admitted, so the envelopes it submits record what it said. */
+  reason?: string | null;
+  trial?: Trial | null;
+};
 
 const GRANTS: Record<CallerActor, readonly AuthzRole[]> = {
   owner: ['read', 'operate', 'admin'],
   assistant: ['read', 'operate'],
+  deputy: ['read', 'operate'],
 };
 
 export type AuthzError =
   | { code: 'unauthenticated' }
-  | { code: 'forbidden'; reason: 'role' | 'project'; required: string };
+  | {
+      code: 'forbidden';
+      reason: 'role' | 'project' | 'turn' | 'turn_scope' | 'deputy_kind' | 'lease_required';
+      required: string;
+    };
 
 export function isCallerActor(v: string): v is CallerActor {
   return (CALLER_ACTORS as readonly string[]).includes(v);
 }
 
 /** The caller for a declared actor; `null` for a name that is not one of `CALLER_ACTORS`. */
-export function callerFor(declared: string | null | undefined): Caller | null {
+export function callerFor(
+  declared: string | null | undefined,
+  headers: { readonly turn_id?: string | null; readonly lease?: string | null } = {},
+): Caller | null {
   const actor = declared === null || declared === undefined || declared === '' ? 'owner' : declared;
   if (!isCallerActor(actor)) return null;
-  return { grant: { actor, roles: [...GRANTS[actor]] } };
+  return {
+    grant: { actor, roles: [...GRANTS[actor]] },
+    ...(headers.turn_id ? { turn_id: headers.turn_id } : {}),
+    ...(headers.lease ? { lease: headers.lease } : {}),
+  };
 }
 
 /** `read` never mutates; `operate` never grants admin; `admin` stays with the owner. */
@@ -55,5 +79,8 @@ export function authzContext(caller: Caller, now: number): AuthzContext {
     roles: [...caller.grant.roles],
     issued_by: `socket:${caller.grant.actor}`,
     issued_at: now,
+    ...(caller.reason ? { reason: caller.reason } : {}),
+    ...(caller.trial ? { trial: caller.trial } : {}),
+    ...(caller.turn_id ? { turn_id: caller.turn_id } : {}),
   };
 }

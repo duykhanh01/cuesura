@@ -187,7 +187,7 @@ export function terminalEventsAfter(db: Database, globalSeq: number): TerminalEv
   const rows = db
     .prepare(
       `SELECT task_id, global_seq, type FROM events
-       WHERE global_seq > ? AND type IN ('TaskCompleted', 'TaskFailed', 'TaskCancelled')
+       WHERE global_seq > ? AND stream = 'task' AND type IN ('TaskCompleted', 'TaskFailed', 'TaskCancelled')
        ORDER BY global_seq`,
     )
     .all(globalSeq) as { task_id: string; global_seq: number; type: keyof typeof TERMINAL_KINDS }[];

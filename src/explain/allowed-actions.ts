@@ -234,8 +234,8 @@ const otherModel = (c: Ctx): AllowedAction | null =>
     : {
         action: 'amend_policy',
         command: `cusr task amend-policy ${c.id} --model MODEL`,
-        note: 'Admin only; add --effort LEVEL to change the effort too. Previews running the waiting step on another configured model and prints the command that applies it (with --confirm POLICY_HASH --reason REASON --expected-version): a new policy version, the same task, worktree and history; gates and review run again. The profile still decides whether the model is allowed or needs approval.',
-        requires: 'admin',
+        note: 'Add --effort LEVEL to change the effort too. Previews running the waiting step on another configured model and prints the command that applies it (with --confirm POLICY_HASH --reason REASON --expected-version): a new policy version, the same task, worktree and history; gates and review run again. The profile still decides whether the model is allowed or needs approval.',
+        requires: 'operate',
       };
 const continuableExhausted: Row = (c) => [proceedSameModel(c), otherModel(c), ...exhausted(c)];
 
@@ -245,6 +245,23 @@ const exhausted: Row = (c) => [
   cancel(c),
   newTask,
 ];
+/** 007 (FR-030): a spent backoff or CI window gets one more of the same with `continue`. */
+const continueLimit = (c: Ctx, note: string): AllowedAction => ({
+  action: 'continue',
+  command: `cusr task continue ${c.id} --expected-version ${c.version}`,
+  note,
+  requires: 'operate',
+});
+/** 007 (FR-031): the run cap or the deadline is raised by an amendment, which resumes the task. */
+const raiseLimit = (c: Ctx, flag: '--agent-runs +N' | '--deadline +DURATION'): AllowedAction => ({
+  action: 'amend_policy',
+  command: `cusr task amend-policy ${c.id} ${flag}`,
+  note: 'Previews the raised limit and prints the command that applies it (with --confirm POLICY_HASH --reason REASON --expected-version); the task then goes on from where it waits.',
+  requires: 'operate',
+});
+const limitExhausted =
+  (note: string): Row =>
+  (c) => [continueLimit(c, note), ...exhausted(c)];
 const configFix: Row = (c) => [
   external('Fix the reported config or capability.'),
   confirm(c),
@@ -312,14 +329,18 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
           cancel(c),
         ],
   ladder_exhausted: continuableExhausted,
-  agent_runs_exhausted: exhausted,
-  agent_runs_insufficient: exhausted,
+  agent_runs_exhausted: (c) => [raiseLimit(c, '--agent-runs +N'), ...exhausted(c)],
+  agent_runs_insufficient: (c) => [raiseLimit(c, '--agent-runs +N'), ...exhausted(c)],
   escalations_exhausted: continuableExhausted,
-  deadline: exhausted,
+  deadline: (c) => [raiseLimit(c, '--deadline +DURATION'), ...exhausted(c)],
   rung_denied: continuableExhausted,
-  backoff_exhausted: exhausted,
+  backoff_exhausted: limitExhausted(
+    'Retries the step with its failure counters cleared: one more round of the same backoff.',
+  ),
   escalation_rejected: exhausted,
-  ci_wait_exhausted: exhausted,
+  ci_wait_exhausted: limitExhausted(
+    'Polls CI for one more window of the frozen length on the same head.',
+  ),
   escalation: (c) => {
     const open = Object.values(c.s.approvals).find(
       (x) => x.kind === 'escalation' && x.status === 'requested' && x.revision === c.s.revision,
@@ -457,6 +478,8 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
     forceCancel(c),
   ],
   paused: (c) => [resume(c), cancel(c)],
+  // The amendment is confirmed with `goal confirm`, which is not a task action.
+  plan_amendment: (c) => [cancel(c)],
 };
 
 export function allowedActions(

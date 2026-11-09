@@ -143,6 +143,10 @@ const WAITS: Readonly<Record<DetailCode, WaitWords>> = {
     todo: 'If the PR read keeps failing: recheck, or cancel --force',
   },
   paused: { doing: 'Paused', todo: 'Resume the task when ready' },
+  plan_amendment: {
+    doing: 'Waiting for a goal plan change to be confirmed',
+    todo: 'Confirm or revise the goal plan',
+  },
 };
 
 /** Steps of `software_dev@1` and its mode graphs. A workflow with other names shows them as they are. */

@@ -96,9 +96,9 @@ export function rungReady(ctx: Ctx, step: string, sp: StepPolicy): boolean {
 /**
  * Picks the rung for the next attempt of `step` and checks it: within the ladder, not `denied`, within
  * `max_escalations`, inside the confirmed selection, approved when `needs_approval`. Approval comes last
- * so nobody is asked to approve a rung that could not run anyway (#263). Past the ladder, on a denied or
- * unconfirmed rung the task fails; otherwise it is put into the matching wait. `null` means no attempt
- * starts. Budget and deadline are checked by the caller.
+ * so nobody is asked to approve a rung that could not run anyway (#263). On an unconfirmed rung the task
+ * fails; otherwise, past the ladder and on a denied rung too, it is put into the matching wait. `null`
+ * means no attempt starts. Budget and deadline are checked by the caller.
  */
 export function chooseRung(
   ctx: Ctx,
@@ -109,13 +109,13 @@ export function chooseRung(
   const s = ctx.state;
   const choice = targetRung(s, sp, step);
   const rung = sp.ladder[choice.rung];
-  // No higher rung can be used: the task ends with the reason instead of waiting on a person (#247).
+  // No higher rung can be used: the task waits, and the deputy (or `task fail`) decides (007, R-15).
   if (rung === undefined) {
-    failWithDraft(ctx, `ladder_exhausted:${step}`);
+    waitPolicy(ctx, 'ladder_exhausted', again, { step, rung: choice.rung });
     return null;
   }
   if (rung.state === 'denied') {
-    failWithDraft(ctx, `rung_denied:${step}:${choice.rung}`);
+    waitPolicy(ctx, 'rung_denied', again, { step, rung: choice.rung });
     return null;
   }
   // A wait an admin can lift, also by amending the rung into the confirmed set (#105).

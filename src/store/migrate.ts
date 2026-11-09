@@ -22,6 +22,7 @@ const MIGRATIONS: readonly {
   { version: 5, file: '005_drop_decider_budget.sql', after: rewriteTaskStates },
   { version: 6, file: '006_task_slots.sql' },
   { version: 7, file: '007_slot_reservations.sql' },
+  { version: 8, file: '008_deputy_goal.sql' },
 ];
 
 /**
@@ -34,7 +35,7 @@ function rebuildForRuntime(db: Database): void {
 
 /** Rewrites each `tasks.state_json` from a full replay; raw events and frozen snapshots stay intact. */
 function rewriteTaskStates(db: Database): DomainEvent[] {
-  const rows = db.prepare('SELECT * FROM events ORDER BY global_seq').all() as EventRow[];
+  const rows = db.prepare(taskEventsSql(db)).all() as EventRow[];
   const events = rows.map(toEvent);
   const byTask = new Map<string, typeof events>();
   for (const e of events) byTask.set(e.task_id, [...(byTask.get(e.task_id) ?? []), e]);
@@ -53,6 +54,14 @@ function rewriteTaskStates(db: Database): DomainEvent[] {
     );
   }
   return events;
+}
+
+/** Migrations before 008 run on a log without `stream`, where every event is a task's. */
+function taskEventsSql(db: Database): string {
+  const cols = db.prepare('PRAGMA table_info(events)').all() as { name: string }[];
+  return cols.some((c) => c.name === 'stream')
+    ? "SELECT * FROM events WHERE stream = 'task' ORDER BY global_seq"
+    : 'SELECT * FROM events ORDER BY global_seq';
 }
 
 export const SCHEMA_VERSION = MIGRATIONS.length;

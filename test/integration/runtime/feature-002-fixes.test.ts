@@ -1104,6 +1104,47 @@ describe('CI and execution limits vs observation (US2.9/US2.10, FR-043.08–11)'
     expect(d.task(t.id).status).toBe('DONE');
   });
 
+  it('007 FR-030: continue on ci_wait_exhausted opens one new CI window of the frozen length', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 12 * HOUR } });
+    toPublish(d, t, A);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    const pollUntilSpent = (): number => {
+      let polls = 0;
+      for (let i = 0; i < 200 && code(d, t) !== 'ci_wait_exhausted'; i++) {
+        d.complete(
+          t.id,
+          d.pendingOne(t.id, 'await_ci').id,
+          'succeeded',
+          ci(A, { build: 'success', test: 'pending' }),
+        );
+        polls++;
+        if (code(d, t) === 'ci_wait_exhausted') break;
+        d.now += 60_000;
+        d.fire();
+      }
+      return polls;
+    };
+    const first = pollUntilSpent();
+    expect(code(d, t)).toBe('ci_wait_exhausted');
+    d.must(t.id, { kind: 'continue' });
+    // The first poll of the new window is already requested.
+    expect(d.task(t.id).run.ci_wait[A]).toMatchObject({ polls: first + 1, window_from: first });
+    expect(code(d, t)).not.toBe('ci_wait_exhausted');
+    // The new window has the same length, and runs out the same way: continue is bounded per command.
+    expect(pollUntilSpent()).toBe(first);
+    expect(code(d, t)).toBe('ci_wait_exhausted');
+    expect(d.task(t.id).wait?.detail).toMatchObject({ polls: first, max_polls: first });
+    expect(effects(d, t, 'await_ci').length).toBe(2 * first);
+    expect(d.store.verifyProjections().mismatches).toEqual([]);
+  });
+
   it('#209: when the CI window runs out the observation resumes its first cadence, so a manual merge is seen within a minute', () => {
     const d = setup();
     const t = buildTask();

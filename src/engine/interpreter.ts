@@ -771,6 +771,8 @@ export function failWithDraft(ctx: Ctx, reason: string): void {
     return failTask(ctx, reason);
   // Past the deadline no business effect is claimed, so the salvage could never run.
   if (pastDeadline(ctx)) return failTask(ctx, `${reason} (no draft PR: deadline passed)`);
+  // Source drift blocks every claim until the revision is chosen, so the salvage could never run either.
+  if (s.source_drift !== null) return failTask(ctx, `${reason} (no draft PR: source drift)`);
   ctx.emit('FailureSalvageStarted', { reason });
   ensureRunning(ctx, 'salvage');
   requestEffect(ctx, {
@@ -1130,9 +1132,10 @@ export function ciWindow(
       started_at: null,
       until: null,
     };
+  const polls = w.polls - (w.window_from ?? 0);
   return {
-    exhausted: w.polls >= maxPolls,
-    polls: w.polls,
+    exhausted: polls >= maxPolls,
+    polls,
     max_polls: maxPolls,
     started_at: w.started_at,
     until: w.started_at + timeout,

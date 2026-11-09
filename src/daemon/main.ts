@@ -487,6 +487,13 @@ export async function startDaemon(
     async query(caller, body) {
       const allowed = authorize(caller, { role: 'read' });
       if (!allowed.ok) return authzReply(allowed.error);
+      if (
+        caller.grant.actor === 'deputy' &&
+        (caller.turn_id === undefined ||
+          caller.turn_id === null ||
+          !store.deputy.isRunningTurn(caller.turn_id))
+      )
+        return authzReply({ code: 'forbidden', reason: 'turn', required: 'a running deputy turn' });
       const kind =
         typeof body === 'object' && body !== null ? (body as { kind?: unknown }).kind : undefined;
       const handler =
@@ -546,7 +553,11 @@ export async function startDaemon(
       const run = (async (): Promise<Reply> => {
         let r: Awaited<ReturnType<CommandHandler>>;
         try {
-          r = await (handler as CommandHandler)(admitted.value, input, caller);
+          r = await (handler as CommandHandler)(admitted.value, input, {
+            ...caller,
+            reason: admitted.value.reason,
+            trial: admitted.value.trial,
+          });
         } catch (e) {
           // What the handler wrote stays; the same request ID runs it again over that (#267).
           failed.add(record.request_id);

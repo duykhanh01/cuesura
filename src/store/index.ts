@@ -12,6 +12,7 @@ import { claimEffect, type ClaimError, type ClaimRequest } from './claim.ts';
 import { grantNext, lendNext, type GrantOptions, type GrantOutcome } from './grant.ts';
 import * as commands from './commands.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
+import { DeputyTurns } from './deputy.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
 import * as read from './read.ts';
 import { dueTimers, fireDueTimers, type FireError } from './timers.ts';
@@ -30,8 +31,11 @@ export type {
 export type { QueuedRequest, SlotHolding, SlotLoan } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
+export type { DeputyTurns, TurnError } from './deputy.ts';
 
 export interface Store {
+  /** Deputy turns (007): records outside the event log. */
+  readonly deputy: DeputyTurns;
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
   /** Grants a free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
@@ -112,10 +116,12 @@ export interface Store {
 
 export class SqliteStore implements Store {
   readonly db: Database;
+  readonly deputy: DeputyTurns;
   private readonly crash: CrashHook;
 
   constructor(db: Database, crash: CrashHook) {
     this.db = db;
+    this.deputy = new DeputyTurns(db);
     this.crash = crash;
   }
 

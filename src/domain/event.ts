@@ -478,6 +478,10 @@ export type EventPayloads = {
     visits: Record<string, number>;
     by: string;
     at: number;
+    /** 007 (FR-030), additive: failure-class counters cleared after `backoff_exhausted`. */
+    counters?: string[];
+    /** 007 (FR-030), additive: the head whose CI window starts again at `at`. */
+    ci_window?: { head: string; at: number };
   };
   /**
    * An answer to a review that came back without progress (issue #192): `step` runs once more at its

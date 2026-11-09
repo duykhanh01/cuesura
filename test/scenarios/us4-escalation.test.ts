@@ -424,12 +424,13 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
     expect(latest(sim, 'code')).toMatchObject({ n: 4, rung: 1, status: 'running' });
   });
 
-  it('Scenario 8b: timeouts past the last rung end the task with the reason (#247)', () => {
+  it('Scenario 8b: timeouts past the last rung wait on ladder_exhausted for the deputy (007, R-15)', () => {
     const sim = run({ roles: { coder: { model: 'sonnet', effort: 'medium', ladder: [] } } });
     toCode(sim);
     fail(sim, sim.pendingOne('start_agent').id, 'timeout');
     fail(sim, sim.pendingOne('start_agent').id, 'timeout');
-    expect(sim.s.terminal).toEqual({ kind: 'FAILED', reason: 'ladder_exhausted:code' });
+    expect(sim.s.terminal).toBeNull();
+    expect(sim.s.wait?.detail).toMatchObject({ code: 'ladder_exhausted', step: 'code' });
     expect(sim.effects('start_agent', 'pending')).toEqual([]);
   });
 
@@ -606,7 +607,7 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
       });
     });
 
-    it('ends the task when the mapped reviewer rung is denied', () => {
+    it('waits on rung_denied when the mapped reviewer rung is denied', () => {
       const sim = run({
         roles: { coder, reviewer: terraReviewer },
         escalation: {
@@ -615,7 +616,8 @@ describe('US4 - Model escalation and budget under the approved policy', () => {
         },
       });
       coderToTopRung(sim);
-      expect(sim.s.terminal).toEqual({ kind: 'FAILED', reason: 'rung_denied:review:1' });
+      expect(sim.s.terminal).toBeNull();
+      expect(sim.s.wait?.detail).toMatchObject({ code: 'rung_denied', step: 'review', rung: 1 });
       expect(attemptsOf(sim, 'review')).toEqual([]);
     });
 

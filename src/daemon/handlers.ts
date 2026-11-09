@@ -682,6 +682,7 @@ function agentOutcome(
       data: {
         failure_class: HARNESS_FAILURE_CLASS[o.failure],
         ...(o.failure === 'auth' ? { auth: { harness } } : {}),
+        ...(o.failure === 'boundary_violation' ? { failure: 'boundary_violation' as const } : {}),
         message: o.detail,
         // The reservation is released only when the harness provably never ran (FR-010/016).
         invoked: o.invoked,

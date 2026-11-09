@@ -21,9 +21,9 @@ import { join } from 'node:path';
 import type { ProcessIdentity } from '../domain/runtime.ts';
 import { isSafeId } from './files.ts';
 import { bootId } from './identity.ts';
-import { ATTEMPT_ENV, OPERATION_ENV } from './process-env.ts';
+import { ATTEMPT_ENV, DEPUTY_TURN_ENV, OPERATION_ENV } from './process-env.ts';
 
-export { ATTEMPT_ENV, OPERATION_ENV };
+export { ATTEMPT_ENV, DEPUTY_TURN_ENV, OPERATION_ENV };
 
 const current = new AsyncLocalStorage<string>();
 

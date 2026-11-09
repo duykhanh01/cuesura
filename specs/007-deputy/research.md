@@ -400,3 +400,57 @@ engine hủy task phụ thuộc khi task tiên quyết FAILED hay CANCELLED (`sr
 
 **Đã loại:** hồi sinh task đã CANCELLED (trái nguyên tắc III); tạo lại mọi task phụ thuộc khi thay một đơn vị (mất lịch sử,
 nhân đôi task tổng).
+
+## R-30 — Đối chiếu mã nền (T001)
+
+Đối chiếu tại `origin/main` `baf9cf4` ngày 2026-11-09.
+
+| Mục | Kết quả trên code | Hệ quả |
+| --- | --- | --- |
+| Đọc `events` không theo `task_id` (R-21) | Bốn chỗ: `rewriteTaskStates` (`src/store/migrate.ts`) và `verifyProjections` (`src/store/verify.ts`) quét cả bảng rồi `replay` theo `task_id`; `terminalEventsAfter` lọc theo `type`; `lastGlobalSeq` lấy `MAX(global_seq)`. `report`, retention, `task_history` và projector đọc theo `task_id` hoặc projection `tasks`; `decisions.md` do decider ghi, không quét `events`. | Lát A thêm cột `stream` và cho ba chỗ đầu lọc `stream = 'task'`. `lastGlobalSeq` để nguyên: event của goal cũng là thay đổi mà attention và board cần thấy. |
+| Lease ngoài `assistant wait` (R-26) | Lease có dạng `<holder id>.<batch>`; holder id là session id khi phiên `assistant register` (lấy từ `PI_SESSION_ID`, `CODEX_THREAD_ID`, `CLAUDE_CODE_SESSION_ID`), là UUID mới khi `assistant wait` chạy không có `--lease`. `assistant-hook.json` lưu `{ session, lease }` của phiên đã register. | Client gửi `x-cusr-lease` = session id từ các biến trên khi có, nên phiên đã register không phải nhớ cờ nào. Phiên chỉ dùng `assistant wait` thì lease là UUID mà lệnh khác không biết; lát D nên cho `assistant wait` dùng session id làm holder id khi biến có mặt. Daemon chỉ so phần holder id. |
+| `ReviewEvidence` và output reviewer (R-18) | Finding có ba lớp: output harness `FindingSchema` (`src/adapters/harness/result-schema.ts`, trường `message`), trigger `ReviewDataSchema.findings` (`.strict()`, trường `msg`) và `ReviewEvidence.findings` (`src/domain/state.ts`). | `key` phải thêm ở cả ba; lát A chỉ thêm `key?` tùy chọn vào trigger và domain. |
+| Bộ lọc log gate (R-18) | **Không có.** Repo chỉ khai `log_pattern` cho luật phân loại CI (`CiRuleInputSchema`). Gate lưu `log_excerpt` (đầu và đuôi đã che secret) và log đầy đủ dưới `COMMAND_LOG_DIR`. | Chữ ký gate ở lát C cần quyết định nguồn dòng lỗi: chuẩn hóa `log_excerpt`, hoặc thêm khóa lọc mới trong `cusr.yaml`. Không ảnh hưởng lát A. |
+| Yolo và `policy:goal` (R-23) | `advanceTaskPr` hỏi `deps.enabled()` (đọc user config) cho mọi task; trigger `yolo_merge_approve` khiến engine ghi approval `granted_by = YOLO_APPROVER`. Base update chạy độc lập với yolo. | Lát E: `enabled` nhận task (goal unit thì bật), trigger mang approver `policy:goal`. Khả thi. |
+| `start_sha` cho task tổng (R-24) | `prepare` (`src/daemon/handlers.ts`) truyền `start_sha` từ `s.adoption.head_sha`; `Adoption` bắt buộc `pr_ref` và chỉ sinh qua `adopt_pr` của admin. | Task tổng chưa có PR nên không đi được qua `adoption`; lát E cần nguồn `start_sha` riêng (ví dụ trong `TaskInput.goal`) cho cùng tham số `ensureWorktree`. |
+| Vi phạm ranh giới (FR-002) | Runner trả `failure: 'boundary_violation'` (`src/runner/invocation.ts`); `HARNESS_FAILURE_CLASS` đổi nó thành lớp `unknown`, nên engine ghi `effect_failed` mà mất dấu. | T011 mang `failure` qua `FailureData` tới `detail.failure` của wait. |
+| Bảng định tuyến (FR-001) | `NEEDS_USER` coi `cancel_reconcile` là không cần người, nhưng danh sách "tự tiếp tục" của FR-001 không nêu nó. `cancel_reconcile` quá `CANCEL_READS_BEFORE_ATTENTION` thì `needsUser` là true. | `cancel_reconcile` là `auto` (giữ tương đương với `NEEDS_USER`); khi kẹt thì tới owner, vì người đã yêu cầu hủy. |
+| Kiểm `x-cusr-turn` (T014) | Server chỉ dựng caller từ header; replay theo `request_id` nằm trong `store.admitCommand`, không có guard trạng thái nào chạy trước nó. | Server chỉ đọc header vào caller; kiểm lượt `running` nằm trong `admitCommand` sau bước tra ledger (thứ tự 0 → 1 của contracts/cli-daemon.md), để replay sau khi lượt đóng vẫn trả kết quả cũ. Query của deputy kiểm lượt ở handler query. |
+| Biến môi trường của runner (T015) | `CUSR_ATTEMPT_ID` khai ở `src/runner/process-env.ts` (để worker guard đọc mà không kéo zod), đặt ở `attemptLayoutInputs`; `sandbox.ts` chỉ lọc biến kế thừa, không lọc biến runner tự đặt. | `CUSR_DEPUTY_TURN` khai cạnh nó trong `process-env.ts`. |
+
+### Quyết định khi làm lát A
+
+- **`Role` `deputy`, outcome `turn_ended` và fake harness (T010 một phần, T002) dời sang lát B.** `Role` khóa vào
+  `ROLE_SCHEMAS`, digest schema đã chứng minh trong manifest và role của sandbox; deputy không có schema kết quả, nên
+  thêm nó là quyết định của runner cho lượt deputy (T029). Lát A chỉ thêm `CommandKind` `task_fail`; `task_waive`,
+  `goal_*`, `deputy_handoff` vào cùng lát có handler của chúng, để không có kind nào trả `not_available`.
+- **T003 một phần:** `test/support/deputy.ts` có user config có hay không `roles.deputy`/`roles.decider`/`autonomous`,
+  task ở một mã wait bất kỳ, bản ghi lượt `running` và mốc worktree. Kế hoạch và lịch sử cho tín hiệu vòng lặp thêm
+  cùng lát C và D, khi các kiểu đó có.
+- **Kiểm lệnh của deputy (T013, T014):** server chỉ đọc `x-cusr-turn` vào caller. `admitCommand` tính `command_hash`
+  (gồm `reason`, `trial`, `turn_id` khi có, nên lệnh cũ giữ nguyên hash), tra ledger theo `request_id`, rồi mới kiểm
+  lượt `running` (`forbidden` `turn`), bảng quyền FR-034 (`forbidden` `deputy_kind`) và `reason`/`trial`
+  (`invalid_command`). Bảng quyền làm sớm từ T033 vì rẻ và chặn deputy hủy hay xác nhận task; `turn_scope` vẫn ở lát B.
+  Query của deputy cũng cần lượt `running`. `reason`, `trial`, `turn_id` vào `command_ledger` và `AuthzContext` của
+  envelope.
+- **`task fail` khi task không WAITING** trả `rejected` với `reason: fail_not_waiting` (exit 6) theo quy ước #261, không
+  thêm mã `transition_not_allowed`.
+- **`continue` trên giới hạn (T020):** `backoff_exhausted` xóa bộ đếm của lớp ở step; `ci_wait_exhausted` mở cửa sổ CI
+  mới cùng độ dài (`CiWait.window_from` giữ số poll trước cửa sổ, nên ID logic của poll không trùng);
+  `agent_runs_exhausted` và `deadline` chỉ nhận khi giới hạn đã được nới (`agent_runs_still_exhausted`,
+  `deadline_still_passed`), vì đi tiếp dưới giới hạn cũ chỉ mở lại cùng wait. `agent_runs_insufficient` không
+  `continue` được, chỉ `amend-policy --agent-runs` (theo T021, chặt hơn FR-030).
+- **`amend-policy` giới hạn (T021):** `--agent-runs +N` cộng vào `max_agent_runs`; `--deadline <ISO>` đặt hạn,
+  `--deadline +2h` dời hạn hiện tại muộn hơn 2 giờ. Dời theo hạn hiện tại thay vì theo lúc gõ lệnh, để bản xem trước
+  và lệnh xác nhận cho cùng hash. Engine nhận trigger `amend` từ `operate`; `proposeAmendment` vẫn chỉ cho admin, và
+  ứng dụng dựng policy sau khi đã kiểm theo profile (`allow_models`, `above: deny`). Sửa đổi vào một wait `policy` vẫn
+  cho task đi tiếp như trước. Nới giới hạn cũng nhận ở `backoff_exhausted` và `ci_wait_exhausted` (FR-030). Ở
+  `backoff_exhausted`, sửa đổi cho step chạy lại ngay một lần nhưng giữ bộ đếm của lớp, nên lỗi kế tiếp lại vào wait;
+  chỉ `continue` xóa bộ đếm để mở một vòng backoff đầy đủ. Cửa sổ CI mới cũng chỉ do `continue` mở.
+- **`task fail` khi có source drift** kết thúc ngay với `(no draft PR: source drift)`: drift chặn mọi claim tới khi
+  chọn revision, nên salvage không bao giờ chạy. Task đã kết thúc thì `task fail` bị từ chối `fail_not_waiting`.
+- **Wait cạn trần khi không có deputy (T022):** `src/daemon/deputy-absent.ts` coi deputy là có khi user config có
+  `roles.deputy`. Alias `roles.decider` (FR-121) thêm ở lát B cùng deputy thật; thêm sớm hơn thì task của người đang
+  dùng decider sẽ đứng ở wait mà không ai gỡ. Lý do fail giữ dạng của #247 (`ladder_exhausted:<step>`,
+  `rung_denied:<step>:<rung>`).
+- **Lease:** caller mang `lease` từ header `x-cusr-lease`; client chưa gửi header này, lát D chọn nguồn (R-30).

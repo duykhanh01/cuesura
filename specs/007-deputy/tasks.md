@@ -3,7 +3,7 @@
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Chưa có task code nào được làm. Amendment
+**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A xong (T002 dời sang lát B). Amendment
 11.0.0 nằm cùng PR với bản viết lại; không task code nào bắt đầu trước khi PR đó merge.
 
 **Mã nền**: `origin/main` `62eadbd`.
@@ -52,7 +52,7 @@ Viết test trước, thấy nó thất bại rồi mới triển khai. Kết qu
 ## Phase 1: Setup — đối chiếu mã nền, công cụ kiểm thử
 
 - [x] T000 Amendment 11.0.0 và bản viết lại spec, plan, research, data model, contracts, tasks (PR của lát 0).
-- [ ] T001 Đối chiếu mã nền trên `origin/main` mới nhất và ghi kết quả vào research:
+- [x] T001 Đối chiếu mã nền trên `origin/main` mới nhất và ghi kết quả vào research:
   - mọi chỗ đọc `events` không theo `task_id` (report, `decisions.md`, retention, verify, projector, history) cần lọc
     `stream = 'task'` (R-21);
   - cách phiên trợ lý biết lease hay session id khi gọi `cusr` ngoài `assistant wait` (R-26);
@@ -60,16 +60,16 @@ Viết test trước, thấy nó thất bại rồi mới triển khai. Kết qu
   - bộ lọc log của gate dùng được cho chữ ký lỗi (R-18);
   - điều kiện bật yolo trong `src/daemon/yolo.ts` và `onYoloMergeApprove` chỗ thêm `policy:goal` (R-23);
   - `start_sha` qua `adoption` trong `src/daemon/handlers.ts` dùng được cho task tổng (R-24).
-- [ ] T002 [P] Mở rộng fake harness `src/adapters/harness/fake.ts` cho role `deputy`. Kịch bản lượt là callback nhận
+- [ ] T002 [P] (Dời sang lát B, xem [R-30](research.md#quyết-định-khi-làm-lát-a).) Mở rộng fake harness `src/adapters/harness/fake.ts` cho role `deputy`. Kịch bản lượt là callback nhận
   `{ turn_id, env, context }` và có thể: gọi task service hay goal service với actor `deputy`, header turn, `reason`,
   `trial`; gọi `deputy handoff`; ghi vào worktree (sửa, tạo file, `git commit`); trả `turn_ended` có hay không có
   `final_message`; trả `rate_limited`, `auth`, `refused`, `capability_missing`, lỗi hạ tầng; treo. Fake reviewer trả
   finding có `key`. Test tự kiểm ở `test/unit/adapters/fake-harness-deputy.test.ts`.
-- [ ] T003 [P] Builder ở `test/support/deputy.ts`: user config có và không có `roles.deputy`, có `roles.decider` cũ,
+- [x] T003 [P] (Một phần ở lát A, xem [R-30](research.md#quyết-định-khi-làm-lát-a).) Builder ở `test/support/deputy.ts`: user config có và không có `roles.deputy`, có `roles.decider` cũ,
   `autonomous` bật và tắt, `allow_models` nhiều model; task ở từng `DetailCode`; lịch sử dựng sẵn cho tín hiệu vòng lặp
   (finding lặp, cây quay lại, cùng chữ ký qua hai model); dòng `deputy_turns` `running` giả lập caller deputy; kế hoạch
   một và nhiều đơn vị; helper so HEAD và cây worktree với baseline.
-- [ ] T004 [P] Remote git giả cho test nhánh goal ở `test/support/git-remote.ts`: bare repo cục bộ làm `origin`, fake
+- [x] T004 [P] Remote git giả cho test nhánh goal ở `test/support/git-remote.ts`: bare repo cục bộ làm `origin`, fake
   GitHub port cho PR vào nhánh bất kỳ, check xanh hay đỏ theo kịch bản, merge bằng merge commit, observation PR đã merge.
   Dùng lại fake GitHub hiện có nếu đủ.
 
@@ -83,56 +83,56 @@ Viết test trước, thấy nó thất bại rồi mới triển khai. Kết qu
 
 ### Tests
 
-- [ ] T005 [P] Integration test migration ở `test/integration/store/deputy-goal-migration.test.ts`: DB hiện có nâng lên
+- [x] T005 [P] Integration test migration ở `test/integration/store/deputy-goal-migration.test.ts`: DB hiện có nâng lên
   được và giữ dữ liệu; `events.stream` mặc định `task`; các bảng và cột mới đúng [data model](data-model.md); unique
   index một phần từ chối lượt `running`/`retry_wait` thứ hai cùng `task_id`, và lượt `plan` thứ hai cùng `goal_id`;
   ghi `deputy_turns` và `branch_conflicts` không đổi `version`, không thêm `events`.
-- [ ] T006 [P] Property test định tuyến ở `test/property/deputy/routing.test.ts`: mọi `DetailCode` có đúng một nơi đến;
+- [x] T006 [P] Property test định tuyến ở `test/property/deputy/routing.test.ts`: mọi `DetailCode` có đúng một nơi đến;
   `auto` ⇔ `NEEDS_USER = false`; `effect_unknown` theo ngưỡng; mã PENDING trừ `dependency_pending` tới owner; danh sách
   owner của FR-001 kể cả `plan_amendment` và vi phạm ranh giới; câu hỏi của worker theo `autonomous`; còn lại tới deputy.
-- [ ] T007 [P] Contract test CLI ở `test/contract/cli/deputy-identity.test.ts`: có `CUSR_DEPUTY_TURN` thì `refuseWorker`
+- [x] T007 [P] Contract test CLI ở `test/contract/cli/deputy-identity.test.ts`: có `CUSR_DEPUTY_TURN` thì `refuseWorker`
   cho chạy, actor `deputy` dù `CUSR_ACTOR=assistant`, header `x-cusr-turn`; `assistant hook|session-start|register|wait`
   thoát 0 không in gì; thiếu `--reason` thì `invalid_command`; `turn_id` không chạy thì `forbidden` `turn`; `--reason` lưu
   được với owner.
 
 ### Implementation
 
-- [ ] T008 Migration `src/store/migrations/NNN_deputy_goal.sql` đúng data model: `events.stream`, `goals`, `goal_tasks`,
+- [x] T008 Migration `src/store/migrations/NNN_deputy_goal.sql` đúng data model: `events.stream`, `goals`, `goal_tasks`,
   `deputy_turns`, `branch_conflicts`, cột mới của `command_ledger`, các unique index một phần.
-- [ ] T009 `src/store/deputy.ts`: `startTurn`, `finishTurn`, `scheduleRetry`, `setHandoff`, `runningTurn(task_id)`,
+- [x] T009 `src/store/deputy.ts`: `startTurn`, `finishTurn`, `scheduleRetry`, `setHandoff`, `runningTurn(task_id)`,
   `runningPlanTurn(goal_id)`, `turnsOf(task_id|goal_id)`, `isRunningTurn(turn_id)`, `turnGoal(turn_id)`; mỗi thao tác một
   transaction, không đụng `events`.
-- [ ] T010 [P] Kiểu domain theo data model: `RequesterKind` `deputy`; `TaskInput.goal`; `DetailCode` `plan_amendment`
+- [x] T010 [P] Kiểu domain theo data model: `RequesterKind` `deputy`; `TaskInput.goal`; `DetailCode` `plan_amendment`
   (thêm vào `NEEDS_USER`); `Role` `deputy`; `HarnessOutcome` `turn_ended`; `CommandKind` mới; `ReviewEvidence.findings[].key`
   tùy chọn ở lát này.
-- [ ] T011 [P] Ghi `detail.failure = 'boundary_violation'` có cấu trúc trên `effect_failed` tại nơi sinh vi phạm (FR-002).
+- [x] T011 [P] Ghi `detail.failure = 'boundary_violation'` có cấu trúc trên `effect_failed` tại nơi sinh vi phạm (FR-002).
   Test ở `test/integration/runtime/boundary-violation-detail.test.ts`.
-- [ ] T012 Thêm `deputy` vào `CALLER_ACTORS` (`read`, `operate`) trong `src/application/authz.ts`; `AuthzContext` mang
+- [x] T012 Thêm `deputy` vào `CALLER_ACTORS` (`read`, `operate`) trong `src/application/authz.ts`; `AuthzContext` mang
   `reason`, `trial`, `turn_id`, `lease`.
-- [ ] T013 `CommandSchema` và `admitCommand` (`src/application/commands.ts`): `reason`, `trial` ở cấp lệnh; `reason` bắt
+- [x] T013 `CommandSchema` và `admitCommand` (`src/application/commands.ts`): `reason`, `trial` ở cấp lệnh; `reason` bắt
   buộc với `deputy`; `turn_id` từ header; cả ba vào `command_hash` và `command_ledger`. Dời bước tra replay theo
   `request_id`, actor và `command_hash` lên trước mọi guard phụ thuộc trạng thái (R-07, FR-055). Phụ thuộc T008, T012.
-- [ ] T014 Header `x-cusr-turn` trong `src/daemon/server.ts`: actor `deputy` không có lượt `running` khớp thì `forbidden`
+- [x] T014 Header `x-cusr-turn` trong `src/daemon/server.ts`: actor `deputy` không có lượt `running` khớp thì `forbidden`
   `turn`. Phụ thuộc T009, T013.
-- [ ] T015 [P] `CUSR_DEPUTY_TURN` trong `src/runner/process-tag.ts`; `src/runner/sandbox.ts` không xóa biến này.
-- [ ] T016 CLI phía client: `src/cli/worker-guard.ts` (cho qua, im hook trợ lý), `src/cli/client.ts` (actor `deputy`,
+- [x] T015 [P] `CUSR_DEPUTY_TURN` trong `src/runner/process-tag.ts`; `src/runner/sandbox.ts` không xóa biến này.
+- [x] T016 CLI phía client: `src/cli/worker-guard.ts` (cho qua, im hook trợ lý), `src/cli/client.ts` (actor `deputy`,
   header turn), mọi lệnh ghi có `--reason`; lệnh gia hạn có `--hypothesis`, `--expect`. T007 phải xanh.
-- [ ] T017 `src/engine/deputy-routing.ts`: `DEPUTY_ROUTE` và `routeOf(state, autonomous, now)` (FR-001, R-02). T006 phải
+- [x] T017 `src/engine/deputy-routing.ts`: `DEPUTY_ROUTE` và `routeOf(state, autonomous, now)` (FR-001, R-02). T006 phải
   xanh.
-- [ ] T018 Hết thang thành wait (R-15): `chooseRung` (`src/engine/escalation.ts`) vào `ladder_exhausted`/`rung_denied`
+- [x] T018 Hết thang thành wait (R-15): `chooseRung` (`src/engine/escalation.ts`) vào `ladder_exhausted`/`rung_denied`
   thay `failWithDraft`; cập nhật các test mà #252 đã đổi (`test/property/invariants/escalation.test.ts`,
   `test/scenarios/us4-escalation.test.ts`, `test/integration/runtime/execution-modes.test.ts`,
   `test/scenarios/task-continue.test.ts`).
-- [ ] T019 Lệnh `task_fail` (FR-032): trigger chỉ nhận khi WAITING, gọi `failWithDraft(ctx, reason)`; `REQUIRED_ROLE`
+- [x] T019 Lệnh `task_fail` (FR-032): trigger chỉ nhận khi WAITING, gọi `failWithDraft(ctx, reason)`; `REQUIRED_ROLE`
   `operate`; CLI `cusr task fail <id> --reason`. Contract test ở `test/contract/cli/task-fail.test.ts` (thiếu `--reason`
   exit 2, không WAITING exit 6).
-- [ ] T020 Mở rộng `continue` (`src/engine/continue.ts`) cho `agent_runs_exhausted`, `deadline`, `backoff_exhausted`
+- [x] T020 Mở rộng `continue` (`src/engine/continue.ts`) cho `agent_runs_exhausted`, `deadline`, `backoff_exhausted`
   (reset bộ đếm lỗi của lớp), `ci_wait_exhausted` (cửa sổ CI mới) (FR-030). Property test ở
   `test/property/deputy/continue.test.ts`.
-- [ ] T021 Mở rộng `amend-policy` (`src/application/amend-policy.ts`, `src/cli/tasks.ts`): `--agent-runs +N`, `--deadline`,
+- [x] T021 Mở rộng `amend-policy` (`src/application/amend-policy.ts`, `src/cli/tasks.ts`): `--agent-runs +N`, `--deadline`,
   `--model` tùy chọn khi có một trong hai; hạ xuống `operate`; `agent_runs_insufficient` chỉ gỡ bằng `--agent-runs`
   (FR-031). Contract test ở `test/contract/cli/amend-policy-limits.test.ts`.
-- [ ] T022 Wait cạn trần khi không có role `deputy` (R-11): ở daemon gửi `task_fail` actor `system:deputy-absent`;
+- [x] T022 Wait cạn trần khi không có role `deputy` (R-11): ở daemon gửi `task_fail` actor `system:deputy-absent`;
   attention không báo trong khoảng chờ. Test ở `test/integration/runtime/deputy-absent.test.ts`.
 
 **Checkpoint**: danh tính `deputy` với lý do, thử nghiệm và ID lượt; bảng định tuyến đủ mã; hết thang vào wait; có lệnh

@@ -29,14 +29,36 @@ const SOURCE_TABLES = [
   'frozen_contexts',
 ] as const;
 
+/** Rows as older schemas stored them: migration 008 adds `events.stream`, defaulting to 'task'. */
 function dump(db: Database.Database, table: string): unknown[] {
-  return db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all();
+  const rows = db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all() as Record<
+    string,
+    unknown
+  >[];
+  return rows.map(({ stream, ...rest }) => {
+    if (stream !== undefined) expect(stream).toBe('task');
+    return rest;
+  });
 }
 
 function copyFixture(): string {
   const path = join(tempDir(), 'cusr.sqlite');
   copyFileSync(FIXTURE, path);
   return path;
+}
+
+/** Undoes migration 008, so a test can roll the file back to an older schema version. */
+function revert008(raw: Database.Database): void {
+  raw.exec(`DROP INDEX command_ledger_turn;
+    ALTER TABLE command_ledger DROP COLUMN reason;
+    ALTER TABLE command_ledger DROP COLUMN turn_id;
+    ALTER TABLE command_ledger DROP COLUMN trial_json;
+    ALTER TABLE command_ledger DROP COLUMN lease;
+    DROP TABLE goals;
+    DROP TABLE goal_tasks;
+    DROP TABLE deputy_turns;
+    DROP TABLE branch_conflicts;
+    ALTER TABLE events DROP COLUMN stream;`);
 }
 
 describe('migration 006: one execution slot row per holding task', () => {
@@ -54,6 +76,7 @@ describe('migration 006: one execution slot row per holding task', () => {
 
     // Back to the singleton table of schema 5, holding the same slot.
     const raw = new Database(path);
+    revert008(raw);
     raw.exec(`DROP TABLE execution_slot;
       CREATE TABLE execution_slot (
         key TEXT PRIMARY KEY CHECK (key = 'execution'),
@@ -79,6 +102,7 @@ describe('migration 006: one execution slot row per holding task', () => {
 describe('migration 004: the project of a command', () => {
   function atVersion3(path: string): Database.Database {
     const raw = new Database(path);
+    revert008(raw);
     raw.exec('ALTER TABLE command_ledger DROP COLUMN project');
     raw.prepare('UPDATE schema_meta SET version = 3').run();
     return raw;
@@ -107,6 +131,7 @@ describe('migration 004: the project of a command', () => {
     const rows = after.prepare('SELECT * FROM command_ledger ORDER BY request_id').all() as {
       request_id: string;
       project: string | null;
+      [column: string]: unknown;
     }[];
     after.close();
     expect(Object.fromEntries(rows.map((r) => [r.request_id, r.project]))).toEqual({
@@ -114,7 +139,11 @@ describe('migration 004: the project of a command', () => {
       'no-task': null,
       'with-task': task.project,
     });
-    expect(rows.map(({ project: _p, ...rest }) => rest)).toEqual(before);
+    expect(
+      rows.map(
+        ({ project: _p, reason: _r, turn_id: _t, trial_json: _j, lease: _l, ...rest }) => rest,
+      ),
+    ).toEqual(before);
   });
 
   it('leaves events and triggers untouched', () => {
@@ -151,7 +180,7 @@ describe('migration 001 → 002 on a real schema-1 database', () => {
     expect(db.prepare('SELECT version FROM schema_meta').get()).toEqual({
       version: SCHEMA_VERSION,
     });
-    expect(SCHEMA_VERSION).toBe(7);
+    expect(SCHEMA_VERSION).toBe(8);
     for (const t of SOURCE_TABLES) expect(dump(db, t), t).toEqual(before[t]);
 
     expect(store.verifyProjections()).toMatchObject({

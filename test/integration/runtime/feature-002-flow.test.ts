@@ -198,7 +198,7 @@ it('turn exhaustion uses timeout handling, preserving the worker session, then r
   expect(f.d.store.readEvents(task.id).some((e) => e.type === 'RungRaised')).toBe(true);
 });
 
-describe('a task that runs out of rungs before any checkpoint (#247, real Git)', () => {
+describe('a task failed past its ladder before any checkpoint (#247, 007, real Git)', () => {
   /** Every coder run hits its turn limit; with `write`, the first one leaves a file behind. */
   const timingOut = (f: ReturnType<typeof setup>, write: boolean) => {
     f.coder.run = (input) => {
@@ -232,6 +232,9 @@ describe('a task that runs out of rungs before any checkpoint (#247, real Git)',
           kind: 'approve',
           approval_request_id: w.detail['approval_id'] as Uuid,
         });
+      // Past the ladder the task waits (007, R-15); `task fail` ends it as the deputy would.
+      if (w?.detail.code === 'ladder_exhausted')
+        f.d.must(task.id, { kind: 'fail', reason: `ladder_exhausted:${String(w.detail['step'])}` });
     }
   };
 
