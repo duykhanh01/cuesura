@@ -20,10 +20,11 @@ import { submit } from '../application/triage.ts';
 import { DEFAULT_MERGE_METHOD } from '../domain/merge-method.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import type { TaskState } from '../domain/state.ts';
-import { checkPasser, MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
+import { checkPasser, MAX_ENVELOPE_IDS, type Check } from '../domain/trigger.ts';
 import { yoloApproval } from '../engine/external-completion.ts';
 import { ciVerdict } from '../engine/merge-guard.ts';
 import { evaluateRequired } from '../engine/required-checks.ts';
+import { unlistedWaivers, waivedChecks } from '../engine/waivers.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { Store } from '../store/index.ts';
 
@@ -71,6 +72,7 @@ async function currentChecksProblem(
   t: MergeTarget,
   now: number,
   skippedBefore: number | null,
+  waivedOf: (checks: readonly Check[]) => ReadonlySet<string>,
 ): Promise<string | null> {
   const required = await readRequirements(port, t.repo, t.target, now);
   const verdict = evaluateRequired(required, policy.ci.required_checks);
@@ -80,6 +82,15 @@ async function currentChecksProblem(
   const checks = await readHeadChecks(port, t.repo, t.head_sha, skippedBefore);
   if (!checks.ok) return `checks unreadable: ${checks.error.detail}`;
   const passed = checkPasser(checks.value.checks);
+  const runs = checks.value.checks.map((c) => ({
+    name: c.name,
+    state: c.state,
+    source: c.source,
+    app_id: c.app_id,
+    run: String(c.generation),
+  }));
+  // The same evaluation as the engine's: a waiver holds for its very run, app included (R-20).
+  const waived = waivedOf(runs);
   for (const identity of verdict.app_pinned ?? []) {
     if (
       !checks.value.checks.some(
@@ -87,7 +98,7 @@ async function currentChecksProblem(
           check.name === identity.name &&
           check.source === 'check_run' &&
           check.app_id === identity.app &&
-          passed(check.state),
+          (passed(check.state) || waived.has(check.name)),
       )
     )
       return `required check ${identity.name} from app ${identity.app} has not passed`;
@@ -99,7 +110,8 @@ async function currentChecksProblem(
       source: 'branch_protection',
       complete: checks.value.complete && checks.value.collisions.length === 0,
     },
-    checks.value.checks.map((c) => ({ name: c.name, state: c.state })),
+    runs,
+    waived,
   );
   return ci.kind === 'pass' ? null : `checks ${ci.kind}`;
 }
@@ -171,6 +183,8 @@ export async function advanceTaskPr(deps: YoloDeps, taskId: string): Promise<Yol
   }
 
   if (!(await deps.enabled())) return 'off';
+  // FR-046: the PR lists every waiver before it merges.
+  if (unlistedWaivers(s).length > 0) return notReady('waivers not yet listed in the PR body');
   // `clean` accepts a skipped or neutral check and the engine holds the CI seen earlier: read what is true now.
   const problem = await currentChecksProblem(
     port,
@@ -178,6 +192,7 @@ export async function advanceTaskPr(deps: YoloDeps, taskId: string): Promise<Yol
     target,
     deps.clock.now(),
     s.run.pr_ready_at ?? null,
+    (runs) => waivedChecks(s, policy, target.head_sha, runs),
   );
   if (problem !== null) return notReady(problem);
 

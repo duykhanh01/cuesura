@@ -568,3 +568,69 @@ nhân đôi task tổng).
   theo `admitted_at` của command ledger; `branch_conflicts` còn trống tới lát F. Vùng 2 vượt ngân sách không có cột để
   ghi cảnh báo, chỉ có `context_bytes`.
 - **`TaskInput.goal.start_sha`** chưa thêm: lát D không đụng tới task tổng, để lát E thêm cùng nơi dùng.
+
+### Quyết định khi làm lát C
+
+Dựng trên nhánh lát B (`007/slice-b`, PR #291).
+
+- **Khóa finding không vào schema output của reviewer.** Thêm `key` vào `ReviewerResultSchema` đổi digest
+  `cusr.role.reviewer.v1` đã chứng minh ở S0.2 (`ROLE_SCHEMA_DIGESTS`, `test/fixtures/runtime/spike-0`), buộc mọi harness
+  prove lại role reviewer và cần smoke thật mới. Thay vào đó reviewer nhận mục `open_findings` (finding chặn của lần
+  từ chối trước kèm khóa) và được dặn mở đầu mỗi `message` bằng `[<khóa>]`; daemon tách khóa ra (`splitFindingKey`) vào
+  trường `key` đã có ở trigger và domain. Khóa thiếu hay sai định dạng: `file` cộng hash của `msg` đã chuẩn hóa (R-18).
+  Fake reviewer trả khóa theo cùng cách, qua tiền tố trong `message`.
+- **Nguồn dòng lỗi của gate:** repo không có bộ lọc log gate, nên chữ ký gate lấy từ `log_excerpt` đã che secret: chuẩn
+  hóa (bỏ màu ANSI, thời điểm, đường dẫn tạm, UUID, hex dài, mọi chữ số), giữ dòng có dấu hiệu lỗi, không có thì giữ 20
+  dòng cuối; khử trùng và sắp xếp. Không thêm khóa `cusr.yaml`. Hệ quả: hai lỗi chỉ khác con số cho cùng chữ ký; "số lỗi
+  giảm" vẫn đo được qua số dòng, số check và số finding.
+- **Chữ ký lỗi** (`failure-signature.ts`) băm mã wait, step và cơ sở gồm: gate lỗi của lần chạy gate mới nhất trong
+  revision, check lỗi của CI mới nhất trên head hiện tại, khóa finding chặn của lần review mới nhất nếu nó từ chối.
+- **Chuỗi sự cố** dựng bằng cách replay event của mọi task từng giữ khóa đơn vị (`goal_tasks`, task ẩn là chính nó) và
+  chụp mỗi `TaskWaiting` không thuộc nhóm `auto` của bảng định tuyến: chữ ký, số lỗi, cây checkpoint, model của attempt
+  gần nhất. Vị trí so sánh là `global_seq`: dòng thử lưu `lastGlobalSeq()` lúc nhận lệnh; kết quả đo ở sự cố kế tiếp của
+  đơn vị. Chỉ thị mới là `TaskMessageSent`/`QuestionAnswered` của actor `owner` hay `assistant`, cộng event của goal
+  (`goalEvidence`): `GoalNoted` loại `directive` và `GoalRevised` của hai actor đó. Kế hoạch mới là `PlanConfirmed` chạm
+  đơn vị (bản sửa có đơn vị trong `affected`, hay kế hoạch nguyên vẹn có khóa đơn vị) và `PlanAmended` của chủ dự án
+  hay trợ lý chạm đơn vị; sửa do deputy áp ngay không tính. Goal ẩn không có event goal.
+- **`trial_json`** lưu thêm `action_kind`, `params`, `signature`, `goal_id`, `unit_key`, `task_id`, `global_seq`,
+  `errors`, `tree`. `command_hash` vẫn tính trên `trial` gốc. Chỉ lệnh đã hoàn tất với kết quả `ok` mới là dòng thử.
+- **Không gian model của luật 2:** `allow_models` của profile của task, đọc từ user config trước khi nhận lệnh
+  (`DaemonOptions.control().models`); profile để trống thì mọi model đã khai. Không đọc được thì chỉ các model task đã
+  chạy, nên đổi model bị coi là đã cạn (chặt hơn, không lỏng hơn).
+- **Bằng chứng mới mở lại mọi loại trừ đổi model và miễn:** dòng thử có bằng chứng mới sau nó không còn tính cho luật 1
+  và luật 2 của `extend`/`instruct`/`approve_rung`. Model đã thử và mục đã miễn trên một chữ ký thì không mở lại (FR-043.2
+  không nêu ngoại lệ). Lệnh không gia hạn (`answer`, `recheck`, `pause`, `resume`) chỉ chịu luật 3. `deputy handoff` không
+  bị chặn: bàn giao không phải `handover` trên chữ ký đã cạn vẫn được ghi, và bước 4 sau lượt kết thúc task.
+- **Bước 4 sau lượt** áp khi task vẫn WAITING ở một sự cố của deputy, không chỉ đúng sự cố mở lượt: lượt có thể đã đẩy
+  task sang lần vào wait sau trên cùng lỗi. Task bị kết thúc thì lượt ghi `done`.
+- **Bản miễn:** `Waived { waiver }` lưu ở `run.waivers`; phạm vi finding là hash của tập khóa chặn của lần review bị miễn,
+  gate là chữ ký gate, check là head SHA cộng nguồn, app ID và ID của lần chạy (`check_run` id, hay thời điểm của
+  status). Evidence CI giờ ghi `source`, `app_id`, `run` cho mỗi check (trường thêm, tùy chọn), nên lần chạy lại hay
+  check cùng tên của app khác không được miễn; check đọc trước bản này (không có `run`) thì không miễn được
+  (`waive_no_run`). Guard yolo đọc check từ GitHub và dùng cùng phép khớp, kể cả với check ghim app. Miễn check bị từ
+  chối (`waive_protected`) khi `base_branch` khớp `protected_branches`, mặc định gồm chính nhánh gốc, nên trên thực tế
+  bản miễn check chỉ dùng cho PR vào nhánh goal (lát E) hay nhánh không bảo vệ.
+- **Hiệu lực khi đang chờ:** `task waive` chỉ cho task đi tiếp khi wait hiện tại là wait cạn vòng chất lượng
+  (`loop_exhausted`, `review_repeated`, `fix_no_src_change`, `ladder_exhausted`, `rung_denied`,
+  `escalations_exhausted`; với check thêm `ci_wait_exhausted`) ở chính step của bằng chứng hay step sửa mà lỗi của nó
+  dẫn tới (đi theo outcome lỗi, rồi cả `ok` của bước trung gian như `post_changes → fix_review`), không có drift, hủy
+  hay pause, và bản miễn phủ đủ: review của checkpoint hiện tại thành approve (`ReviewWaived`), bước gate vào lại và
+  lỗi đã miễn không chặn, bước CI đi như một kết quả pass được phủ đủ. Mọi wait khác (deadline, approval, drift…)
+  giữ nguyên. Review mới từ chối
+  đúng tập khóa đã miễn hết cũng thành approve.
+- **Cập nhật thân PR:** effect mới `update_pr_body` dùng lại handler và probe của `create_pr` cập nhật mô tả; thân PR là
+  thân của worker cộng mục "Waivers" (luôn ghi là waived). `pr_body.waivers` ghi ID bản miễn đã liệt kê; `mergeGuard` trả
+  `waivers_unlisted` cho tới khi đủ, khi đó engine xin một update mới và chờ nó. Effect này được claim cả khi task
+  đang chờ hay quá deadline (nó không làm việc nào của task). Mọi effect ghi thân PR (`update_pr_body` và `create_pr`
+  cập nhật mô tả) chạy từng cái một (`pr_body_pending` khi có cái khác đang chạy hay unknown); mỗi cái ghi nội dung
+  worker mới nhất cùng mọi bản miễn lúc chạy, nên không cái nào đè cái mới hơn. Trước khi PATCH, handler ghi intent
+  (ref/digest nội dung và ID bản miễn) vào thư mục `intents`; probe sau crash dựng đúng thân đó, dù nội dung hay bản
+  miễn đã đổi. Không ghim trong request: thứ tự effect trong state không phải thứ tự xin, và ghim lúc xin thì một
+  effect xin trước mà chạy sau sẽ ghi lùi. PR tạo/tìm lại chỉ ghi bản miễn là đã liệt kê khi thân trên GitHub đúng là
+  thân chúng tạo ra.
+  Update thất bại mà không có merge nào chờ thì không đổi gì. Guard của yolo cũng chờ điều kiện này và dùng chung `ciVerdict` có bản miễn; merge do chủ dự án tự
+  làm trên GitHub thì không chặn được.
+- **Context của lượt** (tạm, lát D thay): vùng 3 thêm tín hiệu vòng lặp và bảng thử trên chữ ký hiện tại; vùng 5 thêm
+  chữ ký, cơ sở của nó và trạng thái loop guard từng loại. `deputy_turns.signature` được ghi lúc mở lượt.
+- **`task show`/`explain`** có `loop_signals` và `signature` khi task WAITING (rỗng và `null` khi không), và `waivers`.
+  Mục bản miễn trong `report` để lát H.

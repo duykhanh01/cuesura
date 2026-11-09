@@ -131,6 +131,7 @@ function successData(sim: Sim, e: EffectMirror, c: Choice): unknown {
         sim.s.task.base_branch,
       );
     case 'create_pr':
+    case 'update_pr_body':
       return { pr_ref: 'acme#1', head_sha: sim.s.head_sha ?? 'h1' };
     case 'mark_ready':
       return { pr_ref: 'acme#1', ready_at: v % 2 === 0 ? 1 : null };

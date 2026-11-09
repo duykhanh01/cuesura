@@ -132,12 +132,24 @@ export function assembleContext(
 
 const iso = (ms: number): string => new Date(ms).toISOString();
 
+/** What the loop guard knows of the unit (007 slice C), as lines for zones 3 and 5. */
+export type LoopLines = {
+  readonly signals: readonly string[];
+  /** Trials on the current failure signature and how each turned out. */
+  readonly trials: readonly string[];
+  /** The failure signature and what it is made of. */
+  readonly signature: readonly string[];
+  /** What the loop guard would refuse now. */
+  readonly guard: readonly string[];
+};
+
 /** Zone 3 of a task's incident: history by step, then the earlier turns of this task. */
 function taskZone(
   store: Store,
   s: TaskState,
   turns: readonly DeputyTurn[],
   worktree: string | null,
+  loop: LoopLines | undefined,
 ): Zone {
   const steps = new Map<string, { n: number; bindings: Set<string>; last: string }>();
   for (const a of Object.values(s.attempts)) {
@@ -176,8 +188,13 @@ function taskZone(
       `revision: ${s.revision}`,
       `worktree (read-only): ${worktree ?? 'none yet'}`,
       ...(history.length === 0 ? ['- no attempt yet'] : []),
+      ...(loop === undefined ? [] : ['## Loop signals', ...loop.signals]),
     ],
-    items: [...history, ...handoffs],
+    items: [
+      ...history,
+      ...handoffs,
+      ...(loop === undefined ? [] : ['## Trials on the current failure signature', ...loop.trials]),
+    ],
     label: 'history and turn entries',
   };
 }
@@ -211,7 +228,7 @@ function volatileZone(store: Store, goal: GoalState, self: string | null, since:
 }
 
 /** Zone 5 of a task's incident. */
-function incidentZone(s: TaskState): Zone {
+function incidentZone(s: TaskState, loop: LoopLines | undefined): Zone {
   const wait = s.wait;
   const question = openQuestions(s).find((q) => q.blocking) ?? null;
   const actions = allowedActions(s, {
@@ -228,6 +245,14 @@ function incidentZone(s: TaskState): Zone {
       `detail: ${JSON.stringify(wait?.detail ?? {})}`,
       ...(question === null ? [] : [`question (${question.question_id}): ${question.body}`]),
       `expected version: ${s.version}`,
+      ...(loop === undefined
+        ? []
+        : [
+            '## Failure signature',
+            ...loop.signature,
+            '## Loop guard on this signature',
+            ...loop.guard,
+          ]),
       '## Ways out',
     ],
     items: actions.length === 0 ? ['- none listed; read `cusr task explain`'] : actions,
@@ -244,15 +269,16 @@ export function incidentContext(o: {
   readonly turns: readonly DeputyTurn[];
   readonly worktree: string | null;
   readonly budget: number;
+  readonly loop?: LoopLines;
 }): BuiltContext {
   const last = o.turns.at(-1);
   return assembleContext(
     o.role,
     stableZone(o.goal, o.task),
     [
-      taskZone(o.store, o.task, o.turns, o.worktree),
+      taskZone(o.store, o.task, o.turns, o.worktree, o.loop),
       volatileZone(o.store, o.goal, o.task.id, last?.started_at ?? 0),
-      incidentZone(o.task),
+      incidentZone(o.task, o.loop),
     ],
     o.budget,
   );

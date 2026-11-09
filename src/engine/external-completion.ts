@@ -4,7 +4,7 @@ import { invalidatePending } from './cancel.ts';
 import { reject, type Ctx } from './context.ts';
 import { startDrain } from './drain.ts';
 import { reviewOf } from './head-evidence.ts';
-import { ciVerdict, latestCi } from './merge-guard.ts';
+import { latestCi, taskCiVerdict } from './merge-guard.ts';
 import { mkWait, waitTask } from './waits.ts';
 import { waitObservationExpired } from './observation.ts';
 
@@ -65,7 +65,7 @@ export function verifiedHead(ctx: Ctx, head: string): boolean {
   return (
     reviewOf(s, head) !== 'missing' &&
     ci !== undefined &&
-    ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass'
+    taskCiVerdict(s, ctx.frozen, ci).kind === 'pass'
   );
 }
 

@@ -64,3 +64,18 @@ export function failWaitingTask(
   const { reason } = input.payload as { reason: string };
   return submitTrigger(deps, admitted, input, caller, { kind: 'fail', reason });
 }
+
+/** `task waive` (007, FR-045): the evidence is redacted before it is stored. */
+export function waiveTask(
+  deps: ContinueDeps & { readonly redact?: (text: string) => string },
+  admitted: Admitted,
+  input: CommandInput,
+  caller: Caller,
+): Promise<Result<unknown, AppError>> {
+  const p = input.payload as Extract<Trigger, { kind: 'waive' }>;
+  return submitTrigger(deps, admitted, input, caller, {
+    kind: 'waive',
+    target: p.target,
+    evidence: deps.redact?.(p.evidence) ?? p.evidence,
+  });
+}

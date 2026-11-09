@@ -37,6 +37,7 @@ import {
   type PublishContent,
   type RepairState,
   type RoleFailure,
+  type OpenFinding,
   type WorkerReport,
 } from '../adapters/context.ts';
 import { FileContentStore, readContentFile, validateContent } from '../adapters/publish-content.ts';
@@ -65,7 +66,10 @@ import { manifestShortfalls } from '../application/capabilities.ts';
 import { toMergeProof } from '../adapters/github/merge-proof.ts';
 import { observePull } from '../adapters/github/observe.ts';
 import {
+  bodyDigest as bodyDigestOf,
   createOrRecoverPr,
+  finalBody,
+  fitContent,
   updatePrDescription,
   withDeputyAssumptions,
   type DescriptionUpdate,
@@ -102,7 +106,7 @@ import {
   type FrozenRuntimeContext,
   type Observation,
 } from '../domain/runtime.ts';
-import type { TaskState } from '../domain/state.ts';
+import type { TaskState, Waiver } from '../domain/state.ts';
 import { isMinorStep } from '../domain/workflow.ts';
 import { MINOR_FIX_STEP } from '../engine/workflows/software-dev.ts';
 import type { z } from 'zod';
@@ -127,6 +131,9 @@ import type { EpochMs, Uuid } from '../shared/brand.ts';
 import { hashCanonical, hashText } from '../shared/hash.ts';
 import { claimable } from '../engine/claim.ts';
 import { reviewInputDigest } from '../engine/review-evidence.ts';
+import { gatesPass, waiversSection } from '../engine/waivers.ts';
+import { findingKey, latestRejection, splitFindingKey } from '../engine/failure-signature.ts';
+import { isBlocking } from '../engine/failure.ts';
 import type { Store } from '../store/index.ts';
 import type { EffectHandler, EffectHandlers } from './dispatch.ts';
 import { DRAIN_KILL_VERIFY_MS, DRAIN_TERM_GRACE_MS } from './drain.ts';
@@ -732,12 +739,16 @@ function agentOutcome(
       data: {
         schema_checked: true,
         verdict: v.verdict,
-        findings: v.findings.map((f) => ({
-          severity: f.severity,
-          file: f.file,
-          ...(f.line === null ? {} : { line: f.line }),
-          msg: f.message,
-        })),
+        findings: v.findings.map((f) => {
+          const { key, msg } = splitFindingKey(f.message);
+          return {
+            severity: f.severity,
+            file: f.file,
+            ...(f.line === null ? {} : { line: f.line }),
+            msg,
+            ...(key === undefined ? {} : { key }),
+          };
+        }),
         summary: v.summary,
         head_sha: head ?? 'none',
         usage: o.usage,
@@ -827,6 +838,17 @@ async function changedFrom(
  * them, so it does not reset the list. Not part of the review input digest: the same code gets the same
  * verdict whatever the worker claimed.
  */
+/** The blocking findings of the last rejection in this revision, with the keys to keep (R-18). */
+function openFindings(s: TaskState): OpenFinding[] {
+  const review = latestRejection(s);
+  return (review?.findings ?? []).filter(isBlocking).map((f) => ({
+    key: findingKey(f),
+    severity: f.severity,
+    file: f.file ?? null,
+    msg: f.msg,
+  }));
+}
+
 export function workerReports(s: TaskState, policy: FrozenPolicy): WorkerReport[] {
   const attempts = Object.values(s.attempts).filter(
     (a) => a.revision === s.revision && a.status === 'finished',
@@ -1114,6 +1136,7 @@ async function startAgent(
           pr_content: currentContent(deps, l.s),
           gate_evidence: review === null ? null : gateEvidenceFor(l.s, l.policy.gates, review.sha),
           worker_reports: workerReports(l.s, l.policy),
+          open_findings: openFindings(l.s),
         }
       : {}),
     limits: {
@@ -1661,8 +1684,8 @@ async function runGateStep(
   if (r.kind === 'unknown') return r.retry_allowed ? failed('infra', r.detail) : unknown(r.detail);
   const data = r.data ?? { results: [], tree: '', stable: true };
   const must = required.length > 0 ? required : data.results.map((x) => x.gate);
-  const passed =
-    must.length > 0 && must.every((g) => data.results.some((x) => x.gate === g && x.passed));
+  // A failure a waiver covers lets the checkpoint be committed as on a pass (007, R-20).
+  const { passed } = gatesPass(l.s, must, data.results);
   const minor = minorStep(l.policy, step);
   if (minor && (!passed || !data.stable)) {
     await restoreCheckpoint(deps, l);
@@ -1943,7 +1966,13 @@ function prNumber(ref: string | null): number | null {
 }
 
 /** Identity of the task's PR: repo, head/base tuple and the marker with this operation's key. */
-function prSpecOf(l: Loaded, head: string, content: PublishContent, operationKey: string): PrSpec {
+function prSpecOf(
+  l: Loaded,
+  head: string,
+  content: PublishContent,
+  operationKey: string,
+  waivers: readonly Waiver[] = l.s.run.waivers ?? [],
+): PrSpec {
   return {
     repo: l.rt.target.repo,
     immutable_repo_id: l.rt.target.immutable_repo_id,
@@ -1951,11 +1980,75 @@ function prSpecOf(l: Loaded, head: string, content: PublishContent, operationKey
     base: l.s.task.base_branch,
     head_sha: head,
     title: content.pr_title,
-    body: content.pr_body,
+    body: prBody(content, waivers),
     task_id: l.s.id,
     revision: l.s.revision,
     operation_key: operationKey,
   };
+}
+
+/** The worker's PR body with the task's waivers listed as waived (007, FR-046). */
+function prBody(content: PublishContent, waivers: readonly Waiver[]): string {
+  const section = waiversSection(waivers);
+  return section === '' ? content.pr_body : `${content.pr_body}\n\n${section}`;
+}
+
+const waiverIds = (waivers: readonly Waiver[]): { waivers?: string[] } =>
+  waivers.length === 0 ? {} : { waivers: waivers.map((w) => w.id) };
+
+/** Everything a PR body update writes. */
+type RequestedBody = {
+  readonly content: PublishContent;
+  readonly content_digest: string;
+  readonly waivers: readonly Waiver[];
+};
+
+/** The body an update writes now: the newest worker content with every waiver. */
+function bodyNow(deps: HandlerDeps, s: TaskState): RequestedBody | null {
+  const content = currentContent(deps, s);
+  const digest = s.run.content?.digest;
+  return content === null || digest === undefined
+    ? null
+    : { content, content_digest: digest, waivers: s.run.waivers ?? [] };
+}
+
+type PrBodyIntent = { content_ref: string; content_digest: string; waivers: string[] };
+const intentName = (effect: Effect): string => `pr-body-${effect.id}.json`;
+
+/** Records what an update is about to send, before it sends it, for a probe after a crash. */
+function recordBodyIntent(deps: HandlerDeps, s: TaskState, effect: Effect, b: RequestedBody): void {
+  const ref = s.run.content?.ref ?? '';
+  mkdirSync(deps.paths.intents, { recursive: true, mode: 0o700 });
+  writeAtomicIn(
+    deps.paths.intents,
+    intentName(effect),
+    Buffer.from(
+      JSON.stringify({
+        content_ref: ref,
+        content_digest: b.content_digest,
+        waivers: b.waivers.map((w) => w.id),
+      } satisfies PrBodyIntent),
+    ),
+  );
+}
+
+/**
+ * The body an update sent, as its intent recorded it, whatever content or waiver arrived since;
+ * without an intent nothing was sent, and the body it would send now is as good to compare with.
+ */
+function bodySent(deps: HandlerDeps, s: TaskState, effect: Effect): RequestedBody | null {
+  let raw: string;
+  try {
+    raw = readFileSync(join(deps.paths.intents, intentName(effect)), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'ENOENT') return bodyNow(deps, s);
+    throw e;
+  }
+  const i = JSON.parse(raw) as PrBodyIntent;
+  const content = contentStore(deps).get(i.content_ref, i.content_digest);
+  if (content === null) return null;
+  const waivers = (s.run.waivers ?? []).filter((w) => i.waivers.includes(w.id));
+  return { content, content_digest: i.content_digest, waivers };
 }
 
 /** The task's PR, created or found again, as `create_pr` data. */
@@ -1966,6 +2059,11 @@ function prOutcome(
   pr: PrFact,
   bodyDigest: string,
 ): EffectOutcome {
+  // A PR found again may carry a body sent before a later waiver: the waivers count as listed only
+  // when the body is the one they make; otherwise a later update lists them.
+  const waivers = l.s.run.waivers ?? [];
+  const sent = fitContent(prSpecOf(l, pr.head_sha, content, operationKey, waivers));
+  const listed = bodyDigestOf(finalBody(sent)) === bodyDigest ? waivers : [];
   return {
     outcome: 'succeeded',
     data: {
@@ -1977,6 +2075,7 @@ function prOutcome(
         body_digest: bodyDigest,
         operation_key: operationKey,
         revision: l.s.revision,
+        ...waiverIds(listed),
       },
     },
   };
@@ -1985,9 +2084,13 @@ function prOutcome(
 async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome> {
   const l = load(deps, effect);
   if (l.s.head_sha === null) return failed('infra', 'no published head');
+  if (effect.request['update'] === true) {
+    const body = bodyNow(deps, l.s);
+    if (body === null) return failed('infra', 'no accepted PR content');
+    return describePr(deps, l, effect, body);
+  }
   const content = currentContent(deps, l.s);
   if (content === null) return failed('infra', 'no accepted PR content');
-  if (effect.request['update'] === true) return describePr(deps, l, content);
   const r = await createOrRecoverPr(deps.github(), {
     ...prSpecOf(l, l.s.head_sha, content, effect.idem_key),
     draft: effect.request['draft'] === true,
@@ -2159,7 +2262,14 @@ export async function observeTaskPr(
     };
   const verdict = evaluateRequired(obs.required, l.policy.ci.required_checks);
   const names = verdict.kind === 'covered' ? [...verdict.github] : [];
-  const checks = obs.checks?.checks.map((c) => ({ name: c.name, state: c.state })) ?? [];
+  const checks =
+    obs.checks?.checks.map((c) => ({
+      name: c.name,
+      state: c.state,
+      source: c.source,
+      app_id: c.app_id,
+      run: String(c.generation),
+    })) ?? [];
   const complete =
     verdict.kind === 'covered' &&
     obs.checks !== null &&
@@ -2209,7 +2319,7 @@ export async function observeTaskPr(
 }
 
 /** The description update of the task's PR to `content`: same PR, same marker, the body it last sent. */
-function descriptionOf(l: Loaded, content: PublishContent): DescriptionUpdate | null {
+function descriptionOf(l: Loaded, { content, waivers }: RequestedBody): DescriptionUpdate | null {
   const n = prNumber(l.s.pr_ref);
   const pb = l.s.run.pr_body;
   if (n === null || pb === null || l.s.run.content === null) return null;
@@ -2219,7 +2329,7 @@ function descriptionOf(l: Loaded, content: PublishContent): DescriptionUpdate | 
     expected_body_digest: pb.body_digest,
     spec: {
       title: content.pr_title,
-      body: content.pr_body,
+      body: prBody(content, waivers),
       task_id: l.s.id,
       revision: pb.revision,
       operation_key: pb.operation_key,
@@ -2227,7 +2337,8 @@ function descriptionOf(l: Loaded, content: PublishContent): DescriptionUpdate | 
   };
 }
 
-function describedOutcome(l: Loaded, bodyDigest: string): EffectOutcome {
+function describedOutcome(l: Loaded, bodyDigest: string, body: RequestedBody): EffectOutcome {
+  const pb = l.s.run.pr_body as NonNullable<TaskState['run']['pr_body']>;
   return {
     outcome: 'succeeded',
     data: {
@@ -2235,9 +2346,10 @@ function describedOutcome(l: Loaded, bodyDigest: string): EffectOutcome {
       head_sha: l.s.head_sha as string,
       body_digest: bodyDigest,
       pr_body: {
-        ...(l.s.run.pr_body as NonNullable<TaskState['run']['pr_body']>),
-        content_digest: l.s.run.content?.digest as string,
+        ...pb,
+        content_digest: body.content_digest,
         body_digest: bodyDigest,
+        ...waiverIds(body.waivers),
       },
     },
   };
@@ -2250,15 +2362,17 @@ function describedOutcome(l: Loaded, bodyDigest: string): EffectOutcome {
 async function describePr(
   deps: HandlerDeps,
   l: Loaded,
-  content: PublishContent,
+  effect: Effect,
+  body: RequestedBody,
 ): Promise<EffectOutcome> {
-  const u = descriptionOf(l, content);
+  const u = descriptionOf(l, body);
   if (u === null) return failed('infra', 'no PR description to update');
+  recordBodyIntent(deps, l.s, effect, body);
   const r = await updatePrDescription(deps.github(), u);
   switch (r.kind) {
     case 'updated':
     case 'already_current':
-      return describedOutcome(l, r.body_digest);
+      return describedOutcome(l, r.body_digest, body);
     case 'unknown':
       return unknown(r.detail);
     case 'body_changed':
@@ -2656,15 +2770,15 @@ async function probePublish(deps: HandlerDeps, target: Effect, done: boolean): P
 /** The PR by tuple and marker in every state, or the description by body digest (FR-017/018). */
 async function probeCreatePr(deps: HandlerDeps, target: Effect): Promise<Probe> {
   const l = load(deps, target);
-  const content = currentContent(deps, l.s);
-  if (content === null) return still('no accepted PR content to compare');
   if (target.request['update'] === true) {
-    const u = descriptionOf(l, content);
+    const body = bodySent(deps, l.s, target);
+    if (body === null) return still('no accepted PR content to compare');
+    const u = descriptionOf(l, body);
     if (u === null) return still('no PR description to compare');
     const r = await probeDescription(deps.github(), u);
     switch (r.kind) {
       case 'current':
-        return fromOutcome(describedOutcome(l, r.body_digest));
+        return fromOutcome(describedOutcome(l, r.body_digest, body));
       case 'not_applied':
         return {
           finding: 'not_executed',
@@ -2681,6 +2795,8 @@ async function probeCreatePr(deps: HandlerDeps, target: Effect): Promise<Probe> 
     }
   }
   if (l.s.head_sha === null) return still('no published head');
+  const content = currentContent(deps, l.s);
+  if (content === null) return still('no accepted PR content to compare');
   const r = await probePr(deps.github(), prSpecOf(l, l.s.head_sha, content, target.idem_key));
   switch (r.kind) {
     case 'recovered':
@@ -2917,6 +3033,7 @@ async function reconcileEffect(
       p = await probePublish(counted, target, s.completion !== null);
       break;
     case 'create_pr':
+    case 'update_pr_body':
       p = await probeCreatePr(counted, target);
       break;
     case 'mark_ready':
@@ -3148,6 +3265,7 @@ export function buildHandlers(deps: HandlerDeps): EffectHandlers {
     ),
     publish: wrap((e) => publish(deps, e)),
     create_pr: plain((e) => createPr(deps, e)),
+    update_pr_body: plain((e) => createPr(deps, e)),
     mark_ready: plain((e) => markReadyEffect(deps, e)),
     post_review: plain((e) => postReviewEffect(deps, e)),
     await_ci: wrap((e, _s, o) => observeTask(deps, e.task_id, `op:${o.operation_id}`)),

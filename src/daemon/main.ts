@@ -134,6 +134,8 @@ export type DaemonOptions = {
     readonly concurrency?: number;
     /** The session holding the assistant lease, for goal commands of the assistant (R-26). */
     readonly leaseHolder?: () => string | null;
+    /** Models the deputy may move this task to, for the loop guard (007, FR-043.2); null: unknown. */
+    readonly models?: (taskId: string) => Promise<readonly string[] | null>;
   };
   readonly dispatchIntervalMs?: number;
   readonly log?: (msg: string) => void;
@@ -204,7 +206,7 @@ function admitReply(e: AdmitError, requestId: string | null): Reply {
       return errorReply(409, {
         code: 'conflict',
         message: `request conflicts: ${e.reason}`,
-        details: { reason: e.reason },
+        details: { reason: e.reason, ...('detail' in e ? e.detail : {}) },
         request_id: requestId,
       });
     default:
@@ -536,12 +538,17 @@ export async function startDaemon(
           request_id: requestId,
         });
       }
+      const models =
+        caller?.grant.actor === 'deputy' && typeof input?.task_id === 'string'
+          ? await extra.models?.(input.task_id)
+          : undefined;
       const admitted = admitCommand(
         {
           store,
           now: () => clock.now(),
           newId,
           ...(extra.leaseHolder === undefined ? {} : { leaseHolder: extra.leaseHolder }),
+          ...(models == null ? {} : { models }),
         },
         caller,
         input,

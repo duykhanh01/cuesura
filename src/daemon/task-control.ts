@@ -10,7 +10,7 @@ import { answerQuestion } from '../application/answer.ts';
 import { approveEscalation } from '../application/approve.ts';
 import { statusSinceReader, taskBoard } from '../application/board.ts';
 import { cancelTask } from '../application/cancel.ts';
-import { continueTask, failWaitingTask } from '../application/continue.ts';
+import { continueTask, failWaitingTask, waiveTask } from '../application/continue.ts';
 import { messageTask, pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps, type DoctorProbeCache } from '../application/doctor.ts';
 import { AttentionDesk, type DeputyWatch } from '../application/attention.ts';
@@ -178,6 +178,7 @@ export function taskControl(deps: TaskControlDeps): {
     approve_adopt: CommandHandler;
     task_continue: CommandHandler;
     task_fail: CommandHandler;
+    task_waive: CommandHandler;
     task_amend_policy: CommandHandler;
     task_pause: CommandHandler;
     task_resume: CommandHandler;
@@ -257,6 +258,11 @@ export function taskControl(deps: TaskControlDeps): {
         approveAdopt(deps.confirm, admitted, input, caller),
       task_continue: (admitted, input, caller) => continueTask(deps, admitted, input, caller),
       task_fail: (admitted, input, caller) => failWaitingTask(deps, admitted, input, caller),
+      task_waive: (admitted, input, caller) => {
+        const redactor = deps.logs?.redactor;
+        const redact = redactor === undefined ? {} : { redact: (t: string) => redactor.text(t) };
+        return waiveTask({ ...deps, ...redact }, admitted, input, caller);
+      },
       task_amend_policy: (admitted, input, caller) => amendPolicy(deps, admitted, input, caller),
       task_pause: (admitted, input, caller) => pauseTask(deps, admitted, input, caller),
       task_resume: (admitted, input, caller) => resumeTask(deps, admitted, input, caller),

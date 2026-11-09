@@ -932,6 +932,17 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'TaskUnpaused':
       s.pause = null;
       break;
+    case 'Waived':
+      s.run.waivers = [...(s.run.waivers ?? []), event.payload.waiver];
+      break;
+    case 'ReviewWaived':
+      s.evidence.reviews.push({
+        revision: s.revision,
+        head_sha: event.payload.head_sha,
+        verdict: 'approve',
+        valid: true,
+      });
+      break;
     case 'TaskMessageSent': {
       const p = event.payload;
       s.messages = [
@@ -1124,7 +1135,8 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
   if ((kind === 'create_pr' || kind === 'publish') && typeof r['pr_ref'] === 'string')
     s.pr_ref = r['pr_ref'];
   const body = r['pr_body'] as PrBodyState | undefined;
-  if (kind === 'create_pr' && body !== undefined) s.run.pr_body = body;
+  if ((kind === 'create_pr' || kind === 'update_pr_body') && body !== undefined)
+    s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
   if (kind === 'mark_ready' && typeof r['ready_at'] === 'number') s.run.pr_ready_at = r['ready_at'];
   if (

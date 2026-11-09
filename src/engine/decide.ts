@@ -54,6 +54,7 @@ import {
 } from './runtime.ts';
 import { onStart } from './start.ts';
 import { continuable, onContinue, onFail } from './continue.ts';
+import { onWaive } from './waive.ts';
 import { targetRung } from './escalation.ts';
 import { onPause, onUnpause, stoppedByPause } from './pause.ts';
 import { afterMessageStop, onMessage, stoppedByMessage } from './message.ts';
@@ -276,6 +277,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'fail':
       onFail(ctx, t);
+      return;
+    case 'waive':
+      onWaive(ctx, t);
       return;
     case 'pause':
       onPause(ctx, t);

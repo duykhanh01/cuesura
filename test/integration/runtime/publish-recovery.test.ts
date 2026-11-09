@@ -25,7 +25,11 @@ import { notifyDependents } from '../../../src/application/dependency.ts';
 import { drainRound } from '../../../src/daemon/drain.ts';
 import { pushBranch } from '../../../src/adapters/git/push.ts';
 import { taskBranch } from '../../../src/adapters/git/worktree.ts';
-import { createOrRecoverPr, type PrSpec } from '../../../src/adapters/github/publish.ts';
+import {
+  bodyDigest,
+  createOrRecoverPr,
+  type PrSpec,
+} from '../../../src/adapters/github/publish.ts';
 import { FakeHarness } from '../../../src/adapters/harness/fake.ts';
 import type {
   GitCommand,
@@ -56,7 +60,13 @@ import { hashText } from '../../../src/shared/hash.ts';
 import { err, ok, type Result } from '../../../src/shared/result.ts';
 import type { Store } from '../../../src/store/index.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
-import { buildTask, DEFAULT_CI_RULES, freezeOk, uuidOf } from '../../support/builders.ts';
+import {
+  buildTask,
+  DEFAULT_CI_RULES,
+  freezeOk,
+  ownerAuthz,
+  uuidOf,
+} from '../../support/builders.ts';
 import { FakeGitHub } from '../../support/fake-github.ts';
 import { gitSandbox } from '../../support/git-repo.ts';
 import {
@@ -118,7 +128,16 @@ let n = 0;
  * One project with its bare remote and GitHub, and the daemon that runs on its store. `crash` arms a
  * kill point; `restart` closes the store the dead daemon left and runs startup recovery on the file.
  */
-function world(task: CanonicalTask, o: { required?: string[] } = {}) {
+function world(
+  task: CanonicalTask,
+  o: {
+    required?: string[];
+    unprotected?: boolean;
+    agentRuns?: number;
+    /** The PR content each coder run writes, in order; the last one repeats, `CONTENT` by default. */
+    contents?: (typeof CONTENT)[];
+  } = {},
+) {
   const project = g.repo(`acme${n++}`);
   const base = g.sh(project, 'rev-parse', 'HEAD');
   const remote = `${project}.remote.git`;
@@ -144,30 +163,34 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
     receipts: join(data, 'receipts'),
   };
   const worktree = join(paths.worktrees, task.id);
+  const contents = o.contents ?? [CONTENT];
   const coder = new FakeHarness(
     {
-      coder: [
-        {
-          kind: 'result',
-          value: {
-            schema_version: 1,
-            status: 'done',
-            summary: 'added search',
-            questions: [],
-            blocker: null,
-          },
+      coder: contents.map(() => ({
+        kind: 'result' as const,
+        value: {
+          schema_version: 1,
+          status: 'done',
+          summary: 'added search',
+          questions: [],
+          blocker: null,
         },
-      ],
+      })),
     },
     'claude',
   );
+  let runs = 0;
   const claude: HarnessPort = {
     harness: 'claude',
     manifest: coder.manifest,
-    run: (input, signal) => {
+    run: async (input, signal) => {
       writeFileSync(join(worktree, 'search.ts'), 'export const search = (q: string) => q;\n');
       const m = /as JSON \{[^}]*\} to (\S+\.json)\./.exec(input.context.text);
-      if (m !== null) writeFileSync(m[1] as string, JSON.stringify(CONTENT));
+      if (m !== null)
+        writeFileSync(
+          m[1] as string,
+          JSON.stringify(contents[Math.min(runs++, contents.length - 1)]),
+        );
       return coder.run(input, signal);
     },
   };
@@ -200,6 +223,8 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
    */
   let answer: 'as_is' | '422' | 'lost' = 'as_is';
   let readsFail = false;
+  let patchHeld: Promise<void> | null = null;
+  let releasePatch = (): void => {};
   const githubPort = {
     request: async (req: GitHubRequest): Promise<Result<GitHubResponse, GitHubFailure>> => {
       if (dead) return never();
@@ -215,6 +240,18 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
       if (c !== null && 'github' in c && c.github(req)) {
         dead = true;
         return never();
+      }
+      if (req.method === 'PATCH' && patchHeld !== null) {
+        const gate = patchHeld;
+        patchHeld = null;
+        await gate;
+        readsFail = true;
+        return err({
+          reason: 'unknown',
+          status: null,
+          detail: 'connection reset',
+          retry_after_ms: null,
+        });
       }
       if (postPulls(req) && answer !== 'as_is') {
         const failure: GitHubFailure =
@@ -299,8 +336,12 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
       },
       required_checks: ['build', 'test', ...(o.required ?? [])],
       ci_rules: [{ match: { check: 'format' }, class: 'autofix' }, ...DEFAULT_CI_RULES],
-      limits: { max_wall_ms: 3_600_000 },
+      limits: {
+        max_wall_ms: 3_600_000,
+        ...(o.agentRuns === undefined ? {} : { max_agent_runs: o.agentRuns }),
+      },
       mode: 'direct-pr',
+      ...(o.unprotected === true ? { protected_branches: [] } : {}),
     });
     proposeAndConfirm(d, task, selectionFor(task, 'direct-pr', frozen.value.policy));
     d.must(task.id, { kind: 'request_execution' });
@@ -414,6 +455,8 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
     githubPort,
     start,
     tick,
+    /** Starts what can start without waiting for it to end. */
+    kick: () => dispatcher.tick().started.length,
     until,
     untilStep,
     dieAt,
@@ -426,6 +469,16 @@ function world(task: CanonicalTask, o: { required?: string[] } = {}) {
     failReads: (on: boolean) => {
       readsFail = on;
     },
+    /**
+     * The next PATCH reaches GitHub and its answer waits for `releasePatch()`; then it is lost and
+     * GitHub is unreadable until `failReads(false)`.
+     */
+    holdNextPatch: () => {
+      patchHeld = new Promise<void>((r) => {
+        releasePatch = r;
+      });
+    },
+    releasePatch: () => releasePatch(),
   };
 }
 
@@ -680,6 +733,147 @@ describe('PR create interrupted after GitHub made it (FR-017/018)', () => {
       pr: { number: 7 },
     });
     expect(posts(w)).toBe(1);
+  });
+});
+
+describe('PR body update after a waiver, interrupted after GitHub took it (007, FR-046)', () => {
+  const patchPull = (req: GitHubRequest) =>
+    req.method === 'PATCH' && /\/pulls\/\d+$/.test(req.path);
+
+  it('killed after the PATCH, before its receipt: the probe finds the body current and records the waiver once', async () => {
+    const task = buildTask();
+    // One agent run: the CI fixer cannot start, so the task waits with nothing else in flight.
+    const w = world(task, { unprotected: true, required: ['e2e'], agentRuns: 1 });
+    w.start();
+    await w.until('await_ci');
+    const head = w.remoteHead();
+    if (head === null) throw new Error('nothing pushed');
+    w.github.checks.set(head, { build: 'success', test: 'success', e2e: 'failure' });
+    await w.tick();
+    expect(w.d.task(task.id).evidence.ci.at(-1)?.checks).toContainEqual(
+      expect.objectContaining({ name: 'e2e', state: 'failure', app_id: 15368 }),
+    );
+    w.d.must(
+      task.id,
+      { kind: 'waive', target: { kind: 'check', key: 'e2e' }, evidence: 'upstream outage' },
+      { authz: ownerAuthz() },
+    );
+    const waiver = w.d.task(task.id).run.waivers?.[0];
+    expect(w.d.pending(task.id).map((e) => e.kind)).toEqual(['update_pr_body']);
+
+    await w.dieAt({ at: 'after', github: patchPull });
+    expect(w.github.prs[0]?.body).toContain('**waived** check `e2e`');
+    const report = await w.restart();
+    await expectReconciled(w, task, 'update_pr_body', report, 'succeeded');
+    const s = w.d.task(task.id);
+    expect(s.run.pr_body?.waivers).toEqual([waiver?.id]);
+    expect(s.run.pr_body?.body_digest).toBe(bodyDigest(w.github.prs[0]?.body ?? ''));
+    expect(w.github.calls.filter((c) => c.startsWith('PATCH')).length).toBe(1);
+  });
+
+  it('a second waiver recorded before the reconcile: the probe judges the body that was sent, then the next update lists both', async () => {
+    const task = buildTask();
+    const w = world(task, { unprotected: true, required: ['e2e', 'test'], agentRuns: 1 });
+    w.start();
+    await w.until('await_ci');
+    const head = w.remoteHead();
+    if (head === null) throw new Error('nothing pushed');
+    w.github.checks.set(head, { build: 'success', test: 'failure', e2e: 'failure' });
+    await w.tick();
+    const waive = (key: string) =>
+      w.d.must(
+        task.id,
+        { kind: 'waive', target: { kind: 'check', key }, evidence: `${key} outage` },
+        { authz: ownerAuthz() },
+      );
+    waive('e2e');
+    const [first] = w.d.pending(task.id, 'update_pr_body');
+    await w.dieAt({ at: 'after', github: patchPull });
+    const sent = w.github.prs[0]?.body ?? '';
+    expect(sent).toContain('**waived** check `e2e`');
+    // While the daemon is down: the first update stays unknown and a second waiver asks for another.
+    waive('test');
+    const ids = (w.d.task(task.id).run.waivers ?? []).map((x) => x.id);
+    expect(ids).toHaveLength(2);
+
+    const report = await w.restart();
+    expect(report.operations).toMatchObject([{ finding: { status: 'lost' }, effect: 'unknown' }]);
+    await w.tick();
+    let s = w.d.task(task.id);
+    expect(s.effects[first?.id ?? '']?.status).toBe('succeeded');
+    await w.tick();
+    s = w.d.task(task.id);
+    const updates = w.kinds('update_pr_body');
+    expect(updates.map((e) => s.effects[e.id]?.status)).toEqual(['succeeded', 'succeeded']);
+    expect(s.run.pr_body?.waivers).toEqual(ids);
+    const body = w.github.prs[0]?.body ?? '';
+    expect(body).toContain('**waived** check `e2e`');
+    expect(body).toContain('**waived** check `test`');
+    expect(s.run.pr_body?.body_digest).toBe(bodyDigest(body));
+    expect(w.github.calls.filter((c) => c.startsWith('PATCH')).length).toBe(2);
+    expect(w.d.store.verifyProjections().ok).toBe(true);
+  });
+});
+
+describe('PR body writes after a waiver while the worker changes the content (007, FR-046)', () => {
+  const V2 = { ...CONTENT, pr_body: '## Summary\nSearch by name, fixed.' };
+
+  it('the update probe judges the body it sent though new content landed, and the content update waits for it', async () => {
+    const task = buildTask();
+    const w = world(task, { unprotected: true, required: ['e2e'], contents: [CONTENT, V2] });
+    w.start();
+    await w.until('await_ci');
+    const head = w.remoteHead();
+    if (head === null) throw new Error('nothing pushed');
+    w.github.checks.set(head, { build: 'success', test: 'success', e2e: 'failure' });
+    await w.tick();
+    w.d.must(
+      task.id,
+      { kind: 'waive', target: { kind: 'check', key: 'e2e' }, evidence: 'upstream outage' },
+      { authz: ownerAuthz() },
+    );
+    const waiver = w.d.task(task.id).run.waivers?.[0]?.id;
+    const update = () => w.kinds('update_pr_body')[0];
+    const describe = () => w.kinds('create_pr').filter((e) => e.step === 'pr')[1];
+    const poll = async (done: () => boolean) => {
+      for (let i = 0; i < 500 && !done(); i++) {
+        w.kick();
+        await new Promise((r) => setTimeout(r, 10));
+      }
+      expect(done()).toBe(true);
+    };
+    // The update's PATCH lands on GitHub and its answer hangs, while the CI fixer writes new content
+    // and the workflow reaches the PR step, which asks for the description to follow that content.
+    w.holdNextPatch();
+    await poll(() => describe()?.status === 'pending');
+    const pinned = w.d.store.readEffect(update()?.id ?? '')?.request;
+    expect(w.d.task(task.id).run.content?.digest).not.toBe(pinned?.['content_digest']);
+    // Two writers of the same body: the description waits for the update before it.
+    expect(update()?.status).toBe('started');
+    w.kick();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(describe()?.status).toBe('pending');
+    w.releasePatch();
+    await poll(() => update()?.status === 'unknown');
+
+    w.failReads(false);
+    const report = await w.restart();
+    expect(report.operations).toMatchObject([{ effect: 'kept' }]);
+    for (let i = 0; i < 4; i++) await w.tick();
+    const s = w.d.task(task.id);
+    // The probe compared GitHub with the body that was sent, not one built from the newer content.
+    expect(s.effects[update()?.id ?? '']?.status).toBe('succeeded');
+    expect(s.effects[describe()?.id ?? '']?.status).toBe('succeeded');
+    const body = w.github.prs[0]?.body ?? '';
+    expect(body).toContain('Search by name, fixed.');
+    expect(body).toContain('**waived** check `e2e`');
+    expect(s.run.pr_body).toMatchObject({
+      content_digest: s.run.content?.digest,
+      body_digest: bodyDigest(body),
+      waivers: [waiver],
+    });
+    expect(w.github.calls.filter((c) => c.startsWith('PATCH')).length).toBe(2);
+    expect(w.d.store.verifyProjections().ok).toBe(true);
   });
 });
 

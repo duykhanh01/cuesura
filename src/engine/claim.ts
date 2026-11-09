@@ -13,7 +13,8 @@ export type ClaimBlockReason =
   | 'head_changed'
   | 'merge_evidence_incomplete'
   | 'run_config_unconfirmed'
-  | 'probe_running';
+  | 'probe_running'
+  | 'pr_body_pending';
 
 /** The 002 daemon only dispatches tasks that carry a runtime snapshot; 001 callers keep the old rules. */
 export type ClaimOptions = { require_runtime?: boolean };
@@ -71,11 +72,36 @@ export function claimable(
   if (state.cancellation !== null) return { ok: false, reason: 'cancelling' };
   if (effect.revision !== state.revision) return { ok: false, reason: 'stale_revision' };
   if (state.source_drift !== null) return { ok: false, reason: 'source_drift' };
+  // Listing a waiver in the PR body moves no work, so neither a deadline nor a wait holds it back
+  // (FR-046).
+  if (effect.kind === 'update_pr_body')
+    return bodyWriteInFlight(state, effect)
+      ? { ok: false, reason: 'pr_body_pending' }
+      : { ok: true };
   if (state.deadline_passed || (state.deadline_at !== null && now >= state.deadline_at)) {
     return { ok: false, reason: 'deadline' };
   }
   if (state.status === 'WAITING' && state.wait?.detail['effect_id'] !== effect.id) {
     return { ok: false, reason: 'task_waiting' };
   }
+  if (effect.kind === 'create_pr' && bodyWriteInFlight(state, effect))
+    return { ok: false, reason: 'pr_body_pending' };
   return { ok: true };
 }
+
+/**
+ * Whether another write of the PR body is in flight or unsettled. Writes go one at a time: each
+ * expects the body the one before it left and writes the newest content and waivers, so none
+ * overwrites a newer one.
+ */
+function bodyWriteInFlight(state: TaskState, effect: ClaimTarget): boolean {
+  return Object.values(state.effects).some(
+    (e) =>
+      e.id !== effect.id &&
+      writesPrBody(e.kind) &&
+      (e.status === 'started' || e.status === 'unknown'),
+  );
+}
+
+export const writesPrBody = (kind: EffectKind): boolean =>
+  kind === 'create_pr' || kind === 'update_pr_body';

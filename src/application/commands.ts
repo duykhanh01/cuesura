@@ -8,6 +8,16 @@ import { HashSchema, UuidSchema, type Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Admission, LedgerError, Store } from '../store/index.ts';
+import { isTerminal, WAIVER_KINDS, type TaskState } from '../domain/state.ts';
+import { bindingModel } from '../engine/loop-signals.ts';
+import {
+  loopGuard,
+  trialAction,
+  type GuardReason,
+  type TrialFact,
+  type TrialRow,
+} from '../engine/trials.ts';
+import { trialFact, unitFacts } from './loop-facts.ts';
 import { authorize, type AuthzError, type Caller } from './authz.ts';
 import { UNSUPPORTED_COMMANDS, UNSUPPORTED_GUIDANCE } from './limits.ts';
 
@@ -66,6 +76,12 @@ export const COMMAND_PAYLOADS = {
     .strict(),
   goal_confirm: z.object({ plan_hash: HashSchema }).strict(),
   goal_cancel: z.object({ reason: Reason.optional() }).strict(),
+  task_waive: z
+    .object({
+      target: z.object({ kind: z.enum(WAIVER_KINDS), key: z.string().min(1).max(256) }).strict(),
+      evidence: z.string().min(1).max(16_384),
+    })
+    .strict(),
 } as const;
 export type CommandKind = keyof typeof COMMAND_PAYLOADS;
 
@@ -94,6 +110,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   goal_amend: 'operate',
   goal_confirm: 'operate',
   goal_cancel: 'operate',
+  task_waive: 'operate',
 };
 
 /** Commands on a goal (R-21): they name `goal_id`, and `expected_version` is the goal's. */
@@ -118,6 +135,7 @@ const DEPUTY_KINDS: ReadonlySet<CommandKind> = new Set([
   'task_pause',
   'task_resume',
   'task_fail',
+  'task_waive',
   'deputy_handoff',
   'goal_note',
   'goal_propose',
@@ -130,6 +148,7 @@ const EXTENSION_KINDS: ReadonlySet<CommandKind> = new Set([
   'task_amend_policy',
   'task_message',
   'approve_escalation',
+  'task_waive',
 ]);
 
 /** Commands on the daemon's own queue, or on the caller's own deputy turn: no project, task or version. */
@@ -172,7 +191,22 @@ export type AdmitError =
   | AuthzError
   | { code: 'unsupported_feature'; kind: string }
   | { code: 'invalid_command'; issues: string[] }
+  | {
+      code: 'conflict';
+      reason: GuardReason;
+      /** The earlier trial the refusal rests on, when there is one (contracts/cli-daemon.md). */
+      detail: { prior: TrialSummary | null; signature: string };
+    }
   | LedgerError;
+
+export type TrialSummary = {
+  request_id: string;
+  kind: string;
+  action: string;
+  hypothesis: string;
+  expect: string;
+  outcome: TrialRow['outcome'];
+};
 
 export type Admitted = Admission & {
   command_hash: string;
@@ -186,6 +220,11 @@ export type CommandDeps = {
   newId: () => string;
   /** The session holding the assistant lease now; without it no assistant may write to a goal (R-26). */
   leaseHolder?: () => string | null;
+  /**
+   * Models the deputy may move a task to (`allow_models`, or every configured model when it is open);
+   * read by the daemon before admission. Absent: the task's own models only.
+   */
+  models?: readonly string[];
 };
 
 /**
@@ -325,6 +364,19 @@ export function admitCommand(
             : null;
     if (refused !== null) return err(refused);
   }
+  let stored: unknown = trial;
+  if (
+    actor === 'deputy' &&
+    cmd.task_id !== null &&
+    deps.store.readCommand(cmd.request_id) === null
+  ) {
+    const s = deps.store.readTask(cmd.task_id);
+    if (s !== null && !isTerminal(s.status)) {
+      const guarded = guardDeputy(deps, s, kind, payload.data, trial);
+      if (!guarded.ok) return guarded;
+      stored = guarded.value ?? trial;
+    }
+  }
   // IDs are drawn even for a replay; only the first admission's IDs are ever stored and returned.
   const assigned = Array.from({ length: ASSIGNED_IDS }, () => deps.newId());
   const r = deps.store.admitCommand({
@@ -342,7 +394,7 @@ export function admitCommand(
     now: deps.now(),
     reason,
     turn_id: turnId,
-    trial,
+    trial: stored,
     lease:
       actor === 'assistant' && GOAL_COMMANDS.includes(kind)
         ? ((caller as Caller).lease ?? null)
@@ -391,4 +443,43 @@ function leaseRefusal(deps: CommandDeps, lease: string | null): AdmitError | nul
     reason: 'lease_required',
     required: 'cusr assistant register --take',
   };
+}
+
+/**
+ * The loop guard for a new command of the deputy (FR-043, R-19), and what the ledger keeps with its
+ * trial: the unit, the signature and where the log stood, so the trial table can measure its outcome.
+ */
+function guardDeputy(
+  deps: CommandDeps,
+  s: TaskState,
+  kind: CommandKind,
+  payload: unknown,
+  trial: Trial | null,
+): Result<TrialFact | null, AdmitError> {
+  const action = trialAction(kind, payload);
+  const ran = Object.values(s.attempts).map((a) => bindingModel(a.binding));
+  const facts = unitFacts(deps.store, s, deps.models ?? [...new Set(ran)]);
+  const refused = loopGuard(facts.guard, kind, action);
+  if (refused !== null)
+    return err({
+      code: 'conflict',
+      reason: refused.reason,
+      detail: {
+        signature: facts.signature.signature,
+        prior:
+          refused.prior === null
+            ? null
+            : {
+                request_id: refused.prior.request_id,
+                kind: refused.prior.action_kind,
+                action: refused.prior.params,
+                hypothesis: refused.prior.hypothesis,
+                expect: refused.prior.expect,
+                outcome: refused.prior.outcome,
+              },
+      },
+    });
+  return ok(
+    action === null || trial === null ? null : trialFact(deps.store, facts, s, trial, action),
+  );
 }

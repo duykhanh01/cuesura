@@ -3,6 +3,7 @@ import type { Evidence, TaskState } from '../domain/state.ts';
 import { type Check, checkPasser, type RequiredSet } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { minorFixApproved } from './head-evidence.ts';
+import { unlistedWaivers, waivedChecks } from './waivers.ts';
 
 export type CiVerdict =
   | { kind: 'pass' }
@@ -21,20 +22,26 @@ export function expectedChecks(policy: FrozenPolicy, rs: RequiredSet): string[] 
 
 /**
  * Expected checks must pass under `checkPasser` over all current checks of the head. Missing names or
- * incomplete observations never satisfy the merge guard.
+ * incomplete observations never satisfy the merge guard. A failed check named in `waived` (a waiver on
+ * this head, 007 R-20) does not block; one that is missing or still running still does. The engine and
+ * the yolo merge guard share this evaluation.
  */
 export function ciVerdict(
   policy: FrozenPolicy,
   rs: RequiredSet,
   checks: readonly Check[],
+  waived: ReadonlySet<string> = new Set(),
 ): CiVerdict {
   const expected = expectedChecks(policy, rs);
   const byName = new Map(checks.map((c) => [c.name, c]));
-  const failed = expected.filter((n) => byName.get(n)?.state === 'failure');
+  const isWaived = (n: string): boolean => waived.has(n) && byName.get(n)?.state === 'failure';
+  const failed = expected.filter((n) => byName.get(n)?.state === 'failure' && !isWaived(n));
   if (failed.length > 0) return { kind: 'fail', failed };
   const missing = expected.filter((n) => !byName.has(n));
   const passed = checkPasser(checks);
-  const notPassed = expected.filter((n) => byName.has(n) && !passed(byName.get(n)!.state));
+  const notPassed = expected.filter(
+    (n) => byName.has(n) && !isWaived(n) && !passed(byName.get(n)!.state),
+  );
   if (!rs.complete || missing.length > 0 || notPassed.length > 0) {
     return {
       kind: 'incomplete',
@@ -49,6 +56,20 @@ export function ciVerdict(
 function latest<T>(xs: readonly T[], ok: (x: T) => boolean): T | undefined {
   for (let i = xs.length - 1; i >= 0; i--) if (ok(xs[i] as T)) return xs[i];
   return undefined;
+}
+
+/** `ciVerdict` of a task's CI evidence, with the waivers on that head. */
+export function taskCiVerdict(
+  state: TaskState,
+  policy: FrozenPolicy,
+  ci: { head_sha: string; required_set: RequiredSet; checks: readonly Check[] },
+): CiVerdict {
+  return ciVerdict(
+    policy,
+    ci.required_set,
+    ci.checks,
+    waivedChecks(state, policy, ci.head_sha, ci.checks),
+  );
 }
 
 export function latestCi(state: TaskState, head: string): Evidence['ci'][number] | undefined {
@@ -76,7 +97,8 @@ export type GuardFailure =
   | 'checks_incomplete'
   | 'checks_failed'
   | 'base_outdated'
-  | 'approval_missing';
+  | 'approval_missing'
+  | 'waivers_unlisted';
 
 export type GuardResult = { ok: true; head_sha: string } | { ok: false; code: GuardFailure };
 
@@ -100,7 +122,7 @@ export function mergeGuard(state: TaskState, policy: FrozenPolicy): GuardResult 
 
   const ci = latestCi(state, head);
   if (ci === undefined) return { ok: false, code: 'checks_incomplete' };
-  const verdict = ciVerdict(policy, ci.required_set, ci.checks);
+  const verdict = taskCiVerdict(state, policy, ci);
   if (verdict.kind === 'fail') return { ok: false, code: 'checks_failed' };
   if (verdict.kind === 'incomplete') return { ok: false, code: 'checks_incomplete' };
 
@@ -121,5 +143,7 @@ export function mergeGuard(state: TaskState, policy: FrozenPolicy): GuardResult 
       a.head_sha === head,
   );
   if (!approved) return { ok: false, code: 'approval_missing' };
+  // FR-046: the PR lists every waiver before it merges.
+  if (unlistedWaivers(state).length > 0) return { ok: false, code: 'waivers_unlisted' };
   return { ok: true, head_sha: head };
 }

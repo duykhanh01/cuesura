@@ -13,6 +13,8 @@ export const EFFECT_KINDS = [
   'rerun_ci',
   'merge',
   'reconcile',
+  // 007 (FR-046): the task's PR body again, now listing a waiver recorded after the PR opened.
+  'update_pr_body',
   // Read-only observation of a published subject with its own admission (research R-04).
   'observe_external',
 ] as const;
@@ -40,6 +42,7 @@ export const BUSINESS_EFFECTS: readonly EffectKind[] = [
   'await_ci',
   'rerun_ci',
   'merge',
+  'update_pr_body',
 ];
 export const SERVICE_EFFECTS: readonly EffectKind[] = [
   'stop_attempt',

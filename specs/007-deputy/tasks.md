@@ -3,7 +3,7 @@
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A và lát B xong. Amendment
+**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A, B và C xong. Amendment
 11.0.0 nằm cùng PR với bản viết lại; không task code nào bắt đầu trước khi PR đó merge.
 
 **Mã nền**: `origin/main` `62eadbd`.
@@ -200,39 +200,39 @@ kết thúc và mở lại giới hạn.
 
 ### Tests
 
-- [ ] T039 [P] [US2] Property test chữ ký lỗi `test/property/deputy/signature.test.ts`: cùng bằng chứng sau chuẩn hóa cho
+- [x] T039 [P] [US2] Property test chữ ký lỗi `test/property/deputy/signature.test.ts`: cùng bằng chứng sau chuẩn hóa cho
   cùng chữ ký; log chỉ khác số dòng, thời gian, đường dẫn tạm cho cùng chữ ký; lỗi khác cho chữ ký khác.
-- [ ] T040 [P] [US2] Property test tín hiệu `test/property/deputy/loop-signals.test.ts` cho từng tín hiệu của FR-040 trên
+- [x] T040 [P] [US2] Property test tín hiệu `test/property/deputy/loop-signals.test.ts` cho từng tín hiệu của FR-040 trên
   lịch sử dựng từ T003.
-- [ ] T041 [P] [US2] Property test loop guard `test/property/deputy/loop-guard.test.ts`: ba luật của FR-043; chỉ thị mới và
+- [x] T041 [P] [US2] Property test loop guard `test/property/deputy/loop-guard.test.ts`: ba luật của FR-043; chỉ thị mới và
   plan version mới là bằng chứng mới; SC-009: mọi chuỗi lệnh không có tiến triển dừng sau số lệnh hữu hạn có chặn trên
   tính từ cấu hình, và chỉ còn `task fail`/`handover`; chỉ dẫn khác lời không mở thêm lượt; sửa kế hoạch do deputy áp
   không là bằng chứng mới; task thay thế một khóa đơn vị kế thừa bảng thử (chuỗi fail → thay → fail vẫn hữu hạn).
-- [ ] T042 [P] [US2] Property test bản miễn `test/property/deputy/waivers.test.ts`: review mà mọi finding chặn đã được miễn
+- [x] T042 [P] [US2] Property test bản miễn `test/property/deputy/waivers.test.ts`: review mà mọi finding chặn đã được miễn
   thì approve; gate được miễn chỉ qua khi đúng chữ ký; check được miễn chỉ qua ở đúng head, tên và nguồn, head mới thì
   không; đánh giá check dùng chung cho engine và guard của yolo; không áp khi `base_branch` thuộc `protected_branches`.
-- [ ] T043 [P] [US2] Scenario `test/scenarios/deputy/us2.test.ts`: sáu kịch bản của US2.
+- [x] T043 [P] [US2] Scenario `test/scenarios/deputy/us2.test.ts`: sáu kịch bản của US2.
 
 ### Implementation
 
-- [ ] T044 [US2] Khóa finding (R-18): schema output reviewer có `key`; context của reviewer có finding còn mở kèm khóa;
+- [x] T044 [US2] Khóa finding (R-18): schema output reviewer có `key`; context của reviewer có finding còn mở kèm khóa;
   khóa dự phòng từ `file` và hash `msg`. Sửa `src/domain/state.ts`, schema output, template reviewer.
-- [ ] T045 [US2] `src/engine/failure-signature.ts` (thuần) theo R-18. T039 phải xanh.
-- [ ] T046 [US2] `src/engine/loop-signals.ts` (thuần) theo FR-040. T040 phải xanh.
-- [ ] T047 [US2] `src/engine/trials.ts`: bảng thử khóa theo `(goal_id, unit_key, signature)` từ command ledger và chuỗi
+- [x] T045 [US2] `src/engine/failure-signature.ts` (thuần) theo R-18. T039 phải xanh.
+- [x] T046 [US2] `src/engine/loop-signals.ts` (thuần) theo FR-040. T040 phải xanh.
+- [x] T047 [US2] `src/engine/trials.ts`: bảng thử khóa theo `(goal_id, unit_key, signature)` từ command ledger và chuỗi
   sự cố của mọi task từng giữ khóa đơn vị; `loopGuard` với định nghĩa bằng chứng mới của FR-043. Daemon đọc bảng thử và đưa
   vào `admitCommand` (lệnh của deputy) như dữ liệu. T041 phải xanh.
-- [ ] T048 [US2] Bắt buộc `trial` với lệnh gia hạn của deputy (FR-042) và áp `loopGuard` trong `admitCommand`, trả lỗi đúng
+- [x] T048 [US2] Bắt buộc `trial` với lệnh gia hạn của deputy (FR-042) và áp `loopGuard` trong `admitCommand`, trả lỗi đúng
   [contracts/cli-daemon.md](contracts/cli-daemon.md#danh-tính-và-quyền).
-- [ ] T049 [US2] Loop guard sau lượt (bước 4 của hợp đồng lượt): `task_fail` actor `system:loop-guard` (FR-044).
-- [ ] T050 [US2] Lệnh `task_waive` và event `Waived` (FR-045); `src/engine/waivers.ts` áp hiệu lực trên review, gate, CI
+- [x] T049 [US2] Loop guard sau lượt (bước 4 của hợp đồng lượt): `task_fail` actor `system:loop-guard` (FR-044).
+- [x] T050 [US2] Lệnh `task_waive` và event `Waived` (FR-045); `src/engine/waivers.ts` áp hiệu lực trên review, gate, CI
   theo phạm vi của R-20; `ReviewWaived`, `GateResult.waived`. Tách hàm đánh giá check dùng chung cho `ciVerdict` và
   `currentChecksProblem` của yolo. T042 phải xanh.
-- [ ] T050a [US2] Effect `github.update_pr_body` sau `Waived` khi task đã có PR; bước merge chờ tới khi thân PR được đối
+- [x] T050a [US2] Effect `github.update_pr_body` sau `Waived` khi task đã có PR; bước merge chờ tới khi thân PR được đối
   chiếu có bản miễn (FR-046). Contract test ở `test/contract/deputy/waiver-pr-body.test.ts`.
-- [ ] T051 [US2] Context của lượt có tín hiệu, chữ ký và bảng thử (vùng 3); lệnh khả dụng ghi rõ lệnh sẽ bị loop guard từ
+- [x] T051 [US2] Context của lượt có tín hiệu, chữ ký và bảng thử (vùng 3); lệnh khả dụng ghi rõ lệnh sẽ bị loop guard từ
   chối (vùng 5).
-- [ ] T052 [US2] Vai trò của deputy (văn bản cố định): bảng nguyên nhân → hành động, luật chống lặp, bắt buộc bàn giao.
+- [x] T052 [US2] Vai trò của deputy (văn bản cố định): bảng nguyên nhân → hành động, luật chống lặp, bắt buộc bàn giao.
 - [ ] T053 [US2] `task explain` có `loop_signals`, `signature`, `waivers`.
 
 **Checkpoint**: deputy không lặp được cùng hành động khi không có tiến triển; bản miễn có hiệu lực và có dấu vết.

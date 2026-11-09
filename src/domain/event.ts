@@ -16,7 +16,7 @@ import type {
   TimerKind,
   Wait,
 } from './state.ts';
-import type { DeciderRun } from './state.ts';
+import type { DeciderRun, Waiver } from './state.ts';
 import type { RunChoice, RunConfirmation, RunSelection } from './run-config.ts';
 import type { StepKind } from './workflow.ts';
 import type {
@@ -168,6 +168,8 @@ export type EventPayloads = {
     results: {
       gate: string;
       passed: boolean;
+      /** 007 (R-20): failed, but a waiver covers this failure, so it did not block. */
+      waived?: true | undefined;
       signature?: string | undefined;
       log_excerpt?: string | undefined;
       log?:
@@ -505,6 +507,10 @@ export type EventPayloads = {
     hold?: 'plan_amendment';
   };
   TaskUnpaused: { by: string; at: number };
+  /** 007 (FR-045): a waiver; `scope` holds what it applies to. */
+  Waived: { waiver: Waiver };
+  /** 007 (R-20): every blocking finding of this review is waived, so it counts as an approval. */
+  ReviewWaived: { attempt_id: string; head_sha: string; waivers: string[] };
   /**
    * Guidance sent to the task's agents (issue #154), shown to every later agent attempt of `revision`.
    * `stopped`: the coder/fixer attempts it interrupted; each continues its session with the message.
@@ -623,6 +629,8 @@ export const EVENT_TYPES = [
   'TaskPaused',
   'TaskUnpaused',
   'TaskMessageSent',
+  'Waived',
+  'ReviewWaived',
 ] as const satisfies readonly EventType[];
 
 type _MissingEventTypes = Exclude<EventType, (typeof EVENT_TYPES)[number]>;

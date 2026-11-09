@@ -25,8 +25,18 @@ function expected(s: TaskState, e: EffectMirror, now: number): string | null {
   if (s.cancellation !== null) return 'cancelling';
   if (e.revision !== s.revision) return 'stale_revision';
   if (s.source_drift !== null) return 'source_drift';
+  // One PR body write at a time.
+  const inFlight = () =>
+    Object.values(s.effects).some(
+      (o) =>
+        o.id !== e.id &&
+        (o.kind === 'create_pr' || o.kind === 'update_pr_body') &&
+        (o.status === 'started' || o.status === 'unknown'),
+    );
+  if (e.kind === 'update_pr_body') return inFlight() ? 'pr_body_pending' : null;
   if (s.deadline_passed || (s.deadline_at !== null && now >= s.deadline_at)) return 'deadline';
   if (s.status === 'WAITING' && s.wait?.detail['effect_id'] !== e.id) return 'task_waiting';
+  if (e.kind === 'create_pr' && inFlight()) return 'pr_body_pending';
   return null;
 }
 

@@ -4,7 +4,7 @@ import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
 import { ciSpent, onCiRecorded, proceed, waitCiExhausted } from './interpreter.ts';
-import { ciVerdict, heldCi } from './merge-guard.ts';
+import { heldCi, taskCiVerdict } from './merge-guard.ts';
 import { mkWait, waitTask } from './waits.ts';
 
 /**
@@ -463,7 +463,7 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
     });
   // Still not covered while already waiting on it: nothing changed for the task.
   if (code === 'required_checks_mismatch' && !covered) return;
-  const pass = covered && ciVerdict(ctx.frozen, ci.required_set, ci.checks).kind === 'pass';
+  const pass = covered && taskCiVerdict(ctx.state, ctx.frozen, ci).kind === 'pass';
   if (code === 'merge' && pass) return;
   if (code === 'ci_wait_exhausted' && !pass) return;
   // The head's CI window is spent: anything short of a covered pass is evidence only, never a fix or a

@@ -539,6 +539,7 @@ describe('production task surface', () => {
       'run_gates',
       'start_agent',
       'stop_attempt',
+      'update_pr_body',
     ]);
     expect(missing.rounds).toBe(8);
     expect(JSON.stringify(missing.check)).toContain('pin.json does not exist');

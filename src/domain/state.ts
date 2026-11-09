@@ -563,6 +563,8 @@ export type RunState = {
   minor_started?: string[];
   /** Set while a failing task publishes its work as a draft PR before it ends (#247). */
   salvage?: { reason: string };
+  /** Waivers in the order recorded (007, FR-045); absent until the first. */
+  waivers?: Waiver[];
 };
 
 export type PrBodyState = {
@@ -570,6 +572,31 @@ export type PrBodyState = {
   body_digest: string;
   operation_key: string;
   revision: number;
+  /** IDs of the waivers the body lists (FR-046); absent on bodies written before waivers. */
+  waivers?: string[];
+};
+
+export const WAIVER_KINDS = ['finding', 'gate', 'check'] as const;
+export type WaiverKind = (typeof WAIVER_KINDS)[number];
+export type WaiverTarget = { kind: WaiverKind; key: string };
+
+/**
+ * A waiver (007, FR-045, R-20): one finding, gate or CI check let through with evidence. `scope` is
+ * what it holds for: the review's blocking key set, the gate's filtered error lines, or the head SHA of
+ * the waived check run; anything outside it blocks as usual.
+ */
+export type Waiver = {
+  id: string;
+  target: WaiverTarget;
+  scope: string;
+  evidence: string;
+  reason: string | null;
+  by: string;
+  turn_id: string | null;
+  revision: number;
+  /** The task's failure signature when it was waived (R-18). */
+  signature: string;
+  at: number;
 };
 
 /** `window_from`: polls of the head before its current window; absent for its first window. */

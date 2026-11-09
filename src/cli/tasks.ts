@@ -1053,6 +1053,58 @@ export const failCommand: CliCommand = {
   },
 };
 
+export const waiveCommand: CliCommand = {
+  name: 'task waive',
+  description:
+    'Let one review finding, gate or CI check through with evidence; listed as waived, never as passed',
+  help: `Name exactly one target. A finding is waived for the review's current set of blocking findings, a gate for its current error lines, a check for the current head; a later different failure blocks again. Checks of a PR into a protected branch cannot be waived. ${FROM_SHOW}\n\nExample:\n  cusr task waive ${ID} --expected-version 7 --gate lint --evidence @lint-flake.txt --reason "known flaky rule, tracked in #12" --json`,
+  args: ['<id>'],
+  options: [
+    DATA_DIR,
+    REQUEST_ID,
+    PROJECT,
+    EXPECTED_VERSION,
+    REASON,
+    ...TRIAL,
+    { flags: '--finding <key>', description: 'Key of a blocking review finding' },
+    { flags: '--gate <name>', description: 'Name of a failing gate' },
+    { flags: '--check <name>', description: 'Name of a failing CI check' },
+    { flags: '--evidence <text|@file>', description: 'Why it may pass: text, or @path to a file' },
+  ],
+  run(values, json, io) {
+    const targets = (['finding', 'gate', 'check'] as const).flatMap((kind) =>
+      values[kind] === undefined ? [] : [{ kind, key: values[kind] }],
+    );
+    if (targets.length !== 1)
+      return Promise.resolve(
+        usage('task waive requires exactly one of --finding, --gate, --check', json, io),
+      );
+    const raw = values['evidence'];
+    if (raw === undefined)
+      return Promise.resolve(usage('task waive requires --evidence', json, io));
+    let evidence: string;
+    try {
+      evidence = raw.startsWith('@') ? readFileSync(raw.slice(1), 'utf8') : raw;
+    } catch (e) {
+      return Promise.resolve(
+        usage(
+          `cannot read ${raw.slice(1)}: ${e instanceof Error ? e.message : String(e)}`,
+          json,
+          io,
+        ),
+      );
+    }
+    return mutate(
+      values,
+      'task_waive',
+      values['id'] as string,
+      { target: targets[0], evidence },
+      json,
+      io,
+    );
+  },
+};
+
 function unsupported(
   key: keyof typeof UNSUPPORTED_GUIDANCE,
   json: boolean,

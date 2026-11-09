@@ -16,6 +16,16 @@ import { canonicalJson } from '../shared/canonical-json.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { rollback, writeFailure, type WriteFailure } from './accept.ts';
 
+export type TrialCommand = {
+  readonly request_id: string;
+  readonly kind: string;
+  readonly task_id: string;
+  readonly admitted_at: number;
+  /** Whether the command took effect; a refused one is no trial. */
+  readonly ok: boolean;
+  readonly trial: unknown;
+};
+
 export type TurnError = { code: 'conflict'; reason: 'turn_live' | 'not_live' } | WriteFailure;
 
 export type StartTurn = {
@@ -224,6 +234,48 @@ export class DeputyTurns {
          WHERE turn_id = ? ORDER BY admitted_at, request_id`,
       )
       .all(turnId) as TurnCommand[];
+  }
+
+  /**
+   * Every task that held the unit key of `goal_id`, the given task included (FR-042): a task that
+   * replaces a failed unit inherits its trials. A goal without units (implicit) is its one task.
+   */
+  unitTasks(goalId: string, unitKey: string | null, taskId: string): string[] {
+    const rows =
+      unitKey === null
+        ? []
+        : (this.#db
+            .prepare(`SELECT task_id FROM goal_tasks WHERE goal_id = ? AND unit_key = ?`)
+            .all(goalId, unitKey) as { task_id: string }[]);
+    return [...new Set([taskId, ...rows.map((r) => r.task_id)])].sort();
+  }
+
+  /** The deputy's completed commands with a trial on these tasks (R-19), oldest first. */
+  trials(taskIds: readonly string[]): TrialCommand[] {
+    if (taskIds.length === 0) return [];
+    const rows = this.#db
+      .prepare(
+        `SELECT request_id, kind, task_id, admitted_at, result_json, trial_json FROM command_ledger
+         WHERE actor = 'deputy' AND status = 'completed' AND trial_json IS NOT NULL
+           AND task_id IN (${taskIds.map(() => '?').join(', ')})
+         ORDER BY admitted_at, request_id`,
+      )
+      .all(...taskIds) as {
+      request_id: string;
+      kind: string;
+      task_id: string;
+      admitted_at: number;
+      result_json: string | null;
+      trial_json: string;
+    }[];
+    return rows.map((r) => ({
+      request_id: r.request_id,
+      kind: r.kind,
+      task_id: r.task_id,
+      admitted_at: r.admitted_at,
+      ok: r.result_json !== null && (JSON.parse(r.result_json) as { ok?: unknown }).ok === true,
+      trial: JSON.parse(r.trial_json) as unknown,
+    }));
   }
 
   /** Commands of the deputy are taken only while its turn runs (FR-051). */

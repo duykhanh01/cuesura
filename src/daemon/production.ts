@@ -416,6 +416,20 @@ export async function productionControl(opts: {
     let aliasWarned = false;
     /** Tasks a run of the old decider may still be working on; refreshed every round (R-13). */
     let deciderHeld: ReadonlySet<string> | 'all' = 'all';
+    /** The models the loop guard lets the deputy move a task to: its profile's `allow_models`, or all. */
+    const deputyModels = async (taskId: string): Promise<readonly string[] | null> => {
+      const config = (await currentConfig('deputy models'))?.config ?? null;
+      const s = store.readTask(taskId as Uuid);
+      if (config === null || s === null || s.policy_ref === null) return null;
+      const profile = store.readPolicy(
+        s.id as Uuid,
+        s.policy_ref.revision,
+        s.policy_ref.version,
+      )?.profile;
+      const allowed =
+        profile === undefined ? null : (config.profiles[profile]?.allow_models ?? null);
+      return allowed ?? Object.keys(config.user.models).sort();
+    };
     const deputy = createDeputy({
       store,
       clock: opts.clock,
@@ -428,6 +442,7 @@ export async function productionControl(opts: {
       recordsDir: dir('deputy'),
       redactor: opts.redactor,
       statusSince: statusSinceReader(store),
+      models: deputyModels,
       autonomous: async () => (await currentUser('autonomous'))?.autonomous === true,
       setting: async () => {
         const found = await deputyRole('deputy role');
@@ -572,6 +587,7 @@ export async function productionControl(opts: {
       },
       schedule: () => scheduler.tick(),
       concurrency: runtime?.concurrency ?? 1,
+      models: deputyModels,
       effects: buildHandlers(deps),
       rounds: [
         fireTimers,

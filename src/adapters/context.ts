@@ -152,6 +152,13 @@ export type ReviewDiff = {
   readonly to: string;
 };
 
+export type OpenFinding = {
+  readonly key: string;
+  readonly severity: string;
+  readonly file: string | null;
+  readonly msg: string;
+};
+
 export type WorkerReport = {
   readonly role: 'coder' | 'fixer';
   readonly step: string;
@@ -195,6 +202,8 @@ export type ContextInput = {
   readonly pr_content?: PublishContent | null;
   /** Reviewer: what the coders and fixers of this revision said they did since the last review. */
   readonly worker_reports?: readonly WorkerReport[];
+  /** Reviewer: the blocking findings of the last rejection, with the keys to keep (007, R-18). */
+  readonly open_findings?: readonly OpenFinding[];
   /** Decider: what the worker is waiting on, every question of its result together. */
   readonly question?: string;
   readonly limits: {
@@ -319,6 +328,7 @@ Severity
 - Rate each finding by its effect once the change is merged, not by how certain or how easy to fix it is. Between two levels, choose the lower one.
 
 Writing a finding
+- Start each message with its key in brackets, such as \`[auth-null-check] \`. open_findings lists the blocking findings of the last review with their keys: a finding that is still there keeps its key, whatever words you use now; a new finding gets a new short key of letters, digits and dashes.
 - One defect per finding, in one paragraph.
 - Start with the defect, stated as a fact about the code.
 - Then give the scenario that triggers it: the input, state or sequence, and the wrong result.
@@ -533,6 +543,19 @@ export function buildRoleContext(
     ...(input.messages === undefined || input.messages.length === 0
       ? []
       : [{ name: 'messages', body: messagesBody(input.messages, clean), required: true }]),
+    ...(input.role === 'reviewer' && (input.open_findings?.length ?? 0) > 0
+      ? [
+          {
+            name: 'open_findings',
+            body: (input.open_findings ?? [])
+              .map(
+                (f) => `- [${clean(f.key)}] ${f.severity} ${clean(f.file ?? '-')}: ${clean(f.msg)}`,
+              )
+              .join('\n'),
+            required: false,
+          },
+        ]
+      : []),
     // First of the optional sections: what the worker says it fixed is what this round checks.
     ...(input.role === 'reviewer' && input.worker_reports !== undefined
       ? [

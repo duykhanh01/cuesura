@@ -41,6 +41,11 @@ import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import { backoffDelay } from '../engine/backoff.ts';
 import { routeOf } from '../engine/deputy-routing.ts';
+import { bindingModel } from '../engine/loop-signals.ts';
+import { exhaustion, progressed, triedModels } from '../engine/trials.ts';
+import { unitFacts, type UnitFacts } from '../application/loop-facts.ts';
+import { submit } from '../application/triage.ts';
+import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import type { StatusSinceOf } from '../explain/needs-user.ts';
 import { writeAtomicIn } from '../runner/files.ts';
 import { InvocationUnknown } from '../runner/invocation.ts';
@@ -52,6 +57,9 @@ import type { Store } from '../store/index.ts';
 import type { CommandHandler } from './main.ts';
 
 export { DEPUTY_ACTOR } from '../domain/deputy.ts';
+
+/** Who ends a task whose every action ran out on its failure signature (FR-044). */
+export const LOOP_GUARD_ACTOR = 'system:loop-guard';
 
 /** How often a turn this daemon cannot conclude yet (still running elsewhere, unproven) is looked at again. */
 const ADOPT_RECHECK_MS = 10_000;
@@ -99,6 +107,8 @@ export type DeputyDeps = {
   readonly recordsDir: string;
   readonly redactor: Redactor;
   readonly statusSince?: (s: TaskState) => number | null;
+  /** Models the loop guard lets the deputy move this task to (FR-043.2); null or absent: unknown. */
+  readonly models?: (taskId: string) => Promise<readonly string[] | null>;
   readonly log?: (line: string) => void;
 };
 
@@ -134,16 +144,43 @@ const ROLE_TEXT = `# Role: deputy
 
 You act for the project owner, who is away, on one incident of one Cuesura task. Engine and daemon decide
 every transition; you act only through the \`cusr\` CLI, under the same checks as the owner's assistant.
+A limit that ran out is a point to judge the task again, not a reason to retry: find why it is stuck and
+break the loop.
 
 - Every write command takes --reason. Commands that buy more time or another try (continue, amend-policy,
-  message, approve) also take --hypothesis and --expect.
+  message, approve, waive) also take --hypothesis (what you think is wrong) and --expect (what the next
+  incident must show if you are right).
+
+Cause -> action (recommended, not enforced):
+- model: the model is not strong enough -> \`task amend-policy --model\` to a model not yet tried on
+  this failure, within the owner's allowed models.
+- strategy: the worker attacks it the wrong way -> \`task message\` with a concrete different approach.
+- review_dispute: reviewer and fixer disagree, or the reviewer is wrong -> \`task waive --finding <key>\`
+  with evidence, or a message settling the point.
+- process: Cuesura's own flow is stuck (base, CI rules, checks) -> the matching command (recheck,
+  continue on the right wait) or handover.
+- limit: real progress was cut by a limit -> \`task continue\` or \`amend-policy --agent-runs/--deadline\`.
+- environment: outside the worker's reach (flaky CI, credentials, network) -> \`task waive --check/--gate\`
+  with evidence when it is not the change's fault, else handover.
+- spec: the request is unclear or contradicts itself -> handover.
+
+Anti-loop rules the daemon enforces (refusals are final for this failure signature):
+- The same action with the same parameters on the same failure signature is refused
+  (repeat_without_evidence) until there is new evidence: measured progress (a different checkpoint tree
+  with a different signature or fewer errors), a new instruction from the owner, or a plan version the
+  owner confirmed. Your own words are never new evidence.
+- Each kind runs out (action_exhausted): a model only once per signature; one message and one limit
+  extension per signature until new evidence; each finding, gate or check waived once per signature.
+- When every kind has run out (signature_exhausted) only \`cusr task fail\` or a handoff with decision
+  "handover" remain. A turn that ends there doing neither fails the task (actor system:loop-guard).
 - Read what you need: \`cusr task explain <id> --json\`, \`cusr task logs <id>\`, \`cusr task gate-log <id>\`,
   \`git -C <worktree> diff\`. The worktree is read-only for you: whatever you change in it is put back
   after the turn. Code changes go through the worker (continue, message).
 - Never undo what the owner or the assistant did in this revision. Touch no other task's worktree.
 - If the incident needs the owner, say so with decision "handover".
 - Always end with \`cusr deputy handoff --cause <cause> --decision <text> [--ruled-out "<hypothesis>: <why>"]
-  [--next <text>]\`. Causes: model, strategy, review_dispute, process, limit, environment, spec, none.
+  [--next <text>]\`, even when you did nothing. Causes: model, strategy, review_dispute, process, limit,
+  environment, spec, none.
 - Your final structured answer is a short closing message for the owner.`;
 
 const PLAN_ROLE_TEXT = `# Role: deputy (plan)
@@ -167,6 +204,45 @@ export function planIncident(g: GoalState): string | null {
   if (g.status === 'planning') return `${g.id}:${g.plan_version}:planning`;
   if (g.status === 'replan') return `${g.id}:${g.plan_version}:${g.replan_reason ?? 'replan'}`;
   return null;
+}
+
+function trialLines(f: UnitFacts): string[] {
+  const rows = f.trials.filter((t) => t.signature === f.signature.signature);
+  if (rows.length === 0) return ['- none yet'];
+  return rows.map((t) => {
+    const o = t.outcome;
+    const result =
+      o === null
+        ? 'no incident since'
+        : `signature ${o.signature_changed ? 'changed' : 'same'}, errors ${o.errors_delta >= 0 ? '+' : ''}${o.errors_delta}, tree ${o.tree_changed ? 'changed' : 'same'}${progressed(o) ? ' (progress)' : ''}`;
+    return `- ${t.action_kind} ${t.params.slice(0, 80)}: hypothesis "${t.hypothesis}"; expect "${t.expect}"; result: ${result}`;
+  });
+}
+
+function basisLines(f: UnitFacts): string[] {
+  const b = f.signature.basis;
+  return [
+    ...b.gates.map(
+      (g) => `- gate ${g.gate}: ${g.lines.slice(0, 5).join(' | ') || 'no error lines'}`,
+    ),
+    ...(b.checks.length === 0 ? [] : [`- failed checks: ${b.checks.join(', ')}`]),
+    ...(b.findings.length === 0 ? [] : [`- open blocking findings: ${b.findings.join(', ')}`]),
+  ];
+}
+
+/** What the loop guard would refuse now, so the turn does not spend itself on it (contracts/deputy-turn.md). */
+function guardLines(f: UnitFacts): string[] {
+  const e = exhaustion(f.guard);
+  if (e.all)
+    return ['- every action ran out: only `cusr task fail` or a handoff with decision "handover"'];
+  const tried = triedModels(f.guard);
+  const untried = f.guard.models.filter((m) => !tried.has(m));
+  return [
+    `- continue / --agent-runs / --deadline: ${e.extend ? 'refused (used on this signature without new evidence)' : 'available once'}`,
+    `- message: ${e.instruct ? 'refused (used on this signature without new evidence)' : 'available once'}`,
+    `- amend-policy --model: ${untried.length === 0 ? 'refused (every allowed model tried)' : `untried: ${untried.join(', ')}`}`,
+    `- waive: ${f.guard.waivable.length === 0 ? 'nothing left to waive' : f.guard.waivable.join(', ')}`,
+  ];
 }
 
 export function createDeputy(deps: DeputyDeps): Deputy {
@@ -265,6 +341,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       return;
     }
     const open = atIncident(record);
+    const s = record.task_id === null ? null : store.readTask(record.task_id as Uuid);
     let state: FinalTurnState;
     let reason: HandoffReason | null = null;
     let message: string | null = null;
@@ -285,6 +362,13 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         state = 'handed_off';
         reason = 'still_waiting';
       } else state = 'done';
+      // Step 4 (FR-044): the task still waits on the deputy, its signature is spent, and no handover:
+      // the task ends. The turn may have moved it to a later incident on the same failure.
+      const waiting = s !== null && s.status === 'WAITING' && route(s) === 'deputy';
+      if (waiting && reason !== 'handover' && (await loopGuardFails(s, record))) {
+        state = 'done';
+        reason = null;
+      }
     }
     const r = store.deputy.finishTurn(record.turn_id, {
       state,
@@ -299,6 +383,37 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     log(
       `${record.task_id === null ? `goal ${goalOf(record) ?? '?'}` : `task ${record.task_id}`}: turn ${record.turn_id} ${state}${reason === null ? '' : ` (${reason})`}`,
     );
+  };
+
+  const factsOf = async (s: TaskState): Promise<UnitFacts> => {
+    const listed = (await deps.models?.(s.id)) ?? null;
+    const ran = Object.values(s.attempts).map((a) => bindingModel(a.binding));
+    return unitFacts(store, s, listed ?? [...new Set(ran)].sort());
+  };
+
+  /** Fails the task as `system:loop-guard` when every action ran out on its signature (FR-044). */
+  const loopGuardFails = async (s: TaskState, record: TurnKey): Promise<boolean> => {
+    const facts = await factsOf(s);
+    if (!exhaustion(facts.guard).all) return false;
+    const at = deps.clock.now();
+    const r = submit(store, {
+      task_id: s.id,
+      dedup_key: `loop-guard:${record.turn_id}`,
+      trigger: {
+        kind: 'fail',
+        reason: `loop_guard: every action ran out on failure signature ${facts.signature.signature.slice(7, 19)}`,
+      },
+      now: at,
+      ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),
+      expected_version: s.version,
+      authz: { actor: LOOP_GUARD_ACTOR, roles: ['operate'], issued_by: 'daemon', issued_at: at },
+    });
+    if (!r.ok || r.value.decision.kind !== 'accepted') {
+      log(`task ${s.id}: loop guard fail not accepted`);
+      return false;
+    }
+    log(`task ${s.id}: loop guard ended the task after turn ${record.turn_id}`);
+    return true;
   };
 
   /** A rate limit or an infra failure: the turn waits, then resumes its own session (FR-011, FR-024). */
@@ -595,6 +710,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     const rt = store.readRuntimeContext(s.id as Uuid, s.revision);
     const limits = rt?.limits ?? DEFAULT_RUNTIME_LIMITS;
     const turns = store.deputy.turnsOf({ task_id: s.id });
+    const facts = await factsOf(s);
     const built = finish(
       incidentContext({
         store,
@@ -604,6 +720,15 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         turns,
         worktree: baseline === null ? null : deps.worktreePath(s.id),
         budget: setting.context_bytes ?? DEFAULT_CONTEXT_BYTES,
+        loop: {
+          signals:
+            facts.signals.length === 0
+              ? ['- none']
+              : facts.signals.map((x) => `- ${x.kind}: ${x.detail}`),
+          trials: trialLines(facts),
+          signature: [`signature: ${facts.signature.signature}`, ...basisLines(facts)],
+          guard: guardLines(facts),
+        },
       }),
     );
     const kind = s.wait?.detail['question_id'] !== undefined ? 'question' : 'incident';
@@ -651,7 +776,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       task_id: s.id,
       kind,
       incident,
-      signature: null,
+      signature: facts.signature.signature,
       harness: setting.harness,
       attempt_id: attemptId,
       mode: 'headless',

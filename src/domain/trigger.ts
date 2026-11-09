@@ -4,7 +4,7 @@ import { hashCanonical } from '../shared/hash.ts';
 import { CanonicalTaskSchema } from './task.ts';
 import { AuthzContextSchema, FrozenExecutionContextSchema, FrozenPolicySchema } from './policy.ts';
 import { RunSelectionSchema } from './run-config.ts';
-import type { TaskStatus } from './state.ts';
+import { WAIVER_KINDS, type TaskStatus } from './state.ts';
 import {
   ArtifactSchema,
   BaseUpdateRequestSchema,
@@ -98,6 +98,10 @@ export const CheckSchema = z
     state: z.enum(CHECK_STATES),
     job: z.string().optional(),
     log_excerpt: z.string().max(65_536).optional(),
+    // Additive (007, R-20): which run this is, so a waiver holds for that run of that app only.
+    source: z.enum(['check_run', 'status']).optional(),
+    app_id: z.number().int().nullable().optional(),
+    run: z.string().min(1).max(128).optional(),
   })
   .strict();
 export type Check = z.infer<typeof CheckSchema>;
@@ -288,6 +292,8 @@ export const CreatePrDataSchema = z
         body_digest: z.string().min(1),
         operation_key: z.string().min(1),
         revision: z.number().int().positive(),
+        // Additive (007, FR-046): the waivers the body lists.
+        waivers: z.array(z.string().min(1)).optional(),
       })
       .strict()
       .optional(),
@@ -758,6 +764,14 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('continue') }).strict(),
   // An operator ends a waiting task with its reason, through the draft-PR path of #247 (007, FR-032).
   z.object({ kind: z.literal('fail'), reason: z.string().min(1).max(4_096) }).strict(),
+  // An operator lets one finding, gate or CI check through with evidence (007, FR-045).
+  z
+    .object({
+      kind: z.literal('waive'),
+      target: z.object({ kind: z.enum(WAIVER_KINDS), key: z.string().min(1).max(256) }).strict(),
+      evidence: z.string().min(1).max(16_384),
+    })
+    .strict(),
   // A person holds the task at its next step boundary, and lets it go on (issue #142).
   z
     .object({
@@ -831,6 +845,7 @@ export const HUMAN_TRIGGERS: readonly TriggerKind[] = [
   'recheck',
   'continue',
   'fail',
+  'waive',
   'pause',
   'unpause',
   'message',

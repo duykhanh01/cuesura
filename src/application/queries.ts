@@ -11,7 +11,13 @@ import {
   type CanonicalTask,
 } from '../domain/task.ts';
 import { DeclaredScopeSchema } from './scope-match.ts';
-import type { TaskState } from '../domain/state.ts';
+import type { TaskState, Waiver } from '../domain/state.ts';
+import { failureSignature } from '../engine/failure-signature.ts';
+import {
+  loopSignals,
+  taskHistory as loopHistory,
+  type LoopSignal,
+} from '../engine/loop-signals.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import type { PublishContent } from '../adapters/context.ts';
 import { readStoredContent } from '../adapters/publish-content.ts';
@@ -528,7 +534,26 @@ export function taskShow(
     step: s.value.current_step,
     provenance: provenance(s.value),
     ...liveTurn(store, s.value.id),
+    ...loopView(store, s.value),
   });
+}
+
+/**
+ * What the loop guard sees (007, FR-040, FR-046): loop signals and the failure signature while the task
+ * waits, and every waiver, shown as waived.
+ */
+function loopView(
+  store: Store,
+  s: TaskState,
+): { loop_signals: LoopSignal[]; signature: string | null; waivers: Waiver[] } {
+  const waivers = s.run.waivers ?? [];
+  if (s.status !== 'WAITING') return { loop_signals: [], signature: null, waivers };
+  const sig = failureSignature(s).signature;
+  return {
+    loop_signals: loopSignals(s, loopHistory(store.readEvents(s.id as Uuid)), sig),
+    signature: sig,
+    waivers,
+  };
 }
 
 /** The deputy turn working on the task now, if any (007, FR-026). */
@@ -783,6 +808,7 @@ export function taskExplain(
       },
     ),
     ...liveTurn(store, s.id),
+    ...loopView(store, s),
   });
 }
 

@@ -61,7 +61,7 @@ import {
   reviewSignature,
   untouchedRepeats,
 } from './failure.ts';
-import { ciVerdict, heldCi, latestCi, mergeGuard, type GuardFailure } from './merge-guard.ts';
+import { heldCi, latestCi, mergeGuard, taskCiVerdict, type GuardFailure } from './merge-guard.ts';
 import { answerForFixer, askHuman, AUTO_ACTOR, requestApproval } from './questions.ts';
 import { creditableAttempts } from './recheck.ts';
 import { settleUnderDrift } from './head-drift.ts';
@@ -71,6 +71,7 @@ import { isPaused, stoppedByPause, waitPaused } from './pause.ts';
 import { afterMessageStop, stoppedByMessage } from './message.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
+import { gatesPass, reviewWaived, reviewWaivers } from './waivers.ts';
 
 /**
  * All continuation passes through these guards: terminal state, cancellation, source drift, then
@@ -723,6 +724,20 @@ function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
         detail: { head_sha: ctx.state.head_sha },
       });
       return;
+    case 'waivers_unlisted': {
+      const id = requestPrBodyUpdate(ctx, step);
+      if (id === null) return;
+      waitTask(
+        ctx,
+        mkWait('infra', 'merge_not_done', {
+          resume: recheck,
+          resume_when: [`effect(${id})`],
+          exit_paths: ['the PR body is updated with the waivers', 'cancel'],
+          detail: { step, guard: code, effect_id: id },
+        }),
+      );
+      return;
+    }
     case 'no_head':
     case 'review_missing':
     case 'approval_missing':
@@ -737,6 +752,26 @@ function onGuardFailure(ctx: Ctx, step: string, code: GuardFailure): void {
     default:
       assertNever(code);
   }
+}
+
+/**
+ * Asks for the PR body to be written again with the waivers (007, FR-046). Each request is a new
+ * effect, so a merge that checks again after a failed update asks once more.
+ */
+export function requestPrBodyUpdate(ctx: Ctx, step: string | null): string | null {
+  const s = ctx.state;
+  if (s.pr_ref === null || s.runtime_ref === null || s.run.content === null) return null;
+  const n = Object.values(s.effects).filter((e) => e.kind === 'update_pr_body').length;
+  return requestEffect(ctx, {
+    kind: 'update_pr_body',
+    logical_id: `${s.id}#waivers:${(s.run.waivers ?? []).length}#${n}`,
+    step,
+    request: {
+      head_sha: s.head_sha,
+      content_digest: s.run.content.digest,
+      update: true,
+    },
+  }).id;
 }
 
 function finish(ctx: Ctx, reason: string): void {
@@ -1253,6 +1288,7 @@ export function parseSuccess(
       case 'rerun_ci':
         return RerunDataSchema;
       case 'create_pr':
+      case 'update_pr_body':
         return CreatePrDataSchema;
       case 'mark_ready':
         return MarkReadyDataSchema;
@@ -1398,6 +1434,7 @@ export function onEffectSucceeded(ctx: Ctx, e: EffectMirror, data: unknown): voi
 }
 
 function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
+  const awaited = ctx.state.status === 'WAITING' && ctx.state.wait?.detail['effect_id'] === e.id;
   resumeIfWaitingOn(ctx, e);
   const step = e.step;
   switch (e.kind) {
@@ -1434,18 +1471,16 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         sg !== undefined && sg.required.length > 0
           ? sg.required
           : (sg?.run ?? d.results.map((r) => r.gate));
-      const passed =
-        required.length > 0 &&
-        required.every((g) => d.results.some((r) => r.gate === g && r.passed));
+      const { passed, waived } = gatesPass(ctx.state, required, d.results);
       const failing =
-        d.results.find((r) => !r.passed && required.includes(r.gate)) ??
-        d.results.find((r) => !r.passed);
+        d.results.find((r) => !r.passed && !waived.includes(r.gate) && required.includes(r.gate)) ??
+        d.results.find((r) => !r.passed && !waived.includes(r.gate));
       const signature = failing?.signature ?? null;
       ctx.emit('GateResultRecorded', {
         step: step as string,
         visit: visitOf(ctx, step as string),
         effect_id: e.id,
-        results: d.results,
+        results: d.results.map((r) => (waived.includes(r.gate) ? { ...r, waived: true } : r)),
         passed,
         signature,
         resets_streak_of: passed && !reviewStreak(ctx.state) ? ctx.state.last_fix_step : null,
@@ -1553,6 +1588,10 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
     case 'rerun_ci':
       proceed(ctx, { kind: 'route', step: step as string, outcome: 'ok' });
       return;
+    // The body lists the waivers now; only a merge that waited for it goes on (FR-046).
+    case 'update_pr_body':
+      if (awaited && step !== null) proceed(ctx, { kind: 'merge_check', step });
+      return;
     case 'await_ci': {
       const d = AwaitCiDataSchema.parse(data);
       // CI of a PR that targets another branch is not recorded: it proves nothing for this target.
@@ -1565,7 +1604,7 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
       }
       const green =
         d.head_sha === ctx.state.head_sha &&
-        ciVerdict(ctx.frozen, d.required_set, d.checks).kind === 'pass';
+        taskCiVerdict(ctx.state, ctx.frozen, d).kind === 'pass';
       // A poll that reads the same CI again adds nothing to the evidence (#262).
       const resets = green ? ctx.state.last_fix_step : null;
       if (resets !== null || !heldCi(ctx.state, d))
@@ -1618,7 +1657,7 @@ export function onCiRecorded(ctx: Ctx, step: string, required?: RequiredCheckVer
   const head = s.head_sha;
   const ci = head === null ? undefined : latestCi(s, head);
   // Evidence for another head cannot prove anything about the current head.
-  const verdict = ci === undefined ? null : ciVerdict(ctx.frozen, ci.required_set, ci.checks);
+  const verdict = ci === undefined ? null : taskCiVerdict(s, ctx.frozen, ci);
   // Any other result that lands after the head's CI window closed is evidence only, even for a poll
   // sent in time; a covered pass still moves to the merge wait (FR-043.08, FR-043.11).
   if (s.runtime_ref !== null && ciClosed(ctx, step) && !(covered && verdict?.kind === 'pass'))
@@ -1883,7 +1922,15 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
       );
       return;
     }
-    const repeated = approved ? [] : untouchedRepeats(ctx.state.run.reviews, ctx.state.revision, d);
+    // Every blocking finding waived on this key set: the review counts as an approval (R-20).
+    const waivedBy =
+      !approved && reviewWaived(ctx.state, { findings: d.findings })
+        ? reviewWaivers(ctx.state, { findings: d.findings })
+        : null;
+    const repeated =
+      approved || waivedBy !== null
+        ? []
+        : untouchedRepeats(ctx.state.run.reviews, ctx.state.revision, d);
     ctx.emit('ReviewVerdictRecorded', {
       step,
       attempt_id: e.attempt_id as string,
@@ -1898,6 +1945,15 @@ function onAgentOutput(ctx: Ctx, e: EffectMirror, data: unknown): void {
         ? {}
         : { summary: d.summary.slice(0, MAX_SUMMARY) }),
     });
+    if (waivedBy !== null) {
+      ctx.emit('ReviewWaived', {
+        attempt_id: e.attempt_id as string,
+        head_sha: d.head_sha,
+        waivers: waivedBy,
+      });
+      proceed(ctx, { kind: 'route', step, outcome: 'approve' });
+      return;
+    }
     if (!approved) recordCheckFailure(ctx, signature);
     if (
       !approved &&
@@ -2021,6 +2077,25 @@ export function onEffectFailed(
   f: FailureData,
   budgetSettled = false,
 ): void {
+  // A body update that no merge waits on changes nothing; the next merge check asks again.
+  if (e.kind === 'update_pr_body') {
+    const w = ctx.state.wait;
+    if (ctx.state.status === 'WAITING' && w?.detail['effect_id'] === e.id && e.step !== null)
+      waitTask(
+        ctx,
+        mkWait('human_input', 'merge_not_done', {
+          resume: { kind: 'merge_check', step: e.step },
+          resume_when: ['recheck'],
+          exit_paths: ['list the waivers in the PR body', 'cancel'],
+          detail: {
+            step: e.step,
+            guard: 'waivers_unlisted',
+            failure: f.message ?? f.failure_class,
+          },
+        }),
+      );
+    return;
+  }
   resumeIfWaitingOn(ctx, e);
   const s = ctx.state;
   if (isSalvage(ctx, e) && s.cancellation === null)
