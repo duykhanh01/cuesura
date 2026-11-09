@@ -214,11 +214,20 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     }
     expect(selectedLine(s.screenText())).toContain('Cancel task');
     s.send(KEY.enter);
+    await s.waitForText('What cancelling does');
+    // Enter in the reason is a new line, and Enter in the empty confirmation box sends nothing.
     s.send(KEY.enter);
-    await s.waitForText('Nothing was sent');
+    s.send(KEY.tab);
+    s.send(KEY.enter);
+    await s.waitForText('Nothing was sent: type cancel exactly');
     await new Promise((r) => setTimeout(r, 500));
     expect(await explainOf(sd, t.id)).toEqual(before);
     expect(await eventCount(sd, t.id)).toBe(events);
+    // In the dialog `q` is text: Esc goes back to the menu and to Home first.
+    s.send(KEY.esc);
+    await s.waitForText('Actions — ');
+    s.send(KEY.esc);
+    await s.waitFor(() => !s.screenText().includes('Actions — '));
     await quit(s);
   });
 

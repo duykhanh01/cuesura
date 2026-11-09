@@ -177,6 +177,12 @@ Vào: `{ kind, task_id }`. Ra:
 - `steps` là `null` và `reason` là `not_frozen` khi chưa có policy đóng băng.
 - `worktree_path` chỉ khác `null` khi wait là `worktree_changed`, để giao diện chỉ vị trí worktree (US4 số 4).
 
+## `question_show`
+
+Ra thêm `body`, `answer` và `answered_by` của câu hỏi (chỉ thêm trường; `answer` và `answered_by` là `null` khi
+câu hỏi còn mở hoặc đã rút). Hộp thoại Answer dùng chúng để hiện câu hỏi đã rời inbox và câu trả lời ở nơi
+khác (`Answered elsewhere`). Client cũ bỏ qua các trường này; TUI chấp nhận daemon cũ thiếu chúng.
+
 ## `task_logs`
 
 - Vào thêm `attempt_id?`. Khi có, chỉ trả bản ghi của operation thuộc attempt đó; cursor vẫn là cursor chung của task.

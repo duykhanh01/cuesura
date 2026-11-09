@@ -8,6 +8,7 @@ import type { Key, KeyName } from '../terminal/keys.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { logColumns } from './logs.ts';
 import { QUEUE_TARGET } from '../client/mutations.ts';
+import { confirmWord } from './dialog.ts';
 import { currentScreen, mutationLock, type TuiState } from './state.ts';
 
 export type Command =
@@ -43,8 +44,6 @@ export type Command =
   | 'switch_field'
   | 'erase'
   | 'check_again'
-  | 'send'
-  | 'toggle'
   | 'queue';
 
 export type Context =
@@ -56,7 +55,8 @@ export type Context =
   | 'filter_text'
   | 'filter_choice'
   | 'dialog_text'
-  | 'dialog_choice'
+  | 'dialog_confirm'
+  | 'dialog_plain'
   | 'help';
 
 type Press = { readonly name: KeyName } | { readonly char: string };
@@ -102,26 +102,31 @@ const onTask = (s: TuiState): boolean => s.selectedTaskId !== null && !s.finishe
 
 const readingGates = (s: TuiState): boolean => (s.logs?.gates ?? null) !== null;
 
-/** The reason field and the `--now` choice of a task's pause dialog take turns with Tab. */
-const twoFields = (s: TuiState): boolean => s.dialog?.action === 'pause';
-
+/** The dialogs take their keys themselves (`model/dialog.ts`); these say which, for the bar and Help. */
 const DIALOG_SEND: Binding = {
   keys: 'Ctrl-S',
   hint: 'send',
-  help: 'Send; nothing goes out before this',
-  press: [[n('ctrl_s'), 'send']],
+  help: 'Send what the dialog describes; nothing goes out before this',
+  press: [],
+  when: (s) => s.dialog !== null && confirmWord(s.dialog) === null,
 };
 
-const DIALOG_FIELD: Binding = {
+/** Pausing a task: the reason field and the choice to stop the running agent now take turns. */
+const DIALOG_NOW_FIELD: Binding = {
   keys: 'Tab',
   hint: 'next field',
   helpKeys: 'Tab Shift-Tab',
   help: 'Go between the reason and the choice to stop the running agent now',
-  press: [
-    [n('tab'), 'switch_field'],
-    [n('shift_tab'), 'switch_field'],
-  ],
-  when: twoFields,
+  press: [],
+  when: (s) => s.dialog?.kind === 'pause',
+};
+
+const DIALOG_SCROLL: Binding = {
+  keys: 'PgUp/PgDn',
+  hint: null,
+  helpKeys: 'PgUp PgDn',
+  help: 'Scroll what the dialog says above its fields',
+  press: [],
 };
 
 const waiting = (s: TuiState): boolean =>
@@ -448,17 +453,47 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       press: [[n('backspace'), 'erase']],
     },
   ],
-  dialog_text: [DIALOG_SEND, DIALOG_FIELD],
-  dialog_choice: [
+  dialog_text: [
+    DIALOG_SEND,
+    {
+      keys: 'Tab',
+      hint: 'confirm box',
+      helpKeys: 'Tab Shift-Tab',
+      help: 'Go to the box where the word is typed',
+      press: [],
+      when: (s) => s.dialog !== null && confirmWord(s.dialog) !== null,
+    },
+    DIALOG_NOW_FIELD,
+    DIALOG_SCROLL,
+  ],
+  dialog_confirm: [
+    {
+      keys: 'Enter',
+      hint: 'confirm',
+      help: 'Send, when what is typed is exactly the word asked for; nothing else sends it',
+      press: [],
+    },
+    {
+      keys: 'Tab',
+      hint: 'text',
+      helpKeys: 'Tab Shift-Tab',
+      help: 'Back to the text above the confirmation box',
+      press: [],
+      when: (s) => (s.dialog?.field ?? null) !== null,
+    },
+    DIALOG_SCROLL,
+  ],
+  dialog_plain: [
     DIALOG_SEND,
     {
       keys: 'Space',
       hint: 'stop now on/off',
       help: 'Also stop the agent turn running now; it starts over in a new session on resume',
-      press: [[c(' '), 'toggle']],
+      press: [],
       when: (s) => s.dialog?.focus === 'now',
     },
-    DIALOG_FIELD,
+    DIALOG_NOW_FIELD,
+    DIALOG_SCROLL,
   ],
   help: [
     {
@@ -479,7 +514,8 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
 };
 
 /** In a text field a printable key is text, so only keys that are not text are global there. */
-const typing = (ctx: Context): boolean => ctx === 'filter_text' || ctx === 'dialog_text';
+const typing = (ctx: Context): boolean =>
+  ctx === 'filter_text' || ctx === 'dialog_text' || ctx === 'dialog_confirm';
 
 const GLOBAL_LEAD: readonly Binding[] = [
   {
@@ -642,7 +678,11 @@ export function keyContext(s: TuiState): Context {
     case 'filters':
       return s.filterDraft?.field === 'project' ? 'filter_text' : 'filter_choice';
     case 'dialog':
-      return s.dialog?.focus === 'reason' ? 'dialog_text' : 'dialog_choice';
+      return s.dialog?.focus === 'text'
+        ? 'dialog_text'
+        : s.dialog?.focus === 'confirm'
+          ? 'dialog_confirm'
+          : 'dialog_plain';
     case 'help':
       return 'help';
   }
@@ -700,7 +740,8 @@ export const CONTEXT_TITLES: Readonly<Record<Context, string>> = {
   actions: 'Actions',
   filter_choice: 'Filter',
   filter_text: 'Filter, typing a project name',
-  dialog_text: 'Dialog, typing a reason',
-  dialog_choice: 'Dialog',
+  dialog_text: 'Dialog, typing text',
+  dialog_confirm: 'Dialog, confirmation box',
+  dialog_plain: 'Dialog',
   help: 'Help',
 };

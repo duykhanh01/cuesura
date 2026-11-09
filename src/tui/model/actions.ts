@@ -1,17 +1,16 @@
 /**
  * The Actions menu of one task (FR-016, EC-013). What it lists is `allowed_actions` of a `task_explain` read
  * when the menu opens, never the one Task detail holds, and read again whenever anything moved, so a menu
- * that is no longer valid is replaced instead of acted on. Recheck is sent from here; pause, resume and continue
- * open a dialog of their own (`dialog.ts`), and the other dialogs come with US4 and US5.
+ * that is no longer valid is replaced instead of acted on. Nothing is sent from the menu itself: an entry opens a
+ * dialog (`dialog.ts`), which sends on its own confirmation.
  */
 import type { PortResult } from '../client/daemon-port.ts';
 import type { TaskExplain, TaskShow } from '../client/schemas.ts';
 import { uiText, type SafeText } from '../terminal/safe-text.ts';
-import type { MutationCommand } from '../client/mutations.ts';
-import { actionItems, actionsPaging, enterNotice } from '../views/actions.ts';
+import { actionItems, actionsPaging, enterNotice, type ActionItem } from '../views/actions.ts';
 import { contentHeight } from '../views/disconnected.ts';
-import { openDialog, type DialogAction } from './dialog.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
+import { DIALOG_ACTIONS, openDialog } from './dialog.ts';
 import type { Command } from './keymap.ts';
 import type { Effect } from './messages.ts';
 import { mutationLock, writeLock, type TuiState } from './state.ts';
@@ -80,6 +79,7 @@ export function leaveActions(state: TuiState): TuiState {
     ...state,
     screens: state.screens.slice(0, state.screens.lastIndexOf('actions')),
     actions: null,
+    dialog: null,
   };
 }
 
@@ -222,25 +222,28 @@ export function writeBlock(state: TuiState, menu: ActionsMenu): string | null {
   return null;
 }
 
-function sendRecheck(state: TuiState, menu: ActionsMenu): Reduced {
-  const blocked = writeBlock(state, menu);
+const READING = 'Nothing was sent: this task is still being read.';
+
+function openEntry(state: TuiState, menu: ActionsMenu, item: ActionItem): Reduced {
+  const kind = DIALOG_ACTIONS[item.action];
+  const note = (text: string): Reduced => ({
+    state: { ...state, actions: { ...menu, notice: uiText(text) } },
+    effects: [],
+  });
+  if (kind === undefined || item.unavailable !== null) return note(enterNotice(item));
+  const explain = menu.explain.data;
   const show = menu.show.data;
-  if (blocked !== null || show === null)
-    return {
-      state: { ...state, actions: { ...menu, notice: uiText(blocked ?? '') } },
-      effects: [],
-    };
-  const command: MutationCommand = {
-    kind: 'task_recheck',
-    project: show.project,
-    task_id: menu.taskId,
-    expected_version: show.version,
-    payload: {},
-  };
-  return {
-    state: { ...state, actions: { ...menu, notice: null } },
-    effects: [{ type: 'submit', command }],
-  };
+  if (explain === null || show === null) return note(READING);
+  // Both reads describe the task the dialog is about; ones of different versions describe two tasks.
+  if (explain.version !== show.version)
+    return note('The task changed while it was being read; try again in a moment.');
+  return openDialog(
+    { ...state, actions: { ...menu, notice: null } },
+    kind,
+    explain,
+    show.version,
+    show.project,
+  );
 }
 
 /** `null`: not a command of this screen. */
@@ -279,16 +282,7 @@ export function onActionsCommand(state: TuiState, command: Command): Reduced | n
     case 'open': {
       const item = items[menu.selected];
       if (item === undefined) return put({});
-      if (item.action === 'recheck' && item.unavailable === null) return sendRecheck(state, menu);
-      if (item.kind === 'dialog' && item.ready && item.unavailable === null)
-        return openDialog(state, {
-          action: item.action as DialogAction,
-          taskId: menu.taskId,
-          title: menu.title,
-          effect: item.effect,
-          unavailable: null,
-        });
-      return put({ notice: uiText(enterNotice(item)) });
+      return openEntry(state, menu, item);
     }
     case 'check_again': {
       const m = mutationLock(state, menu.taskId);

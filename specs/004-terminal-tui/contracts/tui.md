@@ -92,9 +92,30 @@ dòng trong đó không kích hoạt gửi.
 | Tạm dừng task hoặc hàng đợi | Lý do không rỗng | Không; dùng `Ctrl-S` |
 | Tiếp tục task, cho task chạy tiếp, tiếp tục hàng đợi | Hộp thoại nêu `note` của action | Không; dùng `Ctrl-S` |
 
-Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu cầu; sai thì giữ nguyên và báo lỗi tại chỗ, không sang trường khác. `Ctrl-S` không có tác dụng ở
-đây. Ô xác nhận rỗng khi mở, không nhận paste, không có hết giờ. Mở lại Review sau khi bộ lựa chọn đổi thì hiện khác biệt và xóa từ đã gõ
-(FR-028).
+Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu cầu; sai thì giữ nguyên và báo lỗi tại chỗ, không sang trường khác. `Ctrl-S` không gửi
+ở đây, kể cả từ ô văn bản của hộp thoại có từ xác nhận; hộp thoại báo tại chỗ cách xác nhận. Ô xác nhận rỗng khi mở, không nhận paste, không có
+hết giờ. Mở lại Review sau khi bộ lựa chọn đổi thì hiện khác biệt và xóa từ đã gõ (FR-028).
+
+Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tục, hàng đợi) dùng chung một khung và một quy ước:
+
+- Đầu hộp thoại: tên thao tác và task; hộp thoại của task ghi version sẽ gửi kèm (`Sent with version N`), hoặc báo
+  task đã đổi version kể từ lúc mở thì sẽ không gửi. Hộp thoại của task chỉ mở khi `task_explain` và `task_show`
+  của menu Actions cùng một version; version đó là `expected_version` của lệnh.
+- Phần mô tả ở trên cuộn bằng `PgUp`/`PgDn` khi không vừa màn hình (kể cả 80×24); ô nhập, ô xác nhận, lỗi và dòng
+  phím luôn hiện.
+- `Tab`/`Shift-Tab` đổi giữa ô văn bản và ô xác nhận, hoặc giữa lý do và `--now` khi tạm dừng task. `Esc` rời hộp
+  thoại không gửi; còn chữ đã gõ thì thoát hỏi lại.
+- Gửi xong, hộp thoại hiện `Sending…` và không nhận phím, kể cả `Esc`, đến khi daemon trả lời. Ngoại lệ:
+  `Ctrl-C` vẫn thoát như SIGTERM (exit 3, request ID ra stderr), và stderr in thêm nội dung đã gõ của hộp thoại
+  đang gửi để không mất bản nháp. Daemon nhận, hoặc kết quả chưa rõ,
+  thì hộp thoại đóng và màn bên dưới (Actions, hoặc Home với hàng đợi) hiện kết quả. Daemon từ chối thì hộp thoại
+  giữ nguyên nội dung đã gõ và báo lý do tại chỗ; không gửi lại. Conflict của Answer vì câu hỏi đã được trả lời
+  hoặc rút ở nơi khác thì đọc `question_show` và hiện `Answered elsewhere` kèm câu trả lời và người trả lời.
+- Approve của task chờ `adopt_approval` (cần admin) hiện PR và head SHA daemon đọc gần nhất (`wait.detail.head_sha`),
+  gõ `approve` rồi gửi `approve_adopt` với head đó, như `cusr task approve --kind adopt --head-sha`. Daemon chưa đọc
+  head thì không gửi và chỉ sang dòng CLI trong Actions.
+- Answer ghim câu hỏi task đang chờ lúc mở hộp thoại (hoặc câu đầu tiên inbox còn mở), không đổi sang câu hỏi
+  khác task hỏi sau.
 
 ## Tạm dừng và tiếp tục
 
@@ -102,7 +123,8 @@ Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu
   đang chạy), mặc định tắt; `Tab` đổi giữa hai ô, `Space` bật tắt `--now`. `resume` và `continue` chỉ nêu
   `note` của action. Cả ba gửi `task_pause`/`task_resume`/`task_continue` với `expected_version` là version của
   `task_show` lúc mở hộp thoại, như `recheck`; hộp thoại ghi version đó. Task đổi version trong lúc hộp thoại mở
-  thì không gửi và báo tại chỗ; daemon từ chối thì menu Actions hiện `Rejected: <code>: <message>`.
+  thì không gửi và báo tại chỗ; daemon từ chối thì hộp thoại báo tại chỗ, và menu Actions hiện
+  `Rejected: <code>: <message>` sau khi rời hộp thoại.
 - Thiếu quyền operate: mục trong Actions mờ kèm lý do và `Enter` không mở hộp thoại. Hộp thoại hàng đợi vẫn mở
   để đọc nhưng `Ctrl-S` báo lý do không gửi.
 - Home hiện `‖ Queue paused: <lý do> · by <ai> at HH:MM:SS · p to resume` khi `queue_paused` của `task_board`

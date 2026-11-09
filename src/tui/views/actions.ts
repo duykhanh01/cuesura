@@ -16,31 +16,30 @@ import { clockTime } from './layout.ts';
 import { BAD_STRONG, NOTICE, WARN } from './theme.ts';
 
 /**
- * `dialog`: a form of its own before anything is sent (US4, US5). `send`: Enter sends it, as it takes no input. `guide`: what to do outside Cuesura.
- * `info`: a line to read. An action this version does not know is shown as it came, as `info`.
+ * `dialog`: a dialog of its own before anything is sent. `later`: its dialog is not part of this version yet
+ * (US5). `guide`: what to do outside Cuesura. `info`: a line to read. An action this version does not know is
+ * shown as it came, as `info`.
  */
-export type ActionKind = 'dialog' | 'send' | 'guide' | 'info';
+export type ActionKind = 'dialog' | 'later' | 'guide' | 'info';
 
 type Known = {
   readonly label: string;
   readonly kind: ActionKind;
-  /** A dialog this version opens (`model/dialog.ts`). */
-  readonly ready?: true;
   /** Mirrors `REQUIRED_ROLE` of `src/application/commands.ts`; the daemon still decides. */
   readonly role?: 'operate' | 'admin';
 };
 
 const KNOWN: Readonly<Record<string, Known>> = {
   answer: { label: 'Answer the question', kind: 'dialog', role: 'operate' },
-  confirm: { label: 'Confirm', kind: 'dialog', role: 'operate' },
-  propose: { label: 'Propose run', kind: 'dialog', role: 'operate' },
+  confirm: { label: 'Confirm', kind: 'later', role: 'operate' },
+  propose: { label: 'Propose run', kind: 'later', role: 'operate' },
   approve: { label: 'Approve', kind: 'dialog', role: 'operate' },
   cancel: { label: 'Cancel task', kind: 'dialog', role: 'operate' },
-  recheck: { label: 'Recheck', kind: 'send', role: 'operate' },
-  pause: { label: 'Pause task', kind: 'dialog', role: 'operate', ready: true },
-  resume: { label: 'Resume task', kind: 'dialog', role: 'operate', ready: true },
-  continue: { label: 'Continue task', kind: 'dialog', role: 'operate', ready: true },
-  task_add: { label: 'New task', kind: 'dialog', role: 'operate' },
+  recheck: { label: 'Recheck', kind: 'dialog', role: 'operate' },
+  pause: { label: 'Pause task', kind: 'dialog', role: 'operate' },
+  resume: { label: 'Resume task', kind: 'dialog', role: 'operate' },
+  continue: { label: 'Continue task', kind: 'dialog', role: 'operate' },
+  task_add: { label: 'New task', kind: 'later', role: 'operate' },
   merge_manually: { label: 'Merge on GitHub', kind: 'guide' },
   fix_external: { label: 'Fix outside Cuesura', kind: 'guide' },
   wait: { label: 'Wait', kind: 'info' },
@@ -50,7 +49,6 @@ export type ActionItem = {
   readonly action: string;
   readonly label: SafeText;
   readonly kind: ActionKind;
-  readonly ready: boolean;
   readonly effect: SafeText;
   readonly command: SafeText | null;
   /** Why the caller may not take it; `null` when it may, or when there is nothing to take. */
@@ -91,7 +89,6 @@ export function actionItems(
       action: a.action,
       label: known === undefined ? sanitize(a.action) : uiText(known.label),
       kind: known?.kind ?? 'info',
-      ready: known?.ready === true,
       effect: a.note,
       command: a.command,
       // `approve` covers both approvals: an escalation needs operate, adopting a PR admin.
@@ -109,10 +106,9 @@ export function actionItems(
 /** What Enter on `item` says. Nothing is ever sent from the menu itself. */
 export function enterNotice(item: ActionItem): string {
   if (item.unavailable !== null) return `Nothing was sent: ${item.label} ${item.unavailable}.`;
-  if (item.kind === 'dialog' && item.ready) return `Opening ${item.label}.`;
-  if (item.kind === 'dialog')
+  if (item.kind === 'later')
     return `Nothing was sent: the ${item.label} dialog comes in a later version. The CLI command is listed with it.`;
-  if (item.kind === 'send') return `Sending ${item.label}.`;
+  if (item.kind === 'dialog') return `Opening ${item.label}.`;
   if (item.guide.length > 0)
     return 'Nothing to send: merge it on GitHub with the method, title and message under it. PgUp/PgDn read a long message.';
   return 'Nothing to send: this says what to do outside this menu.';
@@ -139,7 +135,7 @@ function itemRows(item: ActionItem, index: number, on: boolean, cols: number): R
       text: joinSafe([
         uiText(on ? '› ' : '  '),
         item.label,
-        uiText(item.kind === 'dialog' && !item.ready ? LATER : ''),
+        uiText(item.kind === 'later' ? LATER : ''),
       ]),
       style: {
         ...(on ? { inverse: true } : { bold: true }),
@@ -173,13 +169,62 @@ export function mutationLine(m: Mutation | undefined): { text: string; style: St
         style: WARN,
       };
     case 'accepted':
-      return { text: `Done (${id})`, style: { bold: true } };
-    case 'rejected':
       return {
-        text: `Rejected: ${m.result?.ok === false ? sanitize(`${m.result.code}: ${m.result.message}`) : ''} (${id})`,
+        // The daemon says when a task is CANCELLED, never this screen: stopping and reconciling come first.
+        text:
+          m.command.kind === 'task_cancel'
+            ? `Cancel accepted by the daemon (${id}); the task is not CANCELLED until the daemon reports it`
+            : `Done (${id})`,
+        style: { bold: true },
+      };
+    case 'rejected': {
+      const r = m.result;
+      if (r?.ok === false && r.code === 'conflict')
+        return {
+          text: `Conflict: the daemon refused it because the task is not as the dialog saw it (${sanitize(r.message)}). Nothing was sent again (${id})`,
+          style: BAD_STRONG,
+        };
+      return {
+        text: `Rejected: ${r?.ok === false ? sanitize(`${r.code}: ${r.message}`) : ''} (${id})`,
         style: BAD_STRONG,
       };
+    }
   }
+}
+
+/** What the daemon reports about stopping, and the way on for a task that ended or waits for a merge. */
+function ending(e: TaskExplain): { text: string; style: Style }[] {
+  const lines: { text: string; style: Style }[] = [];
+  // Older daemons and partial reads may not carry the field.
+  const c = (e.cancellation as TaskExplain['cancellation'] | undefined) ?? null;
+  if (c !== null) {
+    if (e.status === 'DONE')
+      lines.push({
+        text: 'DONE — cancel arrived too late: the pull request had already been merged.',
+        style: WARN,
+      });
+    else if (e.status === 'CANCELLED')
+      lines.push({
+        text: `Cancellation requested at ${clockTime(c.requested_at)}; the daemon reports CANCELLED.`,
+        style: {},
+      });
+    else
+      lines.push({
+        text: `Cancellation requested at ${clockTime(c.requested_at)}: stopping and reconciling. The task is not CANCELLED until the daemon says so.`,
+        style: WARN,
+      });
+  }
+  if (e.status === 'DONE' || e.status === 'FAILED' || e.status === 'CANCELLED')
+    lines.push({
+      text: 'This task has ended. Nothing here changes it: create a new task to go on.',
+      style: NOTICE,
+    });
+  else if (e.wait?.detail.code === 'merge')
+    lines.push({
+      text: 'Waiting for a merge: merge the pull request on GitHub by hand (see Merge on GitHub), then recheck.',
+      style: NOTICE,
+    });
+  return lines;
 }
 
 function headRows(s: { menu: ActionsMenu; cols: number; mutation: Mutation | undefined }): Row[] {
@@ -198,6 +243,7 @@ function headRows(s: { menu: ActionsMenu; cols: number; mutation: Mutation | und
   if (e.readAt !== null && e.data !== null)
     at(`Read at ${clockTime(e.readAt)} · ${e.data.status} · version ${e.data.version}`);
   if (menu.changed) at(CHANGED_NOTICE, WARN);
+  if (e.data !== null) for (const line of ending(e.data)) at(line.text, line.style);
   if (e.error !== null)
     rows.push(
       ...wrap(

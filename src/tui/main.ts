@@ -7,6 +7,7 @@ import { RefreshScheduler, systemRefreshClock } from './client/refresh.ts';
 import { createDaemonPort } from './client/daemon-port.ts';
 import { planScreenReads, ScreenReads } from './client/screen-reads.ts';
 import type { Effect, Message } from './model/messages.ts';
+import { sendingDraftNotice } from './model/dialog.ts';
 import { reduce } from './model/reduce.ts';
 import {
   animating,
@@ -43,6 +44,14 @@ function unknownResultNotice(mutations: Iterable<Mutation>): string | null {
   return lines.length === 0 ? null : lines.join('');
 }
 
+/** Everything stderr must carry at exit: writes of unknown result, then a draft whose write was on its way. */
+export function exitNotice(state: TuiState, mutations: Iterable<Mutation>): string | null {
+  const parts = [unknownResultNotice(mutations), sendingDraftNotice(state)].filter(
+    (p) => p !== null,
+  );
+  return parts.length === 0 ? null : parts.join('');
+}
+
 export function runTui(): void {
   const port = createDaemonPort();
   const known = new Map<string, Mutation>();
@@ -67,7 +76,7 @@ export function runTui(): void {
       dispatch({ type: 'resize', size: terminal.size() });
     },
     onRedraw: redraw,
-    exitNotice: () => unknownResultNotice(known.values()),
+    exitNotice: () => exitNotice(state, known.values()),
     exitNoticeCode: EXIT_UNKNOWN_RESULT,
   });
 
@@ -157,7 +166,7 @@ export function runTui(): void {
         clearInterval(pollWrites);
         scheduler.stop();
         screenReads.stop();
-        const notice = unknownResultNotice(known.values());
+        const notice = exitNotice(state, known.values());
         if (notice === null) terminal.exit(effect.code);
         else terminal.exit(EXIT_UNKNOWN_RESULT, notice);
         break;

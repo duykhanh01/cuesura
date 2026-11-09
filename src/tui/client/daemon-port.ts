@@ -12,7 +12,9 @@ import {
   BoardSchema,
   CommandReplySchema,
   HealthDataSchema,
+  InboxSchema,
   ProjectListSchema,
+  QuestionShowSchema,
   RequestShowSchema,
   RunOptionsSchema,
   TaskContentSchema,
@@ -26,7 +28,9 @@ import {
   type BoardReply,
   type CommandReply,
   type Health,
+  type Inbox,
   type ProjectList,
+  type QuestionShow,
   type RequestShow,
   type RunOptions,
   type TaskContent,
@@ -93,6 +97,8 @@ export type DaemonPort = {
     },
     timeoutMs: number,
   ): Promise<PortResult<TaskGateLog>>;
+  inbox(taskId: string, timeoutMs: number): Promise<PortResult<Inbox>>;
+  question(questionId: string, timeoutMs: number): Promise<PortResult<QuestionShow>>;
   requestShow(id: string, timeoutMs: number): Promise<PortResult<RequestShow>>;
   /** The only write path; the body carries its own `request_id`, which a resend must keep. */
   command(
@@ -258,6 +264,9 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
         },
         timeoutMs,
       ),
+    inbox: (task_id, timeoutMs) => query(InboxSchema, { kind: 'inbox', task_id }, timeoutMs),
+    question: (question_id, timeoutMs) =>
+      query(QuestionShowSchema, { kind: 'question_show', question_id }, timeoutMs),
     requestShow: (request_id, timeoutMs) =>
       query(RequestShowSchema, { kind: 'request_show', request_id }, timeoutMs),
     async command(body, timeoutMs) {

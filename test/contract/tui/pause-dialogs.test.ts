@@ -212,7 +212,12 @@ describe('the pause dialog', () => {
         payload: { reason: 'quiet hours', now: true },
       },
     ]);
-    expect(currentScreen(sent.s)).toBe('actions');
+    // The dialog waits for the daemon's word, then gives the menu back.
+    expect(screen(sent.s)).toContain('Sending…');
+    const command = submitted(sent.effects)[0] as MutationCommand;
+    expect(currentScreen(run(sent.s, settled(command, 'accepted', { ok: true, value: {} })))).toBe(
+      'actions',
+    );
   });
 
   it('leaves --now out unless it is chosen, and Esc sends nothing', () => {
@@ -257,7 +262,7 @@ describe('the resume and continue dialogs', () => {
     });
   }
 
-  it('shows a refusal under the menu with its code and message', () => {
+  it('shows a refusal in the dialog, then under the menu, with its code and message', () => {
     const s = menu(['resume']);
     const r = step(choose(s, 'Resume task'), k('ctrl_s'));
     const command = submitted(r.effects)[0] as MutationCommand;
@@ -269,7 +274,11 @@ describe('the resume and continue dialogs', () => {
         message: 'task is at version 8',
       }),
     );
-    expect(screen(refused)).toContain('Rejected: stale_version: task is at version 8');
+    expect(currentScreen(refused)).toBe('dialog');
+    expect(screen(refused)).toContain('stale_version: task is at version 8');
+    expect(screen(run(refused, k('esc')))).toContain(
+      'Rejected: stale_version: task is at version 8',
+    );
   });
 });
 
@@ -333,8 +342,8 @@ describe('the queue on Home', () => {
       expected_version: null,
       payload: { reason: 'deploy' },
     });
-    expect(currentScreen(r.s)).toBe('home');
-    // A refusal stays on Home until something else is sent.
+    expect(currentScreen(r.s)).toBe('dialog');
+    // A refusal is said in the dialog, and stays on Home until something else is sent.
     const refused = run(
       r.s,
       settled(command as MutationCommand, 'rejected', {
@@ -343,7 +352,10 @@ describe('the queue on Home', () => {
         message: 'no',
       }),
     );
-    expect(screen(refused)).toContain('Queue (queue_pause): Rejected: forbidden: no');
+    expect(screen(refused)).toContain('The daemon refused it (forbidden: no)');
+    expect(screen(run(refused, k('esc')))).toContain(
+      'Queue (queue_pause): Rejected: forbidden: no',
+    );
   });
 
   it('C on Home checks an unresolved queue change again; once settled the queue can be changed again', () => {

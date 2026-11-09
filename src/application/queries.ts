@@ -793,6 +793,9 @@ export function questionShow(
       status: found.status,
       revision: found.revision,
       task_version: s.version,
+      body: found.body,
+      answer: found.answer,
+      answered_by: found.answered_by,
     });
   }
   return err({

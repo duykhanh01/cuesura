@@ -19,6 +19,8 @@ export function screenBody(s: TuiState, opts: { color: boolean }): Body {
         return helpBody(s);
       case 'actions':
         return actionsBody(s);
+      case 'dialog':
+        return dialogBody(s);
       case 'filters':
         return filtersBody(s);
       case 'home':
@@ -27,8 +29,6 @@ export function screenBody(s: TuiState, opts: { color: boolean }): Body {
         return detailBody(s);
       case 'logs':
         return logsBody(s);
-      case 'dialog':
-        return dialogBody(s);
     }
   })();
   return withDisconnected(s, withQuitPrompt(s, body));

@@ -290,6 +290,32 @@ export function seedQuestion(d: StoreDriver, t: CanonicalTask): void {
   );
 }
 
+/** A task on `escalation`: two quality failures, so the next rung waits for an admin. */
+export function seedEscalation(d: StoreDriver, t: CanonicalTask): void {
+  d.must(t.id, { kind: 'create_task', task: t });
+  d.must(t.id, {
+    kind: 'start',
+    freeze: freezeOk(t, {
+      limits: { max_wall_ms: WALL },
+      roles: {
+        coder: {
+          model: 'sonnet',
+          effort: 'medium',
+          ladder: [{ model: 'opus', effort: 'high' }],
+        },
+      },
+    }),
+  });
+  d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+  for (let i = 0; i < 2; i++)
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'quality',
+      signature: 'C1',
+      invoked: true,
+      usage: USAGE,
+    });
+}
+
 /** One task for each thing US1 scenarios 2 and 3 name. */
 export type Sample =
   | 'coding'
@@ -333,33 +359,7 @@ export function seedEveryState(d: StoreDriver): Readonly<Record<Sample, Canonica
 
   d.must(s.unconfirmed.id, { kind: 'create_task', task: s.unconfirmed });
 
-  d.must(s.escalation.id, { kind: 'create_task', task: s.escalation });
-  d.must(s.escalation.id, {
-    kind: 'start',
-    freeze: freezeOk(s.escalation, {
-      limits: { max_wall_ms: WALL },
-      roles: {
-        coder: {
-          model: 'sonnet',
-          effort: 'medium',
-          ladder: [{ model: 'opus', effort: 'high' }],
-        },
-      },
-    }),
-  });
-  d.complete(
-    s.escalation.id,
-    d.pendingOne(s.escalation.id, 'prepare').id,
-    'succeeded',
-    PREPARE_DATA,
-  );
-  for (let i = 0; i < 2; i++)
-    d.complete(s.escalation.id, d.pendingOne(s.escalation.id, 'start_agent').id, 'failed', {
-      failure_class: 'quality',
-      signature: 'C1',
-      invoked: true,
-      usage: USAGE,
-    });
+  seedEscalation(d, s.escalation);
 
   toCode(d, s.cooldown);
   d.complete(s.cooldown.id, d.pendingOne(s.cooldown.id, 'start_agent').id, 'failed', {
@@ -452,6 +452,33 @@ export function seedEveryDetailCode(sd: SeededDaemon): readonly string[] {
   }
   return DETAIL_CODES;
 }
+
+/**
+ * A task waiting on `worktree_changed` the way the engine puts it there: prepared, then an agent step that
+ * finds the tree changed. The daemon accepts a recheck of it, and `task_progress` names its worktree.
+ */
+export function seedWorktreesChanged(
+  sd: SeededDaemon,
+  tasks: readonly (readonly [number, string])[],
+): string[] {
+  const made = tasks.map(([n, title]) => buildTask({ id: uuidOf(n), title }));
+  // One seeding for all of them: the driver numbers its ids afresh each time it opens the store.
+  sd.seed((d) => {
+    for (const t of made) {
+      toCode(d, t);
+      d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+        failure_class: 'unknown',
+        message: 'the worktree changed outside the task since its last step',
+        invoked: false,
+        worktree: { known: 'a'.repeat(40), observed: 'b'.repeat(40) },
+      });
+    }
+  });
+  return made.map((t) => t.id);
+}
+
+export const seedWorktreeChanged = (sd: SeededDaemon, n: number, title: string): string =>
+  seedWorktreesChanged(sd, [[n, title]])[0] as string;
 
 /** A task through an agent run that reports this usage; `null` leaves the attempt running, so none is known. */
 export function seedAgentUsage(
@@ -653,13 +680,56 @@ export async function openActionsMenu(s: PtySession): Promise<void> {
   await s.waitForText('Recheck');
 }
 
+/** Moves the Actions selection to `label`, up or down, waiting for each move to show. */
+async function selectAction(s: PtySession, label: string): Promise<void> {
+  await s.waitForText(label);
+  for (let i = 0; i < 10 && !s.screenText().includes(`› ${label}`); i++) {
+    const lines = s.screenText().split('\n');
+    const at = lines.findIndex((l) => l.startsWith('›'));
+    const want = lines.findIndex((l) => l.startsWith(`  ${label}`));
+    const before = lines[at] ?? '';
+    s.send(want >= 0 && want < at ? KEY.up : KEY.down);
+    await s.waitFor(() => selectedLine(s.screenText()) !== before, 5_000);
+  }
+}
+
 /** Chooses `label` in the open Actions menu and presses Enter. */
 export async function pressAction(s: PtySession, label: string): Promise<void> {
-  for (let i = 0; i < 10 && !s.screenText().includes(`› ${label}`); i++) {
+  // A dialog opens once the menu has read `task_show` too, which the screen does not show: until then Enter
+  // says the task is still being read. Moving clears that, and Enter is pressed again.
+  const reading = (): boolean => flat(s.screenText()).includes('this task is still being read');
+  for (let i = 0; i < 50; i++) {
+    await selectAction(s, label);
+    s.send(KEY.enter);
+    await s.waitFor(
+      () =>
+        !s.screenText().includes(`› ${label}`) || /Nothing (was sent|to send)/.test(s.screenText()),
+      5_000,
+    );
+    if (!reading()) return;
     s.send(KEY.down);
-    await new Promise((r) => setTimeout(r, 100));
+    await s.waitFor(() => !reading(), 5_000);
   }
-  s.send(KEY.enter);
+}
+
+/** Opens the Actions menu of the task with this title, once it has read the task. */
+export async function openMenuOf(s: PtySession, title: string): Promise<void> {
+  await openTask(s, title);
+  s.send('a');
+  await s.waitForText('Actions — ');
+  await s.waitFor(() => /Read at \d\d:\d\d:\d\d/.test(s.screenText()));
+}
+
+/**
+ * Recheck from the open menu, or from its dialog when that is open already: a plain Recheck is sent with
+ * Ctrl-S, which this presses.
+ */
+export async function sendRecheck(s: PtySession): Promise<void> {
+  if (!s.screenText().includes('Ctrl-S sends')) {
+    await pressAction(s, 'Recheck');
+    await s.waitForText('Ctrl-S sends');
+  }
+  s.send(KEY.ctrlS);
 }
 
 /**

@@ -3,6 +3,7 @@ import type { Key } from '../terminal/keys.ts';
 import type { Mutation, MutationCommand } from '../client/mutations.ts';
 import type { ActionsMessage, ActionsShowMessage } from './actions.ts';
 import type { DetailMessage } from './detail.ts';
+import type { DialogReadMessage } from './dialog.ts';
 import type { GatesMessage, LogsMessage } from './detail-keys.ts';
 import type { ReadOutcome, Size } from './state.ts';
 
@@ -32,7 +33,8 @@ export type Message =
   | LogsMessage
   | GatesMessage
   | ActionsMessage
-  | ActionsShowMessage;
+  | ActionsShowMessage
+  | DialogReadMessage;
 
 /** What the reducer asks the runtime to do; it does none of it itself. */
 export type Effect =

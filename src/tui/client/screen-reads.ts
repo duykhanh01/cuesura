@@ -5,6 +5,7 @@
  */
 import { actionsDue, actionsShowDue } from '../model/actions.ts';
 import { contentDue, detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
+import { dialogDue, questionView } from '../model/dialog.ts';
 import { gateLogDue, gatesDue } from '../model/gates.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import type { Message } from '../model/messages.ts';
@@ -259,6 +260,52 @@ function actionsReads(
   return reads;
 }
 
+/** What the open dialog shows beyond its task's menu: the question, or where the worktree is. */
+function dialogReads(
+  s: TuiState,
+  port: DaemonPort,
+  clock: RefreshClock,
+  now: number,
+): readonly ScreenRead[] {
+  const d = s.dialog;
+  const taskId = d?.taskId ?? null;
+  if (d === null || taskId === null) return [];
+  const watermark = s.board?.watermark ?? null;
+  const common = { taskId, session: d.session, askedAt: now, watermark };
+  const questionId = (): string => questionView(d, s.actions?.explain.data ?? null).id ?? '';
+  return dialogDue(d, s.actions?.explain.data ?? null, watermark, now).map((part): ScreenRead => ({
+    key: `dialog:${part}`,
+    run: async () => {
+      switch (part) {
+        case 'inbox':
+          return {
+            ...common,
+            type: 'dialog_read',
+            part,
+            result: await port.inbox(taskId, DETAIL_TIMEOUT_MS),
+            at: clock.now(),
+          };
+        case 'question':
+          return {
+            ...common,
+            type: 'dialog_read',
+            part,
+            result: await port.question(questionId(), DETAIL_TIMEOUT_MS),
+            at: clock.now(),
+          };
+        case 'progress':
+          return {
+            ...common,
+            type: 'dialog_read',
+            part,
+            result: await port.progress(taskId, DETAIL_TIMEOUT_MS),
+            at: clock.now(),
+          };
+      }
+    },
+  }));
+}
+
 /** What is due right now for the screen on top. */
 export function planScreenReads(
   s: TuiState,
@@ -296,9 +343,9 @@ export function planScreenReads(
       reads.push(...actionsReads(s, port, clock, now));
       break;
     case 'dialog':
-      // A task dialog sends with what the menu under it reads, and a task that moved must show here.
+      // The menu under a task dialog keeps its version and its list current: the dialog sends with them.
       if (s.dialog?.taskId != null && s.actions !== null)
-        reads.push(...actionsReads(s, port, clock, now));
+        reads.push(...actionsReads(s, port, clock, now), ...dialogReads(s, port, clock, now));
       break;
     default:
       break;

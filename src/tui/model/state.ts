@@ -3,8 +3,8 @@ import type { Mutation } from '../client/mutations.ts';
 import type { BoardData, CallerInfo, Health, PauseInfo, ProjectList } from '../client/schemas.ts';
 import type { SafeText } from '../terminal/safe-text.ts';
 import type { ActionsMenu } from './actions.ts';
-import type { TaskDetail } from './detail.ts';
 import type { Dialog } from './dialog.ts';
+import type { TaskDetail } from './detail.ts';
 import type { LogState } from './logs.ts';
 
 /** Automatic reconnect attempts in one round; after these the session waits for the user (FR-009). */
@@ -133,7 +133,7 @@ export type TuiState = {
   readonly logs: LogState | null;
   /** The open Actions menu; only while it is on the screen stack. */
   readonly actions: ActionsMenu | null;
-  /** The open pause or resume dialog; only while it is on the screen stack. */
+  /** The open dialog: on top of the Actions menu of its task, or of Home for the queue. */
   readonly dialog: Dialog | null;
   /** First row of Help on screen; the screen under Help keeps its own place. */
   readonly helpTop: number;

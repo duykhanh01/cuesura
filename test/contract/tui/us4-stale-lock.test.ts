@@ -9,7 +9,7 @@ import { reduce } from '../../../src/tui/model/reduce.ts';
 import { initialState, writeLock, type TuiState } from '../../../src/tui/model/state.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { actionsShowDue, openActions } from '../../../src/tui/model/actions.ts';
-import { flat, pressAction, recheckScene, useTui } from '../../support/tui-fixtures.ts';
+import { flat, recheckScene, sendRecheck, useTui } from '../../support/tui-fixtures.ts';
 
 // T056: no write goes out on stale data, and a draft survives it without being sent (US4 scenario 10,
 // SC-015, FR-044). The first block drives the Actions screen on a PTY, opened straight from Home; the second
@@ -67,7 +67,7 @@ describe('US4 scenario 10: the Actions screen on stale data', () => {
     control.refuseAll = true;
     proxy.dropConnections();
     await said('Reconnecting');
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await said('Nothing was sent: the data on screen may be out of date');
     expect(sent).toHaveLength(0);
 
@@ -75,14 +75,14 @@ describe('US4 scenario 10: the Actions screen on stale data', () => {
     control.refuseTaskShow = true;
     control.refuseAll = false;
     await s.waitFor(() => !flat(s.screenText()).includes('Reconnecting'), 15_000);
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await said('being read again after the connection came back');
     expect(sent).toHaveLength(0);
 
     // The first `task_show` after the recovery answers: the write goes out, once.
     control.refuseTaskShow = false;
     for (let i = 0; i < 30 && sent.length === 0; i++) {
-      s.send('\r');
+      await sendRecheck(s);
       await new Promise((r) => setTimeout(r, 300));
     }
     await said('Done (request');

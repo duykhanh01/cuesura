@@ -487,3 +487,36 @@ export const TaskHistorySchema = z.looseObject({
   more: z.boolean(),
 });
 export type TaskHistory = z.infer<typeof TaskHistorySchema>;
+
+const InboxItemSchema = z.looseObject({
+  question_id: z.string(),
+  task_id: taskId,
+  revision: z.number().int(),
+  step: safe.nullable(),
+  body: safeBlock,
+  blocking: z.boolean(),
+  task_version: z.number().int(),
+});
+
+/** `inbox` of one task: the questions still open for the current revision. */
+export const InboxSchema = z.looseObject({
+  items: z.array(InboxItemSchema),
+  truncated: z.boolean(),
+});
+export type Inbox = z.infer<typeof InboxSchema>;
+export type InboxItem = z.infer<typeof InboxItemSchema>;
+
+/** `question_show`: where a question lives and how it ended, answered or not. */
+export const QuestionShowSchema = z.looseObject({
+  question_id: z.string(),
+  task_id: taskId,
+  project: z.string(),
+  status: z.enum(['open', 'answered', 'withdrawn']),
+  revision: z.number().int(),
+  task_version: z.number().int(),
+  /** Absent from a daemon older than this TUI. */
+  body: safeBlock.optional(),
+  answer: safeBlock.nullable().optional(),
+  answered_by: safe.nullable().optional(),
+});
+export type QuestionShow = z.infer<typeof QuestionShowSchema>;

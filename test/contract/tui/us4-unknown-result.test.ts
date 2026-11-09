@@ -11,8 +11,8 @@ import {
   cliJson,
   daemonSocket,
   flat,
-  pressAction,
   recheckScene,
+  sendRecheck,
   seedRunning,
   useTui,
 } from '../../support/tui-fixtures.ts';
@@ -31,7 +31,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
   it('finds the stored result and sends nothing again', async () => {
     const { proxy, s, sent, observed } = await recheckSetup();
     proxy.mode = 'drop_response';
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
     proxy.mode = 'forward';
     await s.waitFor(() => /Done \(request /.test(s.screenText()), 8_000);
@@ -45,7 +45,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     const { s, sent, control, observed } = await recheckSetup();
     // The daemon never admits the first 3 sends: the ledger has no row, so each check asks for a resend.
     control.refuseCommands = 3;
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
     await s.waitFor(() => /Done \(request /.test(s.screenText()), 15_000);
     expect(sent).toHaveLength(4);
@@ -59,7 +59,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
   it('delivers the same request ID to the daemon 4 more times after the effect and it stays one effect', async () => {
     const { sd, s, sent, control, observed } = await recheckSetup();
     control.replays = 4;
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => /Done \(request /.test(s.screenText()), 8_000);
     await s.waitFor(() => control.replies.length === 4, 15_000);
     // The daemon answered every duplicate with the stored result of the same request, not with a new effect.
@@ -76,7 +76,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
   it('stops after 5 resends, offers Check again, and C starts a new round with the same request ID', async () => {
     const { s, sent, control, observed } = await recheckSetup();
     control.refuseCommands = Infinity;
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => flat(s.screenText()).includes('Check again (C)'), 20_000);
     expect(sent).toHaveLength(6);
     expect(ids(sent)).toHaveLength(1);
@@ -96,7 +96,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     const { s, sent, holdDaemon, release, observed, shows } = await recheckSetup();
     // The daemon keeps the request in progress: the command times out, and every check is answered `in_progress`.
     holdDaemon();
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => shows() >= 59, 110_000);
     // Still checking after 59 looks; the 60th is the last and only then does the screen give up.
     expect(flat(s.screenText())).not.toContain('Check again (C)');
@@ -116,10 +116,10 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     const { s, sent, control } = await recheckSetup();
     control.refuseCommands = Infinity;
     control.refuseShows = true;
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
     const before = sent.length;
-    s.send('\r');
+    await sendRecheck(s);
     await s.waitFor(() =>
       flat(s.screenText()).includes('result of an earlier change to this task is not known yet'),
     );
@@ -133,7 +133,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     async (signal) => {
       const { proxy, s, sent } = await recheckSetup();
       proxy.mode = 'drop_response';
-      await pressAction(s, 'Recheck');
+      await sendRecheck(s);
       await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
       s.signal(signal, await s.programPid());
       expect((await s.waitForExit()).status).toBe(3);
@@ -144,7 +144,7 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
   it('on exit prints the request ID and the lookup command after the terminal is back, and exits 3', async () => {
     const { sd, proxy, s, sent } = await recheckSetup();
     proxy.mode = 'drop_response';
-    await pressAction(s, 'Recheck');
+    await sendRecheck(s);
     await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
     s.send('q');
     expect((await s.waitForExit()).status).toBe(3);

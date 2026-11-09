@@ -16,7 +16,14 @@ import {
   openDetail,
 } from './detail-keys.ts';
 import { onDetailRead } from './detail.ts';
-import { onDialogCommand, onDialogText, openQueueDialog } from './dialog.ts';
+import {
+  dialogHasText,
+  onDialogCommand,
+  onDialogKey,
+  onDialogMutation,
+  onDialogRead,
+  openQueueDialog,
+} from './dialog.ts';
 import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
 import { commandFor, keyContext, type Command } from './keymap.ts';
 import type { Effect, Message } from './messages.ts';
@@ -115,16 +122,21 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onActionsRead(state, message));
     case 'actions_show_read':
       return same(onActionsShowRead(state, message));
+    case 'dialog_read':
+      return same(onDialogRead(state, message));
     case 'mutation_changed': {
       const m = message.mutation;
       const mutations = new Map(state.mutations).set(mutationTarget(m.command), m);
+      const dialog = onDialogMutation({ ...state, mutations }, m);
       // A write that went through moved the task: read the board now instead of at the next tick.
       return {
-        state: { ...state, mutations },
-        effects:
-          m.state === 'accepted' && state.connection.kind === 'online'
-            ? [{ type: 'refresh_now' }]
-            : [],
+        state: dialog.state,
+        effects: [
+          ...dialog.effects,
+          ...(m.state === 'accepted' && state.connection.kind === 'online'
+            ? [{ type: 'refresh_now' as const }]
+            : []),
+        ],
       };
     }
     case 'key':
@@ -178,15 +190,14 @@ function onKey(given: TuiState, key: Key): Reduced {
 
 function askToQuit(state: TuiState): Reduced {
   // What was typed is worth one more key press (contracts/tui.md).
-  const typed =
-    (state.filterDraft?.query ?? '') !== '' || (state.dialog?.reason?.text ?? '') !== '';
+  const typed = (state.filterDraft?.query ?? '') !== '' || dialogHasText(state);
   if (typed && !state.quitArmed) return same({ ...state, quitArmed: true });
   return { state, effects: [{ type: 'quit', code: 0 }] };
 }
 
 /** A key that is no command: text, where a field takes it, and nothing elsewhere. */
 function onText(state: TuiState, key: Key): Reduced {
-  if (keyContext(state) === 'dialog_text') return onDialogText(state, key);
+  if (currentScreen(state) === 'dialog') return onDialogKey(state, key);
   const draft = state.filterDraft;
   if (keyContext(state) !== 'filter_text' || draft === null) return same(state);
   const put = (query: string): Reduced =>

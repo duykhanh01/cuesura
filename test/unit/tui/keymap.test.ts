@@ -6,6 +6,7 @@ import type {
   TaskExplain,
 } from '../../../src/tui/client/schemas.ts';
 import type { ActionsMessage } from '../../../src/tui/model/actions.ts';
+import { openDialog } from '../../../src/tui/model/dialog.ts';
 import {
   FIELD_KEYS,
   bindings,
@@ -151,26 +152,25 @@ function answered(s: TuiState, value: TaskExplain, watermark = 7): TuiState {
   return reduce(s, msg).state;
 }
 
-const typingIn = (ctx: Context): boolean => ctx === 'filter_text' || ctx === 'dialog_text';
-
 /** One state for each context, as keys from Home leave it. */
 function contexts(): Record<Context, TuiState> {
   const h = home();
   const logs = run(h, k('enter'));
   const detail = run(logs, ch('d'));
+  const menu = answered(run(h, ch('a')), explain(QUESTION));
+  const dialog = (kind: 'answer' | 'recheck' | 'approve'): TuiState =>
+    openDialog(menu, kind, explain(QUESTION), 3, 'acme').state;
   return {
     home: h,
     detail,
     logs,
     attempts: run(logs, ch('t')),
-    actions: answered(run(h, ch('a')), explain(QUESTION)),
+    actions: menu,
+    dialog_text: dialog('answer'),
+    dialog_confirm: dialog('approve'),
+    dialog_plain: dialog('recheck'),
     filter_text: run(h, ch('f')),
     filter_choice: run(h, ch('f'), k('tab')),
-    dialog_text: run(h, ch('p')),
-    dialog_choice: run(
-      { ...h, queuePaused: { reason: 'r', by: 'owner', at: 0 } as never },
-      ch('p'),
-    ),
     help: run(h, ch('?')),
   };
 }
@@ -178,6 +178,9 @@ function contexts(): Record<Context, TuiState> {
 function keyOf(p: { name: KeyName } | { char: string }): Key {
   return 'name' in p ? { kind: 'key', name: p.name } : { kind: 'char', text: p.char };
 }
+
+/** Contexts where a printable key is text, so only Ctrl-C quits. */
+const TYPING: readonly Context[] = ['filter_text', 'dialog_text', 'dialog_confirm'];
 
 describe('the keymap is the one source of keys, hints and Help (T050)', () => {
   const all = contexts();
@@ -207,9 +210,9 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
     for (const [ctx, s] of Object.entries(all) as [Context, TuiState][]) {
       const shown = bar(s);
       expect(shown.length, ctx).toBeLessThanOrEqual(80);
-      expect(shown, ctx).toMatch(typingIn(ctx) ? /Ctrl-C quit/ : /q quit/);
+      expect(shown, ctx).toMatch(TYPING.includes(ctx) ? /Ctrl-C quit/ : /q quit/);
       if (ctx !== 'home') expect(shown, ctx).toContain('Esc back');
-      if (ctx !== 'help' && !typingIn(ctx)) expect(shown, ctx).toContain('? help');
+      if (ctx !== 'help' && !TYPING.includes(ctx)) expect(shown, ctx).toContain('? help');
     }
     expect(bar(all.home)).toContain('a actions');
     expect(bar(all.home)).toContain('f filter');
@@ -226,7 +229,7 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
       };
       const shown = hintBar(waiting, 80);
       expect(shown.length, ctx).toBeLessThanOrEqual(80);
-      if (!typingIn(ctx)) {
+      if (!TYPING.includes(ctx)) {
         expect(shown, ctx).toContain('R retry connection');
         expect(shown, ctx).toContain('q quit');
       }
@@ -424,7 +427,8 @@ describe('the Actions menu (T052)', () => {
   it('lists each allowed action with what it does, and the CLI command as text', () => {
     const s = answered(run(home(SMALL), k('down'), ch('a')), explain(QUESTION));
     const text = screen(s);
-    expect(text).toContain('› Answer the question · dialog in a later version');
+    expect(text).toContain('› Answer the question');
+    expect(text).not.toContain('dialog in a later version');
     expect(text).toContain('Answer or supply what is missing (FR-037–039).');
     expect(text).toContain('Cancel task');
     expect(text).toContain('CLI: cusr task cancel T --expected-version 3');
