@@ -6,7 +6,12 @@ import type { EpochMs, Hash, Uuid } from '../../../src/shared/brand.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, freezeOk, ownerAuthz, uuidOf } from '../../support/builders.ts';
 import { SeededDaemon } from '../../support/daemon-task.ts';
-import { confirmedRuntime, createGrantStart } from '../../support/runtime.ts';
+import {
+  confirmedRuntime,
+  createGrantStart,
+  proposeAndConfirm,
+  selectionFor,
+} from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import { StoreDriver } from '../../support/store-driver.ts';
 import { publishToReview, toPublish } from '../../support/store-flows.ts';
@@ -159,6 +164,96 @@ describe('fallbacks default to the worker ladder (#263)', () => {
       expect(s.status).not.toBe('FAILED');
       expect(d.pendingOne(id, 'start_agent').request).toMatchObject({
         binding: { model: 'sonnet', effort: 'high' },
+      });
+    });
+  });
+});
+
+const REVIEWER: Choice = { harness: 'codex', model: 'sol', effort: 'medium' };
+const fullReview = (over: Record<string, unknown> = {}) =>
+  run({ mode: 'full-review', reviewer: REVIEWER, ...over });
+
+async function offeredReviewer(sd: SeededDaemon, taskId: string): Promise<Choice[]> {
+  const r = await sd.query('owner', { kind: 'run_options', task_id: taskId });
+  const modes = (
+    r.envelope.data as {
+      modes: { mode: string; reviewer_fallbacks: { choice: Choice; fallbacks: Choice[] }[] }[];
+    }
+  ).modes;
+  return modes.find((m) => m.mode === 'full-review')?.reviewer_fallbacks[0]?.fallbacks ?? [];
+}
+
+describe('reviewer fallbacks default to the reviewer ladder (#276)', () => {
+  it('task add and task propose fill them; direct-pr has none', async () => {
+    const sd = await daemon();
+    const added = result(await add(sd, fullReview()));
+    const ladder = await offeredReviewer(sd, added.task_id);
+    expect(ladder).toEqual([{ harness: 'codex', model: 'sol', effort: 'high' }]);
+    expect(added.run_config?.selection.reviewer_fallbacks).toEqual(ladder);
+
+    const proposed = await sd.command('assistant', {
+      request_id: requestId(),
+      kind: 'task_propose_run',
+      project: 'acme',
+      task_id: added.task_id,
+      expected_version: added.version,
+      payload: { run_config: fullReview({ reason: 'again' }) },
+    });
+    expect(result(proposed).run_config?.selection.reviewer_fallbacks).toEqual(ladder);
+
+    const direct = result(await add(sd, run()));
+    expect(direct.run_config?.selection).not.toHaveProperty('reviewer_fallbacks');
+  });
+
+  it('an explicit empty list still means none', async () => {
+    const sd = await daemon();
+    const added = result(await add(sd, fullReview({ reviewer_fallbacks: [] })));
+    expect(added.run_config?.selection.reviewer_fallbacks).toEqual([]);
+  });
+
+  it('a reviewer fallback off the reviewer ladder is refused with the valid values', async () => {
+    const sd = await daemon();
+    const r = await add(
+      sd,
+      fullReview({ reviewer_fallbacks: [{ harness: 'claude', model: 'opus', effort: 'high' }] }),
+    );
+    expect(r.code).toBe(ExitCode.conflict);
+    expect(r.envelope.error).toMatchObject({
+      code: 'rejected',
+      details: {
+        reason: 'run_config_not_offered',
+        valid_values: { reviewer_fallbacks: [{ model: 'sol', effort: 'high' }] },
+      },
+    });
+  });
+
+  it('the first reviewer escalation of a full-review task runs the configured rung', async () => {
+    const sd = await daemon();
+    const added = result(await add(sd, fullReview()));
+    await sd.stop();
+    sd.seed((d) => {
+      const id = added.task_id as Uuid;
+      const t = d.task(id).task;
+      const digest = d.task(id).run.proposal?.digest as Hash;
+      d.must(id, { kind: 'confirm_task' });
+      d.must(id, { kind: 'confirm_run_config', digest }, { authz: ownerAuthz() });
+      d.must(id, { kind: 'request_execution' });
+      d.store.grantNext(d.now as EpochMs);
+      d.must(id, {
+        kind: 'start',
+        freeze: freezeOk(t, { mode: 'full-review' }),
+        runtime: confirmedRuntime(d, t),
+      });
+      toPublish(d, t, CHECKPOINT);
+      publishToReview(d, id, CHECKPOINT);
+      for (let i = 0; i < 2; i++) {
+        if (d.task(id).wait?.detail.code === 'execution_slot') d.store.grantNext(d.now as EpochMs);
+        d.complete(id, d.pendingOne(id, 'start_agent').id, 'failed', QUALITY);
+      }
+      if (d.task(id).wait?.detail.code === 'execution_slot') d.store.grantNext(d.now as EpochMs);
+      expect(d.task(id).status).not.toBe('FAILED');
+      expect(d.pendingOne(id, 'start_agent').request).toMatchObject({
+        binding: { harness: 'codex', model: 'sol', effort: 'high' },
       });
     });
   });
@@ -332,6 +427,50 @@ describe('no escalation wait for a rung that cannot run (#263)', () => {
         kind: 'FAILED',
         reason: 'run_config_unconfirmed:review:opus/high',
       });
+    } finally {
+      d.store.close();
+    }
+  });
+
+  it('a confirmed reviewer fallback above auto_up_to_tier runs once approved (#276)', () => {
+    const d = setup();
+    try {
+      const t = buildTask({ id: uuidOf(276) });
+      const OPUS = { harness: 'claude', model: 'opus', effort: 'high' } as const;
+      const roles = {
+        reviewer: {
+          model: 'sol',
+          effort: 'medium' as const,
+          permissions: 'read_only' as const,
+          ladder: [{ model: 'opus', effort: 'high' as const }],
+        },
+      };
+      const frozen = freezeOk(t, { mode: 'full-review', roles });
+      d.must(t.id, { kind: 'create_task', task: t });
+      proposeAndConfirm(d, t, {
+        ...selectionFor(t, 'full-review', frozen.value.policy),
+        reviewer_fallbacks: [OPUS],
+      });
+      d.must(t.id, { kind: 'request_execution' });
+      d.store.grantNext(d.now as EpochMs);
+      d.must(t.id, { kind: 'start', freeze: frozen, runtime: confirmedRuntime(d, t) });
+      toPublish(d, t, CHECKPOINT);
+      publishToReview(d, t.id, CHECKPOINT);
+      for (let i = 0; i < 2; i++) {
+        if (d.task(t.id).wait?.detail.code === 'execution_slot') d.grantNext();
+        d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', QUALITY);
+      }
+      const wait = d.task(t.id).wait;
+      expect(wait?.reason).toBe('approval');
+      expect(approvals(d, t)).toHaveLength(1);
+      d.must(
+        t.id,
+        { kind: 'approve', approval_request_id: wait?.detail['approval_id'] as Uuid },
+        { authz: ownerAuthz() },
+      );
+      if (d.task(t.id).wait?.detail.code === 'execution_slot') d.grantNext();
+      expect(d.task(t.id).status).not.toBe('FAILED');
+      expect(d.pendingOne(t.id, 'start_agent').request).toMatchObject({ binding: OPUS });
     } finally {
       d.store.close();
     }

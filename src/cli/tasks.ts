@@ -167,6 +167,11 @@ const RUN_OPTIONS = [
       "Comma-separated fallback bindings in harness/model/effort format; defaults to the worker's ladder rungs from task options, '' for none",
   },
   {
+    flags: '--reviewer-fallback <list>',
+    description:
+      "Comma-separated reviewer fallback bindings in harness/model/effort format; defaults to the reviewer's ladder rungs from task options, '' for none",
+  },
+  {
     flags: '--reason <text>',
     description: 'Reason for the selected mode and bindings',
   },
@@ -177,16 +182,20 @@ function runProposal(values: Values): Record<string, unknown> | string | undefin
   if (values['mode'] === undefined && values['worker'] === undefined) return undefined;
   const worker = choice(values['worker']);
   const reviewer = choice(values['reviewer']);
-  const fallbacks = (values['fallback'] ?? '')
-    .split(',')
-    .filter((x) => x !== '')
-    .map((x) => choice(x));
+  const list = (v: string | undefined) =>
+    (v ?? '')
+      .split(',')
+      .filter((x) => x !== '')
+      .map((x) => choice(x));
+  const fallbacks = list(values['fallback']);
+  const reviewerFallbacks = list(values['reviewerFallback']);
   if (
     values['mode'] === undefined ||
     values['profile'] === undefined ||
     worker == null ||
     reviewer === null ||
-    fallbacks.some((f) => f == null)
+    fallbacks.some((f) => f == null) ||
+    reviewerFallbacks.some((f) => f == null)
   ) {
     return 'Run configuration requires --profile, --mode, and --worker in harness/model/effort format; full-review also requires --reviewer';
   }
@@ -198,6 +207,7 @@ function runProposal(values: Values): Record<string, unknown> | string | undefin
     reviewer: reviewer ?? null,
     // Without the flag the daemon fills the worker's ladder from `run_options` (#263).
     ...(values['fallback'] === undefined ? {} : { fallbacks }),
+    ...(values['reviewerFallback'] === undefined ? {} : { reviewer_fallbacks: reviewerFallbacks }),
   };
 }
 

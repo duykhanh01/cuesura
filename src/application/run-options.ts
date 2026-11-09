@@ -66,10 +66,14 @@ function declared(config: ValidatedConfig, roles: readonly string[]): RunChoice[
   return unique(out);
 }
 
-/** Ladder rungs a worker step could escalate to, other than the choice itself. Denied rungs never run. */
-function fallbacksOf(policy: FrozenPolicy, worker: RunChoice): RunChoice[] {
+/** Ladder rungs the roles' steps could escalate to, other than the choice itself. Denied rungs never run. */
+function fallbacksOf(
+  policy: FrozenPolicy,
+  roles: readonly string[],
+  choice: RunChoice,
+): RunChoice[] {
   const rungs = Object.values(policy.steps)
-    .filter((s) => WORKER_ROLES.includes(s.role))
+    .filter((s) => roles.includes(s.role))
     .flatMap((s) => s.ladder)
     .filter((r) => r.state !== 'denied')
     .map((r) => ({
@@ -77,8 +81,11 @@ function fallbacksOf(policy: FrozenPolicy, worker: RunChoice): RunChoice[] {
       model: r.binding.model,
       effort: r.binding.effort,
     }));
-  return unique(rungs).filter((c) => !sameChoice(worker, c));
+  return unique(rungs).filter((c) => !sameChoice(choice, c));
 }
+
+/** The rungs a worker and a reviewer may fall back to; the reviewer's are empty without a reviewer. */
+export type PairFallbacks = { readonly worker: RunChoice[]; readonly reviewer: RunChoice[] };
 
 function freezeProblem(e: FreezeError): string[] {
   return e.code === 'config_invalid'
@@ -90,14 +97,15 @@ type ModeOptions = {
   readonly mode: ExecutionMode;
   readonly when_to_use: string | null;
   readonly reviewers: RunChoice[];
+  readonly reviewer_fallbacks: { choice: RunChoice; fallbacks: RunChoice[] }[];
   readonly workers: { choice: RunChoice; fallbacks: RunChoice[] }[];
 };
 
 type TaskRef = Pick<TaskState, 'id' | 'revision' | 'project' | 'task'>;
 
 /**
- * The ladder rungs a worker may fall back to when start would accept this exact mode, worker and
- * reviewer, else `null` (freeze problems go to `problems`).
+ * The ladder rungs a worker and a reviewer may fall back to when start would accept this exact mode,
+ * worker and reviewer, else `null` (freeze problems go to `problems`).
  */
 function pairFallbacks(
   s: TaskRef,
@@ -108,7 +116,7 @@ function pairFallbacks(
   worker: RunChoice,
   reviewer: RunChoice | null,
   problems: string[],
-): RunChoice[] | null {
+): PairFallbacks | null {
   // Stand-ins: a missing document fails the freeze, but its content is not what is being checked.
   const prompts = Object.values(config.user.roles).flatMap((r) =>
     r.prompt === null ? [] : [{ name: r.prompt, content: '' }],
@@ -147,7 +155,11 @@ function pairFallbacks(
     fallbacks: [],
   };
   if (checkSelection(frozen.value.policy, selection).length > 0) return null;
-  return fallbacksOf(frozen.value.policy, worker);
+  const policy = frozen.value.policy;
+  return {
+    worker: fallbacksOf(policy, WORKER_ROLES, worker),
+    reviewer: reviewer === null ? [] : fallbacksOf(policy, REVIEWER_ROLES, reviewer),
+  };
 }
 
 function optionsForMode(
@@ -161,7 +173,7 @@ function optionsForMode(
   problems: string[],
 ): ModeOptions {
   const workers = new Map<string, { choice: RunChoice; fallbacks: RunChoice[] }>();
-  const reviewers = new Map<string, RunChoice>();
+  const reviewers = new Map<string, { choice: RunChoice; fallbacks: RunChoice[] }>();
   const workerChoices = declared(config, WORKER_ROLES);
   const reviewerChoices = mode === 'full-review' ? declared(config, REVIEWER_ROLES) : NO_REVIEWER;
   for (const worker of workerChoices)
@@ -182,13 +194,16 @@ function optionsForMode(
         problems,
       );
       if (fallbacks === null) continue;
-      workers.set(choiceKey(worker), { choice: worker, fallbacks });
-      if (reviewer !== null) reviewers.set(choiceKey(reviewer), reviewer);
+      workers.set(choiceKey(worker), { choice: worker, fallbacks: fallbacks.worker });
+      if (reviewer !== null)
+        reviewers.set(choiceKey(reviewer), { choice: reviewer, fallbacks: fallbacks.reviewer });
     }
+  const listed = [...reviewers.values()];
   return {
     mode,
     when_to_use: whenToUse,
-    reviewers: [...reviewers.values()],
+    reviewers: listed.map((r) => r.choice),
+    reviewer_fallbacks: listed,
     workers: [...workers.values()],
   };
 }
@@ -204,7 +219,7 @@ export type PairProbe = (
   mode: ExecutionMode,
   worker: RunChoice,
   reviewer: RunChoice | null,
-) => RunChoice[] | null;
+) => PairFallbacks | null;
 
 /** The run options of a task that has not started; also checks proposals at add and propose (#263). */
 export async function computeRunOptions(
@@ -303,9 +318,9 @@ const offMenu = (message: string, valid_values: unknown): AppError => ({
 });
 
 /**
- * The proposal checked against `run_options`, with the fallbacks filled from the worker's ladder when
- * the caller gave none: a selection start would refuse, or one whose next rung is not confirmed, is
- * refused here instead of after the task took a slot (#263).
+ * The proposal checked against `run_options`, with the worker's and the reviewer's fallbacks filled from
+ * their ladders when the caller gave none: a selection start would refuse, or one whose next rung is not
+ * confirmed, is refused here instead of after the task took a slot (#263, #276).
  */
 export function resolveProposal(
   options: RunOptions,
@@ -325,8 +340,8 @@ export function resolveProposal(
         mode: options.modes.map((m) => m.mode),
       }),
     );
-  const ladder = probe(p.mode, p.worker, p.reviewer);
-  if (ladder === null)
+  const ladders = probe(p.mode, p.worker, p.reviewer);
+  if (ladders === null)
     return err(
       p.reviewer === null || !mode.workers.some((w) => sameChoice(w.choice, p.worker))
         ? offMenu(`worker ${choiceKey(p.worker)} is not offered for ${p.mode}`, {
@@ -337,15 +352,35 @@ export function resolveProposal(
             { reviewer: mode.reviewers },
           ),
     );
-  const stray = (p.fallbacks ?? []).filter((f) => !ladder.some((c) => sameChoice(c, f)));
-  if (stray.length > 0)
+  const stray = (given: RunChoice[] | undefined, ladder: RunChoice[]) =>
+    (given ?? []).filter((f) => !ladder.some((c) => sameChoice(c, f)));
+  const workerStray = stray(p.fallbacks, ladders.worker);
+  if (workerStray.length > 0)
     return err(
-      offMenu(`fallback ${stray.map(choiceKey).join(', ')} is not a rung of this worker's ladder`, {
-        fallbacks: ladder,
-      }),
+      offMenu(
+        `fallback ${workerStray.map(choiceKey).join(', ')} is not a rung of this worker's ladder`,
+        { fallbacks: ladders.worker },
+      ),
     );
-  // A selection holds at most MAX_FALLBACKS; the lowest rungs are the ones climbed first.
-  return ok({ ...p, fallbacks: p.fallbacks ?? ladder.slice(0, MAX_FALLBACKS) });
+  const reviewerStray = stray(p.reviewer_fallbacks, ladders.reviewer);
+  if (reviewerStray.length > 0)
+    return err(
+      offMenu(
+        `reviewer fallback ${reviewerStray.map(choiceKey).join(', ')} is not a rung of this reviewer's ladder`,
+        { reviewer_fallbacks: ladders.reviewer },
+      ),
+    );
+  // A selection holds at most MAX_FALLBACKS; the lowest rungs are the ones climbed first. direct-pr
+  // keeps the field absent so its selection reads as before.
+  const reviewerFallbacks =
+    p.reviewer === null
+      ? (p.reviewer_fallbacks ?? null)
+      : (p.reviewer_fallbacks ?? ladders.reviewer.slice(0, MAX_FALLBACKS));
+  return ok({
+    ...p,
+    fallbacks: p.fallbacks ?? ladders.worker.slice(0, MAX_FALLBACKS),
+    ...(reviewerFallbacks === null ? {} : { reviewer_fallbacks: reviewerFallbacks }),
+  });
 }
 
 export async function runOptions(

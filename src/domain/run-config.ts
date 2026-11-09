@@ -36,11 +36,20 @@ const RunSelectionFields = z
     reviewer: RunChoiceSchema.nullable(),
     /** Worker bindings the user allows without asking again (escalation/fallback within this set). */
     fallbacks: z.array(RunChoiceSchema).max(MAX_FALLBACKS),
+    /**
+     * Reviewer bindings allowed the same way (#276). Absent in selections made before it existed, which
+     * keeps their digest; absent reads as none.
+     */
+    reviewer_fallbacks: z.array(RunChoiceSchema).max(MAX_FALLBACKS).optional(),
   })
   .strict();
 
 function reviewerMatchesMode(
-  s: { mode: ExecutionMode; reviewer: RunChoice | null },
+  s: {
+    mode: ExecutionMode;
+    reviewer: RunChoice | null;
+    reviewer_fallbacks?: RunChoice[] | undefined;
+  },
   ctx: z.RefinementCtx,
 ): void {
   if (s.mode === 'full-review' && s.reviewer === null)
@@ -53,6 +62,12 @@ function reviewerMatchesMode(
     ctx.addIssue({
       code: 'custom',
       path: ['reviewer'],
+      message: 'direct-pr runs no reviewer',
+    });
+  if (s.mode === 'direct-pr' && (s.reviewer_fallbacks ?? []).length > 0)
+    ctx.addIssue({
+      code: 'custom',
+      path: ['reviewer_fallbacks'],
       message: 'direct-pr runs no reviewer',
     });
 }

@@ -150,6 +150,8 @@ const RunConfigSchema = z.looseObject({
     worker: ChoiceSchema,
     reviewer: ChoiceSchema.nullable(),
     fallbacks: z.array(ChoiceSchema),
+    // Absent in selections made before reviewer fallbacks existed (#276).
+    reviewer_fallbacks: z.array(ChoiceSchema).optional(),
   }),
   // What the mode means for review, by the daemon's word; absent or `null` before the run is frozen.
   review: safe.nullable().optional(),

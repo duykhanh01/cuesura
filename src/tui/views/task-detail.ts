@@ -443,6 +443,9 @@ function runConfigRows(out: Rows, show: TaskShow | null, technical: boolean): vo
   );
   if (selection.fallbacks.length > 0)
     out.field('Fallbacks', joinSafe(selection.fallbacks.map(choice), uiText(', ')));
+  const reviewerFallbacks = selection.reviewer_fallbacks ?? [];
+  if (reviewerFallbacks.length > 0)
+    out.field('Reviewer fallbacks', joinSafe(reviewerFallbacks.map(choice), uiText(', ')));
 }
 
 /** What is left and its place in the queue; a task that ended or never started has none of it. */

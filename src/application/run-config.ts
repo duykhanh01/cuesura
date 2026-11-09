@@ -2,7 +2,7 @@
  * Run configuration at the application boundary (T135, task-execution-modes.md M01/M02). The
  * selection a user confirmed is checked against the effective, frozen configuration at start: the
  * profile, the worker binding of every coder/fixer step, the reviewer binding of `full-review` and the
- * allowed fallbacks. The daemon never rebinds to make it fit; a mismatch waits for a new confirmation.
+ * allowed worker and reviewer fallbacks. The daemon never rebinds to make it fit; a mismatch waits for a new confirmation.
  * Also reads the PR and review templates of the frozen base (M05).
  */
 import type { GitPort } from '../adapters/ports.ts';
@@ -35,6 +35,7 @@ export function checkSelection(policy: FrozenPolicy, sel: RunSelection): Selecti
     });
   const steps = Object.entries(policy.steps).sort(([a], [b]) => (a < b ? -1 : 1));
   const ladders: { harness: string; model: string; effort: string }[] = [];
+  const reviewLadders: { harness: string; model: string; effort: string }[] = [];
   for (const [name, sp] of steps) {
     if (WORKER_ROLES.includes(sp.role)) {
       ladders.push(...sp.ladder.map((r) => r.binding));
@@ -44,6 +45,7 @@ export function checkSelection(policy: FrozenPolicy, sel: RunSelection): Selecti
           message: `step '${name}' binds ${sp.binding.harness}/${sp.binding.model}/${sp.binding.effort}, not the confirmed worker`,
         });
     } else if (sp.role === 'reviewer') {
+      reviewLadders.push(...sp.ladder.map((r) => r.binding));
       if (sel.reviewer === null)
         out.push({
           check: 'reviewer',
@@ -66,6 +68,13 @@ export function checkSelection(policy: FrozenPolicy, sel: RunSelection): Selecti
       out.push({
         check: 'fallback',
         message: `fallback ${f.harness}/${f.model}/${f.effort} is not a rung of the worker ladder`,
+      });
+  }
+  for (const f of sel.reviewer_fallbacks ?? []) {
+    if (!reviewLadders.some((b) => sameChoice(f, b)))
+      out.push({
+        check: 'reviewer_fallback',
+        message: `reviewer fallback ${f.harness}/${f.model}/${f.effort} is not a rung of the reviewer ladder`,
       });
   }
   return out;

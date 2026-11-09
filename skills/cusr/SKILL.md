@@ -96,15 +96,16 @@ cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" --expected-version "$VER
   instruction, then the best-fit `when` (you match it; the daemon never does), then `default`. `use[]` is ordered:
   take the first unless the user or a stated reason says otherwise; name the matched rule in `--reason`. Empty rules
   with a default: use the default. `default: null`: ask the operator; do not guess.
-- `task options`: `profile {id, source}`, `modes[]` with `when_to_use`, `reviewers[]` and
-  `workers[] {choice, fallbacks[]}`. A choice is `{harness, model, effort}`; the flags take it joined as
+- `task options`: `profile {id, source}`, `modes[]` with `when_to_use`, `reviewers[]`,
+  `reviewer_fallbacks[] {choice, fallbacks[]}` and `workers[] {choice, fallbacks[]}`. A choice is `{harness, model, effort}`; the flags take it joined as
   `harness/model/effort`, e.g. `{"harness":"claude","model":"opus","effort":"high"}` → `--worker claude/opus/high`.
   It is a menu, not proof: the daemon checks again at start. `truncated: true`: cut at 64 combinations. Errors:
   `config_invalid`/`options_unavailable` (exit 1), `conflict` once started (6), `task_not_found` (4): do not guess.
 - `--profile`, `--mode`, `--worker` go together; `full-review` also needs `--reviewer`, `direct-pr` must not have
   one. Without `--fallback` the fallbacks are the worker's ladder rungs from `task options`; `--fallback a/b/c,...`
   sets them, `--fallback ''` empties them (the first escalation then ends the task, `run_config_unconfirmed`).
-  The reviewer has only its confirmed binding. An off-menu value is `rejected` with `details.valid_values`.
+  `--reviewer-fallback` does the same for the reviewer's ladder (`full-review` only). An off-menu value is
+  `rejected` with `details.valid_values`.
 - The proposal must match the summary the user approved; a change needs a new approval. A proposal does not start
   the task.
 - `task confirm` without `--run-config` confirms intake only; the task can be READY yet `run_config_unconfirmed`.

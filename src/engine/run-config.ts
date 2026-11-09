@@ -113,14 +113,15 @@ export function confirmedWorkerChoices(s: Pick<TaskState, 'run'>): readonly RunC
 }
 
 /**
- * Bindings the confirmation covers for a step's role. The reviewer has exactly the one confirmed
- * binding (none with `direct-pr`): worker fallbacks never apply to it, and a raised task floor or an
- * escalation that moves it elsewhere needs a new confirmation (M02). A binding an admin's policy
+ * Bindings the confirmation covers for a step's role. The reviewer has its confirmed binding and its own
+ * fallbacks (none with `direct-pr`, #276): worker fallbacks never apply to it, and a raised task floor or
+ * an escalation that moves it elsewhere needs a new confirmation (M02). A binding an admin's policy
  * amendment added counts as confirmed for its role (issue #105).
  */
 export function confirmedChoices(s: Pick<TaskState, 'run'>, role: string): readonly RunChoice[] {
   const amended = (s.run.amended_choices ?? []).filter((x) => x.role === role).map((x) => x.choice);
   if (role !== 'reviewer') return [...confirmedWorkerChoices(s), ...amended];
-  const reviewer = s.run.proposal?.selection.reviewer ?? null;
-  return [...(reviewer === null ? [] : [reviewer]), ...amended];
+  const sel = s.run.proposal?.selection;
+  const reviewer = sel?.reviewer ?? null;
+  return [...(reviewer === null ? [] : [reviewer]), ...(sel?.reviewer_fallbacks ?? []), ...amended];
 }

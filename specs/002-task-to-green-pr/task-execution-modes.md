@@ -44,7 +44,9 @@ Trước lần spawn đầu, người dùng phải được xem và xác nhận 
 
 - Task/revision, profile, chế độ và lý do đề xuất.
 - Harness, model và effort của worker; với `full-review`, cả binding của reviewer.
-- Các lựa chọn dự phòng/nấc escalation nếu muốn cho phép dùng mà không hỏi lại.
+- Các lựa chọn dự phòng/nấc escalation nếu muốn cho phép dùng mà không hỏi lại, riêng cho worker
+  (`fallbacks`) và reviewer (`reviewer_fallbacks`); vắng thì daemon điền các nấc thấp nhất của ladder
+  từng role (issue #263, #276).
 
 Task do assistant tạo vẫn mặc định cần xác nhận intake; người dùng cấu hình auto-confirm intake
 (`intake.auto_confirm` trong user config, liệt kê `requested_by.id`) và hạn mức theo client (chưa có). Quyền nhận task này tách khỏi xác nhận cấu hình chạy: auto-confirm intake

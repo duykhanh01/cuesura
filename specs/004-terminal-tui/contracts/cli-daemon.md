@@ -58,6 +58,12 @@ Vào: `{ kind, task_id }`. Ra:
       "mode": "full-review",
       "when_to_use": "...",
       "reviewers": [{ "harness": "claude", "model": "m", "effort": "high" }],
+      "reviewer_fallbacks": [
+        {
+          "choice": { "harness": "claude", "model": "m", "effort": "high" },
+          "fallbacks": [{ "harness": "claude", "model": "m", "effort": "xhigh" }]
+        }
+      ],
       "workers": [
         {
           "choice": { "harness": "codex", "model": "m", "effort": "high" },
@@ -69,6 +75,7 @@ Vào: `{ kind, task_id }`. Ra:
       "mode": "direct-pr",
       "when_to_use": null,
       "reviewers": [],
+      "reviewer_fallbacks": [],
       "workers": []
     }
   ],
@@ -77,6 +84,7 @@ Vào: `{ kind, task_id }`. Ra:
 ```
 
 - `profile.source` là `task` hoặc `project`. Profile chỉ để hiển thị và được gửi nguyên trong đề xuất.
+- `reviewer_fallbacks` cho mỗi reviewer trong `reviewers` các nấc ladder reviewer khác nó; đề xuất không có `reviewer_fallbacks` thì daemon điền tối đa 8 nấc thấp nhất (issue #276).
 - Danh sách tính bằng `freezePolicy` và `checkSelection` theo task ([R-07](../research.md#r-07--nguồn-của-run_options)), tối đa 64 tổ hợp. `truncated` đúng khi có tổ hợp thực sự bị bỏ qua vì chạm trần (vừa đủ 64 tổ hợp vẫn là `false`), để giao diện không trình bày danh sách là đầy đủ.
 - Đọc `cusr.yaml` từ ref base có sẵn ở máy, không `fetch`. Đây vẫn là danh sách để chọn, không phải bằng chứng: lúc bắt đầu daemon đọc base mới nhất và kiểm lại.
 - Lỗi, không đoán lựa chọn: config không hợp lệ hoặc không xác định được profile trả `config_invalid`, exit 1; không đọc được base trả `options_unavailable`, exit

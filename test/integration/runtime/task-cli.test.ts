@@ -395,7 +395,7 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     });
   });
 
-  it('propose without --fallback takes the worker ladder rungs from task options (#170)', async () => {
+  it('propose without --fallback takes the worker and reviewer ladder rungs from task options (#170, #276)', async () => {
     const { dataDir } = await daemon();
     const added = await cli([
       'task',
@@ -439,14 +439,17 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
       code: ExitCode.ok,
       data: {
         run_config: {
-          selection: { fallbacks: [{ harness: 'claude', model: 'sonnet', effort: 'high' }] },
+          selection: {
+            fallbacks: [{ harness: 'claude', model: 'sonnet', effort: 'high' }],
+            reviewer_fallbacks: [{ harness: 'codex', model: 'sol', effort: 'high' }],
+          },
         },
       },
     });
     // An explicit empty list still means no fallbacks.
-    expect(await propose(['--fallback', ''])).toMatchObject({
+    expect(await propose(['--fallback', '', '--reviewer-fallback', ''])).toMatchObject({
       code: ExitCode.ok,
-      data: { run_config: { selection: { fallbacks: [] } } },
+      data: { run_config: { selection: { fallbacks: [], reviewer_fallbacks: [] } } },
     });
   });
 
