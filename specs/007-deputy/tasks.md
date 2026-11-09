@@ -1,628 +1,407 @@
-# Tasks: Deputy, agent theo task làm thay chủ dự án
+# Tasks: Deputy và goal
 
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog tạo ngày 2026-11-08. Amendment hiến chương 10.0.0 đã merge (PR #254); chưa có task code nào được
-làm.
+**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Chưa có task code nào được làm. Amendment
+11.0.0 nằm cùng PR với bản viết lại; không task code nào bắt đầu trước khi PR đó merge.
 
-**Mã nền**: `origin/main` `cee8fea`. Hai thay đổi chạm feature này (#247 qua PR #252, #248 qua PR #255) đã được đưa vào
-spec, plan và research trong PR #253 ([R-15](research.md#r-15--hết-thang-trở-lại-thành-wait-task-fail-là-lệnh-kết-thúc)):
-hết thang vào lại wait, lệnh `task fail` (FR-036), và `intake.auto_confirm` không áp dụng cho task nháp hay task do deputy
-tạo (FR-043, FR-052).
+**Mã nền**: `origin/main` `62eadbd`.
 
-**Tests**: Bắt buộc. Hiến chương nguyên tắc VII yêu cầu bằng chứng theo tầng:
+**Tests**: Bắt buộc, theo tầng của nguyên tắc VII:
 
-- bảng định tuyến và chuyển trạng thái lượt: property test;
-- bản ghi lượt, migration, crash và nâng cấp từ decider: integration test trên SQLite thật;
-- trả về worktree, hook hết lượt và CLI: contract test trên git và filesystem thật;
-- Story 1–6: scenario với fake harness;
+- định tuyến, chữ ký lỗi, tín hiệu vòng lặp, bảng thử, loop guard, ngân sách context, kế hoạch: property test;
+- migration, aggregate goal, bản ghi lượt, crash và nâng cấp: integration test trên SQLite thật;
+- trả về worktree, hook hết lượt, CLI, nhánh goal và merge: contract test trên git, filesystem và remote giả;
+- Story 1–8: scenario với fake harness;
 - harness thật: smoke riêng.
 
 Viết test trước, thấy nó thất bại rồi mới triển khai. Kết quả với fake harness không được ghi là smoke thật.
 
-**Organization**: Theo các lát của plan, lát 0 → A → B → C → D → E → F, ánh xạ sang story như sau:
+**Organization**: mỗi lát của plan là một phase và một PR.
 
-| Lát | Phase |
-| --- | --- |
-| 0 | Phase 1 |
-| A | Phase 2 và Phase 3 (US2) |
-| B | Phase 4 (US1, 🎯 MVP), Phase 5 (US5), Phase 6 (US3) |
-| D | Phase 7 (US4) |
-| C, E | Phase 8 (US6) |
-| F | Phase 9 |
-
-Theo quy ước repo, mỗi phase là một PR, trừ khi phase quá nhỏ và gộp được với phase kế tiếp.
+| Lát | Phase | Story |
+| --- | --- | --- |
+| A | Phase 2 | nền |
+| B | Phase 3 | US1, US6 (task), US7 — 🎯 MVP |
+| C | Phase 4 | US2 |
+| D | Phase 5 | US3 (kế hoạch), US5, US6 (goal) |
+| E | Phase 6 | US3 (tích hợp) |
+| F | Phase 7 | US4 |
+| G | Phase 8 | US8 (lượt tương tác) |
+| H | Phase 9 | US8 (ghi nhận) |
+| I | Phase 10 | đồng bộ tài liệu, smoke |
 
 ## Format: `[ID] [P?] [Story] Description`
 
 - `[P]`: làm đồng thời được sau prerequisite chung, vì khác file và không phụ thuộc task chưa xong.
-- `[USn]`: task thuộc user story, chỉ dùng trong phase story.
+- `[USn]`: task thuộc user story.
 - Source ở `src/`, test ở `test/`. Một package Node 24, TypeScript strict, ESM. Không thêm dependency. Không đòi người
   dùng cài công cụ nào.
-- `src/engine/` thuần (I01): không đọc user config, binding hay bảng `deputy_*`. Mọi thứ về phiên, lượt và harness nằm ở
-  `src/daemon/`, `src/runner/`, `src/adapters/`.
-- Bảng `deputy_sessions` và `deputy_turns` không bao giờ sinh event của task hay làm đổi `version` (FR-022).
-- `final_message` và prompt của lượt đi qua `Redactor` trước khi lưu.
-- Comment chỉ khi cần thiết và viết bằng tiếng Anh ([AGENTS.md](../../AGENTS.md)).
-- Mỗi PR có code: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test:changed` sạch; khi đang sửa thì chạy
-  trực tiếp file test liên quan bằng `pnpm vitest run <file>`. Test đầy đủ do CI chạy.
-- **Số migration:** `main` đang tới `007_slot_reservations.sql`. Lúc làm T006, lấy số kế tiếp còn trống trên
-  `origin/main`; tasks gọi nó là `NNN_deputy.sql`.
+- `src/engine/` thuần (I01): không đọc user config, binding, `deputy_turns` hay `branch_conflicts`. Dữ liệu đó được
+  daemon đưa vào trigger hay tham số của hàm thuần.
+- `deputy_turns` và `branch_conflicts` không bao giờ sinh event hay làm đổi `version` (FR-025).
+- Yêu cầu của goal, bằng chứng của bản miễn, bàn giao, `final_message` và context của lượt đi qua `Redactor` trước khi lưu.
+- Comment chỉ khi cần thiết, bằng tiếng Anh ([AGENTS.md](../../AGENTS.md)).
+- Mỗi PR có code: `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm test:changed` sạch; khi sửa thì chạy trực
+  tiếp file test liên quan bằng `pnpm vitest run <file>`. Test đầy đủ do CI chạy.
+- **Số migration:** lấy số kế tiếp còn trống trên `origin/main` lúc làm T007; tasks gọi là `NNN_deputy_goal.sql`.
 
 ---
 
-## Phase 1: Setup — lát 0, đối chiếu mã nền, công cụ kiểm thử
+## Phase 1: Setup — đối chiếu mã nền, công cụ kiểm thử
 
-**Purpose**: Chốt các giả định còn mở và đưa spec về khớp `main` hiện tại. Chuẩn bị fake harness và builder mà mọi test
-sau dùng.
-
-- [x] T001 Kiểm PR #254 (amendment hiến chương 10.0.0) đã merge vào `main` và Constitution Check của plan ghi "đạt theo
-  10.0.0". Đã xong trong PR #253.
-- [ ] T002 Chạy spike hook hết lượt trên phiên bản Claude Code và Codex đang pin trong manifest, mỗi harness:
-  1. Trong một private home tạm, cài hook Stop (Claude) hoặc `notify` (Codex). Hook ghi stdin của nó ra file.
-  2. Chạy phiên tương tác bằng `claude --resume <session> "<prompt>"` và `codex resume <session> "<prompt>"`, tức resume
-     có prompt đầu tiên, rồi để agent kết thúc lượt.
-  3. Ghi lại: input của hook có trường tin nhắn cuối không, hay chỉ có đường dẫn transcript; hook có chạy khi người gõ
-     tiếp vào phiên không; resume tương tác có nhận prompt đầu tiên không.
-
-  Ghi kết luận vào mục R-03 của `specs/007-deputy/research.md`: nguồn của `final_message` và argv tương tác đã kiểm.
-  Phiên bản nào không đáp ứng thì ghi rõ để T063 và T066 chỉ dùng headless cho harness đó.
-- [x] T003 Đối chiếu spec với `origin/main` sau #247 và #248. Đã xong trong PR #253: FR-001 (nhóm tự tiếp tục), FR-004,
-  FR-036, FR-043, FR-052, R-11, R-15 và `contracts/cli-daemon.md`.
-- [ ] T004 [P] Mở rộng fake harness `src/adapters/harness/fake.ts` cho role `deputy`. Kịch bản của lượt là một callback
-  nhận `{ turn_id, env, prompt }` và có thể:
-  - gọi task service với actor `deputy`, header turn và `reason`, giống như CLI trong phiên;
-  - ghi vào worktree của task: sửa file, tạo file, `git commit`;
-  - trả `turn_ended` có hoặc không có `final_message`;
-  - trả `rate_limited` có `reset_at`, `auth`, `refused`, `capability_missing` hoặc lỗi hạ tầng;
-  - treo không trả gì để test stall.
-
-  Test tự kiểm ở `test/unit/adapters/fake-harness-deputy.test.ts`.
-- [ ] T005 [P] Thêm builder ở `test/support/deputy.ts`:
-  - user config có và không có `roles.deputy`, có `roles.decider` cũ, có `autonomous` bật và tắt;
-  - task đặt sẵn ở từng `DetailCode`, dùng builder hiện có trong `test/support/builders.ts`;
-  - chèn một dòng `deputy_turns` ở trạng thái `running` để giả lập caller deputy (dùng ở US2 trước khi có `deputy.ts`);
-  - helper so HEAD và cây worktree với một baseline.
+- [x] T000 Amendment 11.0.0 và bản viết lại spec, plan, research, data model, contracts, tasks (PR của lát 0).
+- [ ] T001 Đối chiếu mã nền trên `origin/main` mới nhất và ghi kết quả vào research:
+  - mọi chỗ đọc `events` không theo `task_id` (report, `decisions.md`, retention, verify, projector, history) cần lọc
+    `stream = 'task'` (R-21);
+  - cách phiên trợ lý biết lease hay session id khi gọi `cusr` ngoài `assistant wait` (R-26);
+  - `ReviewEvidence` và schema output của reviewer chỗ thêm `key` (R-18);
+  - bộ lọc log của gate dùng được cho chữ ký lỗi (R-18);
+  - điều kiện bật yolo trong `src/daemon/yolo.ts` và `onYoloMergeApprove` chỗ thêm `policy:goal` (R-23);
+  - `start_sha` qua `adoption` trong `src/daemon/handlers.ts` dùng được cho task tổng (R-24).
+- [ ] T002 [P] Mở rộng fake harness `src/adapters/harness/fake.ts` cho role `deputy`. Kịch bản lượt là callback nhận
+  `{ turn_id, env, context }` và có thể: gọi task service hay goal service với actor `deputy`, header turn, `reason`,
+  `trial`; gọi `deputy handoff`; ghi vào worktree (sửa, tạo file, `git commit`); trả `turn_ended` có hay không có
+  `final_message`; trả `rate_limited`, `auth`, `refused`, `capability_missing`, lỗi hạ tầng; treo. Fake reviewer trả
+  finding có `key`. Test tự kiểm ở `test/unit/adapters/fake-harness-deputy.test.ts`.
+- [ ] T003 [P] Builder ở `test/support/deputy.ts`: user config có và không có `roles.deputy`, có `roles.decider` cũ,
+  `autonomous` bật và tắt, `allow_models` nhiều model; task ở từng `DetailCode`; lịch sử dựng sẵn cho tín hiệu vòng lặp
+  (finding lặp, cây quay lại, cùng chữ ký qua hai model); dòng `deputy_turns` `running` giả lập caller deputy; kế hoạch
+  một và nhiều đơn vị; helper so HEAD và cây worktree với baseline.
+- [ ] T004 [P] Remote git giả cho test nhánh goal ở `test/support/git-remote.ts`: bare repo cục bộ làm `origin`, fake
+  GitHub port cho PR vào nhánh bất kỳ, check xanh hay đỏ theo kịch bản, merge bằng merge commit, observation PR đã merge.
+  Dùng lại fake GitHub hiện có nếu đủ.
 
 ---
 
-## Phase 2: Foundational — danh tính, lý do, bản ghi lượt, bảng định tuyến (lát A)
+## Phase 2: Foundational — lát A
 
-**Purpose**: Kiểu domain, lưu trữ, danh tính `deputy` và bảng định tuyến mà mọi story dùng.
+**Purpose**: Danh tính `deputy`, trường cấp lệnh, migration, bảng định tuyến, mở lại giới hạn và `task fail`.
 
-**⚠️ CRITICAL**: Chưa xong phase này thì không story nào bắt đầu được.
+**⚠️ CRITICAL**: chưa xong phase này thì không story nào bắt đầu.
 
-### Tests cho nền ⚠️
+### Tests
 
-- [ ] T006 [P] Viết integration test cho migration `NNN_deputy.sql` ở `test/integration/store/deputy-migration.test.ts`:
-  - DB `main` hiện có nâng lên được và giữ nguyên dữ liệu;
-  - `command_ledger` có cột `reason TEXT NULL` và `turn_id TEXT NULL`;
-  - unique index một phần từ chối dòng `running` hoặc `retry_wait` thứ hai của cùng `task_id` (FR-018);
-  - ghi `deputy_sessions` và `deputy_turns` không làm đổi `version` của task, không thêm dòng `events` (FR-022).
-- [ ] T007 [P] Viết property test cho bảng định tuyến ở `test/property/deputy/routing.test.ts`:
-  - mọi `DetailCode` có đúng một nơi đến;
-  - `DEPUTY_ROUTE[c] === 'auto'` khi và chỉ khi `NEEDS_USER[c] === false`, với mọi mã `c`;
-  - `effect_unknown` chưa quá ngưỡng của #249 trả `null`, đã quá ngưỡng trả `deputy`;
-  - mọi mã PENDING trừ `needs_draft` và `dependency_pending` tới owner;
-  - `run_config_unconfirmed`, `paused`, `escalation_rejected`, `adopt_approval`, `merge`, `auth_config`, `harness_auth`,
-    `refused` tới owner;
-  - `effect_failed` có `detail.failure = 'boundary_violation'` tới owner, `effect_failed` khác tới deputy;
-  - `agent_question`, `agent_needs_context`, `agent_blocked` tới deputy khi `autonomous` bật, tới owner khi tắt;
-  - mọi mã còn lại tới deputy (FR-001).
-- [ ] T008 [P] Viết contract test CLI ở `test/contract/cli/deputy-identity.test.ts`:
-  - có `CUSR_DEPUTY_TURN` thì `refuseWorker` cho chạy, actor là `deputy` dù `CUSR_ACTOR=assistant`, client gửi
-    `x-cusr-actor: deputy` và `x-cusr-turn` (FR-050);
-  - `cusr assistant hook|session-start|register|wait` thoát 0, không in gì (FR-051);
-  - lệnh ghi của deputy không có `--reason` bị từ chối `invalid_command`, exit 2 (FR-055);
-  - `turn_id` không phải lượt `running` thì `forbidden` với `reason: 'turn'`, exit 5 (FR-056);
-  - `--reason` lưu được trên một lệnh ghi bất kỳ của owner.
+- [ ] T005 [P] Integration test migration ở `test/integration/store/deputy-goal-migration.test.ts`: DB hiện có nâng lên
+  được và giữ dữ liệu; `events.stream` mặc định `task`; các bảng và cột mới đúng [data model](data-model.md); unique
+  index một phần từ chối lượt `running`/`retry_wait` thứ hai cùng `task_id`, và lượt `plan` thứ hai cùng `goal_id`;
+  ghi `deputy_turns` và `branch_conflicts` không đổi `version`, không thêm `events`.
+- [ ] T006 [P] Property test định tuyến ở `test/property/deputy/routing.test.ts`: mọi `DetailCode` có đúng một nơi đến;
+  `auto` ⇔ `NEEDS_USER = false`; `effect_unknown` theo ngưỡng; mã PENDING trừ `dependency_pending` tới owner; danh sách
+  owner của FR-001 kể cả `plan_amendment` và vi phạm ranh giới; câu hỏi của worker theo `autonomous`; còn lại tới deputy.
+- [ ] T007 [P] Contract test CLI ở `test/contract/cli/deputy-identity.test.ts`: có `CUSR_DEPUTY_TURN` thì `refuseWorker`
+  cho chạy, actor `deputy` dù `CUSR_ACTOR=assistant`, header `x-cusr-turn`; `assistant hook|session-start|register|wait`
+  thoát 0 không in gì; thiếu `--reason` thì `invalid_command`; `turn_id` không chạy thì `forbidden` `turn`; `--reason` lưu
+  được với owner.
 
-### Implementation cho nền
+### Implementation
 
-- [ ] T009 Thêm migration `src/store/migrations/NNN_deputy.sql` đúng [data-model](data-model.md):
-  - `deputy_sessions`: `task_id TEXT PK`, `harness TEXT`, `session_ref TEXT NULL`, `created_at INTEGER`,
-    `closed_at INTEGER NULL`;
-  - `deputy_turns`: `turn_id TEXT PK`, `task_id`, `incident`, `wait_code`, `attempt_id`, `mode` (`interactive` |
-    `headless`), `seeded INTEGER`, `state` (`running` | `retry_wait` | `done` | `handed_off` | `stopped`),
-    `infra_failures INTEGER`, `retry_at INTEGER NULL`, `final_message TEXT NULL`, `handoff_reason TEXT NULL` (`still_waiting`,
-    `auth`, `refused`, `capability`, `no_harness`, `infra_cap`), `started_at`, `ended_at`;
-  - unique index một phần trên `task_id` khi `state IN ('running','retry_wait')`;
-  - `command_ledger`: thêm `reason TEXT NULL`, `turn_id TEXT NULL`.
-- [ ] T010 Thêm `src/store/deputy.ts` để đọc và ghi hai bảng trên, mỗi thao tác một transaction riêng, không đụng `events`:
-  `openSession`, `startTurn`, `finishTurn(state, final_message, handoff_reason)`, `scheduleRetry(retry_at)`, `runningTurn(task_id)`,
-  `turnsOf(task_id)`, `closeSession`, `isRunningTurn(turn_id)`.
-- [ ] T011 [P] Sửa kiểu domain theo [data-model](data-model.md):
-  - `RequesterKind` thêm `deputy` (`src/domain/task.ts`);
-  - `DetailCode` thêm `needs_draft` thuộc nhóm PENDING (`src/domain/state.ts`);
-  - `Role` thêm `deputy` (`src/domain/policy.ts`); `decider` chỉ còn cho replay;
-  - `HarnessOutcome` thêm `{ kind: 'turn_ended', final_message: string | null, session_ref, usage }`
-    (`src/adapters/ports.ts`);
-  - `CommandKind` thêm `task_revise` và `task_fail`; payload `task_add` có `draft?: true`; payload `task_amend_policy` có
-    `agent_runs_delta?` và `deadline?`.
+- [ ] T008 Migration `src/store/migrations/NNN_deputy_goal.sql` đúng data model: `events.stream`, `goals`, `goal_tasks`,
+  `deputy_turns`, `branch_conflicts`, cột mới của `command_ledger`, các unique index một phần.
+- [ ] T009 `src/store/deputy.ts`: `startTurn`, `finishTurn`, `scheduleRetry`, `setHandoff`, `runningTurn(task_id)`,
+  `runningPlanTurn(goal_id)`, `turnsOf(task_id|goal_id)`, `isRunningTurn(turn_id)`, `turnGoal(turn_id)`; mỗi thao tác một
+  transaction, không đụng `events`.
+- [ ] T010 [P] Kiểu domain theo data model: `RequesterKind` `deputy`; `TaskInput.goal`; `DetailCode` `plan_amendment`
+  (thêm vào `NEEDS_USER`); `Role` `deputy`; `HarnessOutcome` `turn_ended`; `CommandKind` mới; `ReviewEvidence.findings[].key`
+  tùy chọn ở lát này.
+- [ ] T011 [P] Ghi `detail.failure = 'boundary_violation'` có cấu trúc trên `effect_failed` tại nơi sinh vi phạm (FR-002).
+  Test ở `test/integration/runtime/boundary-violation-detail.test.ts`.
+- [ ] T012 Thêm `deputy` vào `CALLER_ACTORS` (`read`, `operate`) trong `src/application/authz.ts`; `AuthzContext` mang
+  `reason`, `trial`, `turn_id`, `lease`.
+- [ ] T013 `CommandSchema` và `admitCommand` (`src/application/commands.ts`): `reason`, `trial` ở cấp lệnh; `reason` bắt
+  buộc với `deputy`; `turn_id` từ header; cả ba vào `command_hash` và `command_ledger`. Dời bước tra replay theo
+  `request_id`, actor và `command_hash` lên trước mọi guard phụ thuộc trạng thái (R-07, FR-055). Phụ thuộc T008, T012.
+- [ ] T014 Header `x-cusr-turn` trong `src/daemon/server.ts`: actor `deputy` không có lượt `running` khớp thì `forbidden`
+  `turn`. Phụ thuộc T009, T013.
+- [ ] T015 [P] `CUSR_DEPUTY_TURN` trong `src/runner/process-tag.ts`; `src/runner/sandbox.ts` không xóa biến này.
+- [ ] T016 CLI phía client: `src/cli/worker-guard.ts` (cho qua, im hook trợ lý), `src/cli/client.ts` (actor `deputy`,
+  header turn), mọi lệnh ghi có `--reason`; lệnh gia hạn có `--hypothesis`, `--expect`. T007 phải xanh.
+- [ ] T017 `src/engine/deputy-routing.ts`: `DEPUTY_ROUTE` và `routeOf(state, autonomous, now)` (FR-001, R-02). T006 phải
+  xanh.
+- [ ] T018 Hết thang thành wait (R-15): `chooseRung` (`src/engine/escalation.ts`) vào `ladder_exhausted`/`rung_denied`
+  thay `failWithDraft`; cập nhật các test mà #252 đã đổi (`test/property/invariants/escalation.test.ts`,
+  `test/scenarios/us4-escalation.test.ts`, `test/integration/runtime/execution-modes.test.ts`,
+  `test/scenarios/task-continue.test.ts`).
+- [ ] T019 Lệnh `task_fail` (FR-032): trigger chỉ nhận khi WAITING, gọi `failWithDraft(ctx, reason)`; `REQUIRED_ROLE`
+  `operate`; CLI `cusr task fail <id> --reason`. Contract test ở `test/contract/cli/task-fail.test.ts` (thiếu `--reason`
+  exit 2, không WAITING exit 6).
+- [ ] T020 Mở rộng `continue` (`src/engine/continue.ts`) cho `agent_runs_exhausted`, `deadline`, `backoff_exhausted`
+  (reset bộ đếm lỗi của lớp), `ci_wait_exhausted` (cửa sổ CI mới) (FR-030). Property test ở
+  `test/property/deputy/continue.test.ts`.
+- [ ] T021 Mở rộng `amend-policy` (`src/application/amend-policy.ts`, `src/cli/tasks.ts`): `--agent-runs +N`, `--deadline`,
+  `--model` tùy chọn khi có một trong hai; hạ xuống `operate`; `agent_runs_insufficient` chỉ gỡ bằng `--agent-runs`
+  (FR-031). Contract test ở `test/contract/cli/amend-policy-limits.test.ts`.
+- [ ] T022 Wait cạn trần khi không có role `deputy` (R-11): ở daemon gửi `task_fail` actor `system:deputy-absent`;
+  attention không báo trong khoảng chờ. Test ở `test/integration/runtime/deputy-absent.test.ts`.
 
-  Thêm `needs_draft` vào `NEEDS_USER` trong `src/explain/needs-user.ts` để build qua.
-- [ ] T012 [P] Ghi `detail.failure = 'boundary_violation'` có cấu trúc trên wait `effect_failed` tại nơi sinh vi phạm ranh
-  giới (`src/runner/invocation.ts` → `src/daemon/handlers.ts` → engine). Văn bản câu hỏi giữ nguyên (FR-002). Test ở
-  `test/integration/runtime/boundary-violation-detail.test.ts`.
-- [ ] T013 Thêm `deputy` vào `CALLER_ACTORS` với quyền `read` và `operate`, không có `admin`, trong
-  `src/application/authz.ts`. `AuthzContext` mang thêm `reason?` và `turn_id?` để event của lệnh lưu chúng.
-- [ ] T014 Sửa `CommandSchema` và `admitCommand` trong `src/application/commands.ts`:
-  - `reason: string (1–4096) | null` và `turn_id` ở cấp lệnh, không trong payload;
-  - `reason` bắt buộc khi actor là `deputy`;
-  - `turn_id` lấy từ header đã kiểm, không lấy từ body;
-  - `command_hash` gồm cả `reason` và `turn_id`;
-  - ghi `reason` và `turn_id` vào `command_ledger` (`src/store/commands.ts`).
-
-  Phụ thuộc T009, T013.
-- [ ] T015 Đọc header `x-cusr-turn` trong `src/daemon/server.ts`. Actor `deputy` không có lượt `running` khớp thì trả
-  `forbidden` với `reason: 'turn'` (dùng `isRunningTurn` của T010). Phụ thuộc T010, T014.
-- [ ] T016 [P] Thêm `DEPUTY_TURN_ENV = 'CUSR_DEPUTY_TURN'` vào `src/runner/process-tag.ts`. Process deputy mang biến này
-  thay cho `CUSR_ATTEMPT_ID`. `src/runner/sandbox.ts` không xóa biến này như các `CUSR_*` khác.
-- [ ] T017 Sửa CLI phía client:
-  - `src/cli/worker-guard.ts`: `refuseWorker` cho qua khi có `CUSR_DEPUTY_TURN`; `assistant hook|session-start|register|wait`
-    thoát 0 và không làm gì;
-  - `src/cli/client.ts`: `readClientActor` trả `deputy` khi có biến này, bỏ qua `CUSR_ACTOR`; gửi header `x-cusr-turn`;
-  - `src/cli/tasks.ts`, `src/cli/commands.ts`, `src/cli/requests.ts`: mọi lệnh ghi có `--reason`; `cancel` và `pause` dùng
-    lại option `--reason` đang có.
-
-  Phụ thuộc T014, T016. T008 phải xanh.
-- [ ] T018 Thêm `src/engine/deputy-routing.ts`: `DEPUTY_ROUTE: Record<DetailCode, 'deputy' | 'owner' | 'worker_question' |
-  'auto'>` và hàm thuần `routeOf(state, autonomous, now): 'deputy' | 'owner' | null` (FR-001, R-02). `auto` trả `null`,
-  trừ `effect_unknown` đã quá ngưỡng (`effectUnknownOverdue`) trả `deputy`. `effect_failed` đọc thêm `detail.failure`.
-  T007 phải xanh.
-- [ ] T019 Khôi phục wait ở engine theo R-15. Trong `chooseRung` của `src/engine/escalation.ts`, hết thang thì
-  `waitPolicy(ctx, 'ladder_exhausted', …)`, nấc bị từ chối thì `waitPolicy(ctx, 'rung_denied', …)`, không gọi
-  `failWithDraft` nữa. Cập nhật các test mà #252 đã đổi theo hành vi FAILED:
-  - `test/property/invariants/escalation.test.ts`;
-  - `test/scenarios/us4-escalation.test.ts`;
-  - `test/integration/runtime/execution-modes.test.ts`;
-  - `test/scenarios/task-continue.test.ts`.
-- [ ] T020 Thêm lệnh `task_fail`. Engine nhận trigger từ lệnh này, đòi quyền `operate` và chỉ nhận khi task đang
-  WAITING, rồi gọi `failWithDraft(ctx, reason)` (`src/engine/interpreter.ts`, `src/domain/trigger.ts`). Phía ứng dụng:
-  `src/application/commands.ts` khai `REQUIRED_ROLE` là `operate`; CLI `cusr task fail <id> --reason` ở `src/cli/tasks.ts`.
-  Contract test ở `test/contract/cli/task-fail.test.ts`, gồm cả thiếu `--reason` (exit 2) và task không ở WAITING
-  (exit 6) (FR-036).
-
-**Checkpoint**: Có danh tính `deputy` với lý do và ID lượt; bảng định tuyến đủ mã; engine vào wait khi hết thang; có
-lệnh kết thúc có lý do.
+**Checkpoint**: danh tính `deputy` với lý do, thử nghiệm và ID lượt; bảng định tuyến đủ mã; hết thang vào wait; có lệnh
+kết thúc và mở lại giới hạn.
 
 ---
 
-## Phase 3: User Story 2 — Deputy quyết ngân sách, deadline và model khi trần thử lại cạn (Priority: P1)
+## Phase 3: Lát B — lượt headless (US1, US6 phần task, US7) 🎯 MVP
 
-**Goal**: Mở rộng `continue` và `amend-policy` để một caller `operate` (deputy hoặc trợ lý) gỡ được mọi wait cạn trần.
+**Goal**: Deputy gỡ sự cố của task bằng lượt ngắn headless, bàn giao, chuyển cho người khi cần; thay decider.
 
-**Independent Test**: Dùng caller giả lập deputy (dòng `running` từ T005, env `CUSR_DEPUTY_TURN`). Với task ở từng wait
-của FR-030, gọi `continue`, `amend-policy --agent-runs`, `--deadline`, `--model` hoặc `task fail`. Kiểm tra event, actor
-`deputy`, `reason` và `turn_id`, và không trần nào của task bị tính thêm.
+**Independent Test**: [quickstart](quickstart.md) kịch bản US1, US6, US7 với fake harness.
 
-### Tests for User Story 2 ⚠️
+### Tests
 
-- [ ] T021 [P] [US2] Viết scenario `test/scenarios/deputy/us2.test.ts` cho acceptance 1–7 của US2:
-  - `loop_exhausted` → `continue`;
-  - `agent_runs_exhausted` → `amend-policy --agent-runs +N`;
-  - `deadline` → `amend-policy --deadline`;
-  - `backoff_exhausted` → `continue` mở chuỗi backoff mới;
-  - `ci_wait_exhausted` → `continue` mở cửa sổ CI mới với độ dài đã đóng băng;
-  - `ladder_exhausted` → `amend-policy --model` trong `allow_models`;
-  - `task fail` → FAILED có lý do, slot được trả.
+- [ ] T023 [P] [US1] Scenario `test/scenarios/deputy/us1.test.ts`: mỗi mã wait tới deputy mở đúng một lượt, deputy fake gỡ
+  và bàn giao, không có attention (SC-001); mã tới owner không mở lượt; lượt hết mà task vẫn ở sự cố thì attention có bàn
+  giao và `final_message`; lượt không bàn giao thì `aborted` kèm danh sách lệnh và lượt sau thấy nó; hai sự cố liên tiếp
+  thì lượt thứ hai là phiên mới (`session: null`) và thấy bàn giao của lượt trước.
+- [ ] T024 [P] [US6] Scenario `test/scenarios/deputy/us6-task.test.ts`: lệnh của chủ dự án giữa lượt được nhận, lệnh sau
+  của deputy với version cũ bị từ chối (SC-006); lệnh của chủ dự án không bị từ chối vì lượt bắt đầu hay kết thúc; deputy
+  gửi lại cùng request ID sau restart, kể cả sau khi lượt đã đóng, thì nhận kết quả cũ; lệnh deputy nhắm task ngoài goal của lượt bị `turn_scope`;
+  lệnh ngoài bảng quyền bị `deputy_kind`.
+- [ ] T025 [P] [US7] Scenario `test/scenarios/deputy/us7.test.ts`: định tuyến câu hỏi theo `autonomous`, định tuyến lại khi
+  đổi cờ, câu hỏi tiếp ở cùng step vẫn tới deputy, mục giả định trong mô tả PR.
+- [ ] T026 [P] Crash injection `test/integration/crash/deputy-turn.test.ts`: restart ở mọi điểm của lượt không tạo lượt thứ
+  hai, không lặp lệnh; task đã rời sự cố khi khởi động lại thì lượt được đóng (FR-056, SC-004).
+- [ ] T027 [P] Contract test trả về worktree `test/contract/deputy/restore.test.ts`: sửa file, tạo file, `git commit`,
+  restart giữa lượt; HEAD và cây bằng mốc (SC-005). Thêm: deputy `continue` giữa lượt thì worker chưa được dispatch cho tới
+  khi restore xong, nên commit của worker không bị xóa; chặn còn nguyên sau restart (FR-017).
+- [ ] T028 [P] Integration test nâng cấp `test/integration/runtime/deputy-upgrade.test.ts`: bản ghi decider dở được đóng
+  `superseded`, reservation đúng; `DeciderRan` cũ replay được; config có `roles.decider` nạp được kèm cảnh báo (SC-008).
 
-  Mỗi thao tác ghi actor `deputy` và lý do.
-- [ ] T022 [P] [US2] Viết contract test `test/contract/cli/amend-policy-deputy.test.ts`:
-  - `--agent-runs +N`, `--deadline <ISO|+duration>`, `--model` không bắt buộc khi đã có một trong hai;
-  - `agent_runs_insufficient` chỉ gỡ được bằng `--agent-runs`;
-  - `--confirm` chạy được với `operate`;
-  - `allow_models` và `above: deny` vẫn chặn (FR-031, FR-033).
+### Implementation
 
-### Implementation for User Story 2
+- [ ] T029 [US1] `src/daemon/deputy.ts` thay `decider.ts`: `round()` tìm sự cố theo `routeOf`, tôn trọng FR-014, ghi
+  baseline và `deputy_turns` trước khi spawn, chạy `RunnerHarness` headless với `CUSR_DEPUTY_TURN`, `adopt` sau restart,
+  `holds`/`version` cho attention. Dispatcher bỏ qua effect ghi worktree của task có lượt chưa restore xong (R-08).
+  Context ở lát này dựng tạm từ sự cố và lịch sử task (vùng 1, 3, 5); lát D thay bằng
+  `deputy-context.ts` đầy đủ.
+- [ ] T030 [US1] Lệnh `deputy handoff` (`src/application/commands.ts`, `src/cli/`): chỉ actor `deputy` có lượt chạy; ghi
+  `handoff_json` qua `setHandoff`, không sinh event; schema ở [contracts/deputy-turn.md](contracts/deputy-turn.md#bàn-giao).
+- [ ] T031 [US1] Xử lý sau lượt theo [hợp đồng](contracts/deputy-turn.md#daemon-sau-lượt) bước 1–3 và 5: trả worktree,
+  `aborted` khi thiếu bàn giao, `handed_off`/`done`, lỗi theo FR-024 (R-12). Bước 4 (loop guard) ở lát C.
+- [ ] T032 [US1] Attention và inbox (`src/application/attention.ts`, `src/application/inbox.ts`): `Deputy.holds` thay
+  `Decider.holds`; sự cố `handed_off` hiện kèm bàn giao và `final_message`.
+- [ ] T033 [US6] Kiểm phạm vi và bảng quyền trong `admitCommand` (FR-051): `turnGoal(turn_id)` so với goal của task (ở lát
+  này goal ẩn = chính task); bảng quyền FR-034.
+- [ ] T034 [US7] Bỏ đường decider trong `src/engine/questions.ts` cho câu hỏi mới, giữ replay; câu hỏi của worker là sự
+  cố loại `question` của deputy; bỏ quy tắc một câu trả lời mỗi step và nhãn `grill` (FR-120).
+- [ ] T035 [US7] Mục giả định trong mô tả PR (`src/adapters/github/publish.ts`), dựng từ câu trả lời của deputy (R-14).
+- [ ] T036 Nâng cấp từ decider (R-13) trong `src/daemon/production.ts`; alias config `roles.decider` (FR-121, FR-122).
+- [ ] T037 `task show`/`explain` có `deputy` khi có lượt chạy (FR-026).
+- [ ] T038 `cusr doctor` báo binding, harness, manifest của deputy (FR-124).
 
-- [ ] T023 [US2] Mở rộng `CONTINUABLE` và `onContinue` trong `src/engine/continue.ts`, thêm `agent_runs_exhausted`,
-  `deadline`, `backoff_exhausted`, `ci_wait_exhausted`:
-  - `backoff_exhausted`: reset bộ đếm lỗi của lớp đó ở step;
-  - `ci_wait_exhausted`: mở cửa sổ chờ CI mới với độ dài đã đóng băng;
-  - `agent_runs_exhausted` và `deadline`: chỉ continue được sau khi `amend-policy` đã nới. Nếu chưa nới, từ chối với lý
-    do rõ ràng.
-
-  Sửa doc comment của `CONTINUABLE` cho khớp (FR-030, FR-032).
-- [ ] T024 [US2] Thêm `--agent-runs +N` và `--deadline <ISO|+duration>` vào `src/application/amend-policy.ts` và
-  `src/cli/tasks.ts`. `--model` không bắt buộc khi có một trong hai. Áp dụng ghi `PolicyAmended` kèm actor và lý do (I08).
-  Engine (`src/engine/evolve.ts` và phần xử lý `PolicyAmended`) cộng ngân sách hoặc dời timer `deadline`, và gỡ
-  `agent_runs_insufficient` chỉ khi có `agent_runs_delta` (FR-031).
-- [ ] T025 [US2] Hạ `REQUIRED_ROLE.task_amend_policy` từ `admin` xuống `operate` trong `src/application/commands.ts`.
-  Kiểm lại `src/daemon/task-control.ts` không còn đòi `admin` (FR-033).
-- [ ] T026 [US2] Cập nhật `allowed_actions` của `cusr task explain` (`src/explain/`) để các wait mới gợi ý `continue`,
-  `amend-policy --agent-runs/--deadline` và `task fail`.
-
-**Checkpoint**: Mọi wait cạn trần có lệnh gỡ hoặc kết thúc mà một caller `operate` dùng được. Story 2 chạy với caller giả
-lập.
-
----
-
-## Phase 4: User Story 1 — Task kẹt về vận hành được gỡ mà không chờ chủ dự án (Priority: P1) 🎯 MVP
-
-**Goal**: Component `deputy` của daemon chạy headless và thay decider: định tuyến sự cố, mở phiên, ghi lượt, chạy qua
-runner, trả worktree về mốc, chuyển cho người khi cần, xử lý lỗi, nhận lại lượt sau restart.
-
-**Independent Test**: Với fake harness, đưa task vào từng mã wait mà FR-001 định tuyến tới deputy. Deputy fake gọi
-`continue` hoặc `approve`, task chạy tiếp và không có attention nào tới chủ dự án. Mã loại trừ thì attention tới chủ dự
-án như hiện nay.
-
-### Tests for User Story 1 ⚠️
-
-- [ ] T027 [P] [US1] Viết scenario `test/scenarios/deputy/us1.test.ts` cho acceptance 1–4:
-  1. `ladder_exhausted` đánh thức deputy, không đánh thức trợ lý (FR-005);
-  2. deputy duyệt nâng nấc, approval ghi actor `deputy` và lý do;
-  3. các mã bị loại trừ không đánh thức deputy;
-  4. hết lượt mà task vẫn ở đúng wait thì `handed_off` và attention mang `final_message`.
-
-  Thêm hai trường hợp: không có role `deputy` thì `ladder_exhausted` kết thúc bằng `task fail` với actor
-  `system:deputy-absent`; có role nhưng deputy không khởi động được thì task không tự FAILED (FR-004).
-- [ ] T028 [P] [US1] Viết property test `test/property/deputy/turn-state.test.ts` cho vòng đời lượt trong
-  [data-model](data-model.md#vòng-đời-lượt):
-  - chỉ có các chuyển trạng thái đã vẽ;
-  - mọi chuyển sang `done`, `handed_off` hoặc `stopped` đều restore worktree trước;
-  - không bao giờ có hai lượt `running` hoặc `retry_wait` cho cùng task.
-- [ ] T029 [P] [US1] Viết contract test `test/contract/deputy/restore.test.ts` trên git thật. Deputy fake sửa file, xóa
-  file, tạo file mới, `git commit`, và daemon restart giữa lượt. Sau mọi trường hợp, HEAD và cây worktree bằng đúng mốc;
-  file ignored giữ nguyên (FR-053, SC-005).
-- [ ] T030 [P] [US1] Viết integration test crash `test/integration/crash/deputy.test.ts`. Crash injection ở mọi điểm:
-  trước khi ghi lượt, sau khi ghi lượt và trước spawn, trong lượt, sau `turn_ended` và trước restore, sau restore và
-  trước `finishTurn`. Kỳ vọng không có lượt thứ hai cho cùng sự cố và không lặp lệnh ghi nào (SC-004).
-- [ ] T031 [P] [US1] Viết integration test `test/integration/runtime/deputy-failures.test.ts` cho FR-024:
-  - `rate_limited` chờ tới `reset_at`, sự cố vẫn thuộc deputy;
-  - `auth`, `refused`, `capability_missing`, thiếu harness thì `handed_off` ngay, có lý do;
-  - lỗi hạ tầng retry theo `limits.backoff.infra` của task, không có trần mặc định, chạm `infra_retries` đã khai thì
-    `handed_off`;
-  - không bộ đếm nào của task tăng (FR-025).
-- [ ] T032 [P] [US1] Viết integration test `test/integration/runtime/deputy-upgrade.test.ts` cho FR-072 và SC-008:
-  - bản ghi decider dở trong `recordsDir` được đóng bằng `decider_ran { apply: false, failure: 'superseded', invoked }`;
-  - reservation được dùng hoặc trả tùy `invoked`;
-  - `decider_start` mới bị từ chối;
-  - `DeciderRan` cũ vẫn replay được;
-  - config có `roles.decider` nạp được và có cảnh báo đổi tên.
-
-### Implementation for User Story 1
-
-- [ ] T033 [US1] Thêm `roles.deputy { binding, limits: { infra_retries?, wall_ms?, stall_ms? } }` vào
-  `src/config/schema-user.ts`. `roles.decider` đọc như alias của `deputy` và có cảnh báo; khai cả hai thì báo lỗi. Bỏ
-  ràng buộc "autonomous cần role decider" ở `src/config/checks.ts` (FR-071). Test ở
-  `test/unit/config/deputy-role.test.ts`.
-- [ ] T034 [US1] Thêm `src/daemon/deputy-prompt.ts`, dựng prompt của lượt bằng code theo thứ tự cố định của
-  [hợp đồng lượt](contracts/deputy-turn.md#prompt-của-lượt):
-  1. văn bản vai trò cố định (FR-035, FR-054);
-  2. thông tin task;
-  3. bản tóm tắt khi `seeded`;
-  4. thao tác của actor khác kể từ lượt trước (FR-017);
-  5. sự cố và `allowed_actions`.
-
-  Prompt đi qua `Redactor`. Test snapshot ở `test/unit/daemon/deputy-prompt.test.ts`.
-- [ ] T035 [US1] Thêm `src/daemon/deputy.ts` thay `src/daemon/decider.ts`, cùng khuôn `round()`/`holds()`/`version()`:
-  - `round()` quét task WAITING, gọi `routeOf`; không có role `deputy` mà wait là cạn trần thì gửi `task_fail` với actor
-    `system:deputy-absent` (R-11);
-  - với sự cố tới deputy: mở `deputy_sessions` khi chưa có (FR-010); task đang có lượt thì sự cố mới chờ (FR-018);
-  - ghi baseline `deputy-baseline-<turn_id>.json` bằng `WorktreeBaselineSchema` theo khuôn `reviewBaselineFile` trong
-    `src/daemon/handlers.ts`, bỏ qua khi task chưa có worktree;
-  - `startTurn` trước khi spawn;
-  - gọi `HarnessPort.run` với `role: 'deputy'`, `session`, `env.CUSR_DEPUTY_TURN`, cwd là data dir và `view.title` là
-    `deputy: <tiêu đề>`;
-  - lượt không giữ reservation ngân sách.
-
-  Phụ thuộc T010, T018, T020, T033, T034.
-- [ ] T036 [US1] Xử lý sau lượt trong `src/daemon/deputy.ts` theo [hợp đồng lượt](contracts/deputy-turn.md#daemon-sau-lượt):
-  1. gọi `restoreWorktree` (`src/adapters/git/restore.ts`);
-  2. so `incident` với wait hiện tại: còn nguyên thì `handed_off` với `still_waiting` và `final_message` đã che secret,
-     không thì `done`;
-  3. ánh xạ lỗi theo R-12 và FR-024, đếm `infra_failures` trong bản ghi lượt;
-  4. cập nhật `deputy_sessions.session_ref`.
-
-  Restore thất bại thì ghi log và để bước worker kế tiếp vào `worktree_changed` như reviewer.
-- [ ] T037 [US1] Thêm `adopt` và `recover` cho `src/daemon/deputy.ts`. Lúc khởi động, mọi lượt `running` được nhận lại qua
-  `RunnerHarness.recover`, không bao giờ spawn lại. Lượt đã xong thì restore worktree rồi kết thúc như T036. Lượt
-  `retry_wait` chạy lại khi tới `retry_at` (II, SC-004).
-- [ ] T038 [US1] Đọc lại binding mỗi lần đánh thức (FR-016). Cùng harness thì resume `session_ref`. Khác harness hoặc
-  phiên mất thì `session: null`, `seeded = 1`, và prompt có bản tóm tắt do code dựng từ lịch sử task và các quyết định
-  deputy trước đó. Hàm dựng tóm tắt đặt ở `src/daemon/deputy-prompt.ts`.
-- [ ] T039 [US1] Khi task kết thúc, dừng lượt đang chạy (`stopped`), restore worktree và `closeSession` (FR-019). Lệnh muộn
-  của deputy bị từ chối vì lượt không còn `running` (T015).
-- [ ] T040 [US1] Thay `DeciderWatch` bằng `DeputyWatch` trong `src/application/attention.ts`. Sự cố tới deputy không tạo
-  attention, trừ khi lượt của nó là `handed_off`; khi đó attention kèm `final_message`. `version()` đổi khi cờ
-  `autonomous` hoặc bản ghi lượt đổi, để attention tính lại (FR-005, R-04). Sửa inbox (`src/application/inbox.ts`) theo cùng
-  quy tắc.
-- [ ] T041 [US1] Cài settings của private home cho role `deputy` trong `src/runner/private-home.ts`. Harness hỗ trợ luật
-  theo đường dẫn thì cấm `Edit`/`Write` trên `<data dir>/worktrees/**`. Chạy toàn quyền tool, không hỏi quyền (FR-053,
-  FR-054). Hook của chủ dự án được giữ.
-- [ ] T042 [US1] Đổi chỗ nối trong `src/daemon/production.ts` từ `createDecider` sang `createDeputy`. Lúc khởi động đầu tiên,
-  đóng bản ghi decider dở theo R-13 rồi xóa `recordsDir`. Trong `src/domain/trigger.ts` và engine, `decider_start` từ
-  chối mọi yêu cầu mới, `decider_ran` chỉ nhận cho attempt đã có reservation. `evolve` giữ nhánh `DeciderRan` để replay
-  (FR-072). Xóa `src/daemon/decider.ts` sau khi T032 xanh.
-- [ ] T043 [US1] Thêm kiểm tra deputy vào `cusr doctor` (`src/application/doctor.ts`): binding, harness, manifest và
-  terminal backend, mỗi mục có trạng thái và gợi ý sửa (FR-073). Test ở `test/unit/application/doctor-deputy.test.ts`.
-
-**Checkpoint**: Deputy headless gỡ được mọi sự cố vận hành, chuyển cho người đúng lúc, sống qua restart, không để lại
-thay đổi trong worktree. Đây là MVP: lát A và B giao được mà chưa cần lượt tương tác.
+**Checkpoint**: deputy headless gỡ mọi sự cố của task; decider đã bị thay.
 
 ---
 
-## Phase 5: User Story 5 — Chủ dự án và deputy cùng thao tác trên một task (Priority: P2)
+## Phase 4: Lát C — vòng lặp, chống lặp và bản miễn (US2)
 
-**Goal**: Thao tác của chủ dự án luôn thắng. Bản ghi lượt không bao giờ làm lệnh của chủ dự án bị từ chối.
+**Goal**: Trần thành điểm đánh giá lại; code tính tín hiệu, chặn lặp, cho miễn có bằng chứng.
 
-**Independent Test**: Trong lúc deputy fake đang trong lượt, chủ dự án gửi một lệnh. Lệnh tiếp theo của deputy với
-version cũ bị từ chối. Lệnh của chủ dự án không bị từ chối vì lượt bắt đầu hay kết thúc. Lần đánh thức sau, deputy thấy
-thao tác của chủ dự án.
+**Independent Test**: quickstart kịch bản US2.
 
-### Tests for User Story 5 ⚠️
+### Tests
 
-- [ ] T044 [P] [US5] Viết scenario `test/scenarios/deputy/us5.test.ts` cho acceptance 1–3 và SC-006:
-  - lệnh của deputy với version cũ bị từ chối `conflict`;
-  - lệnh của chủ dự án với version vừa đọc không bị từ chối khi lượt bắt đầu hay kết thúc;
-  - `task show` thấy `deputy: { turn_id, incident, state, started_at }`.
+- [ ] T039 [P] [US2] Property test chữ ký lỗi `test/property/deputy/signature.test.ts`: cùng bằng chứng sau chuẩn hóa cho
+  cùng chữ ký; log chỉ khác số dòng, thời gian, đường dẫn tạm cho cùng chữ ký; lỗi khác cho chữ ký khác.
+- [ ] T040 [P] [US2] Property test tín hiệu `test/property/deputy/loop-signals.test.ts` cho từng tín hiệu của FR-040 trên
+  lịch sử dựng từ T003.
+- [ ] T041 [P] [US2] Property test loop guard `test/property/deputy/loop-guard.test.ts`: ba luật của FR-043; chỉ thị mới và
+  plan version mới là bằng chứng mới; SC-009: mọi chuỗi lệnh không có tiến triển dừng sau số lệnh hữu hạn có chặn trên
+  tính từ cấu hình, và chỉ còn `task fail`/`handover`; chỉ dẫn khác lời không mở thêm lượt; sửa kế hoạch do deputy áp
+  không là bằng chứng mới; task thay thế một khóa đơn vị kế thừa bảng thử (chuỗi fail → thay → fail vẫn hữu hạn).
+- [ ] T042 [P] [US2] Property test bản miễn `test/property/deputy/waivers.test.ts`: review mà mọi finding chặn đã được miễn
+  thì approve; gate được miễn chỉ qua khi đúng chữ ký; check được miễn chỉ qua ở đúng head, tên và nguồn, head mới thì
+  không; đánh giá check dùng chung cho engine và guard của yolo; không áp khi `base_branch` thuộc `protected_branches`.
+- [ ] T043 [P] [US2] Scenario `test/scenarios/deputy/us2.test.ts`: sáu kịch bản của US2.
 
-### Implementation for User Story 5
+### Implementation
 
-- [ ] T045 [US5] Thêm trường `deputy: { turn_id, incident, state, started_at } | null` vào view của `task show` và
-  `task explain` (`src/application/queries.ts`, `src/explain/`, `src/cli/render.ts`), đọc từ `runningTurn` (FR-023).
-- [ ] T046 [US5] Lọc thao tác cho FR-017 trong `src/daemon/deputy-prompt.ts`: lấy mọi event lệnh của task kể từ
-  `started_at` của lượt trước, có actor khác deputy của chính task này. Mỗi dòng có thời điểm, actor, lệnh, lý do.
-  Thêm trường hợp vào `test/unit/daemon/deputy-prompt.test.ts`.
+- [ ] T044 [US2] Khóa finding (R-18): schema output reviewer có `key`; context của reviewer có finding còn mở kèm khóa;
+  khóa dự phòng từ `file` và hash `msg`. Sửa `src/domain/state.ts`, schema output, template reviewer.
+- [ ] T045 [US2] `src/engine/failure-signature.ts` (thuần) theo R-18. T039 phải xanh.
+- [ ] T046 [US2] `src/engine/loop-signals.ts` (thuần) theo FR-040. T040 phải xanh.
+- [ ] T047 [US2] `src/engine/trials.ts`: bảng thử khóa theo `(goal_id, unit_key, signature)` từ command ledger và chuỗi
+  sự cố của mọi task từng giữ khóa đơn vị; `loopGuard` với định nghĩa bằng chứng mới của FR-043. Daemon đọc bảng thử và đưa
+  vào `admitCommand` (lệnh của deputy) như dữ liệu. T041 phải xanh.
+- [ ] T048 [US2] Bắt buộc `trial` với lệnh gia hạn của deputy (FR-042) và áp `loopGuard` trong `admitCommand`, trả lỗi đúng
+  [contracts/cli-daemon.md](contracts/cli-daemon.md#danh-tính-và-quyền).
+- [ ] T049 [US2] Loop guard sau lượt (bước 4 của hợp đồng lượt): `task_fail` actor `system:loop-guard` (FR-044).
+- [ ] T050 [US2] Lệnh `task_waive` và event `Waived` (FR-045); `src/engine/waivers.ts` áp hiệu lực trên review, gate, CI
+  theo phạm vi của R-20; `ReviewWaived`, `GateResult.waived`. Tách hàm đánh giá check dùng chung cho `ciVerdict` và
+  `currentChecksProblem` của yolo. T042 phải xanh.
+- [ ] T050a [US2] Effect `github.update_pr_body` sau `Waived` khi task đã có PR; bước merge chờ tới khi thân PR được đối
+  chiếu có bản miễn (FR-046). Contract test ở `test/contract/deputy/waiver-pr-body.test.ts`.
+- [ ] T051 [US2] Context của lượt có tín hiệu, chữ ký và bảng thử (vùng 3); lệnh khả dụng ghi rõ lệnh sẽ bị loop guard từ
+  chối (vùng 5).
+- [ ] T052 [US2] Vai trò của deputy (văn bản cố định): bảng nguyên nhân → hành động, luật chống lặp, bắt buộc bàn giao.
+- [ ] T053 [US2] `task explain` có `loop_signals`, `signature`, `waivers`.
 
-**Checkpoint**: US1, US2 và US5 cùng chạy. Hai bên chạm cùng một task không làm hỏng nhau.
-
----
-
-## Phase 6: User Story 3 — Câu hỏi về spec của worker theo cờ `autonomous` (Priority: P2)
-
-**Goal**: Câu hỏi của worker tới deputy khi `autonomous` bật, tới chủ dự án khi tắt. Đổi cờ thì câu hỏi đang mở được
-định tuyến lại. Giả định của deputy hiện trong mô tả PR.
-
-**Independent Test**: Tạo `agent_question` khi `autonomous` tắt, rồi bật cờ. Kiểm tra câu hỏi được định tuyến lại tới
-deputy, câu trả lời mang actor `deputy`, và mục giả định có trong thân PR ở lần publish kế tiếp.
-
-### Tests for User Story 3 ⚠️
-
-- [ ] T047 [P] [US3] Viết scenario `test/scenarios/deputy/us3.test.ts` cho acceptance 1–4:
-  - cờ bật thì nhiều câu hỏi ở cùng step đều tới deputy;
-  - cờ tắt thì câu hỏi tới chủ dự án, sự cố vận hành của cùng task vẫn tới deputy;
-  - bật cờ giữa chừng thì câu hỏi đang mở được định tuyến lại, trừ câu đang trong lượt và câu đã `handed_off` (FR-003);
-  - thân PR có mục giả định.
-
-### Implementation for User Story 3
-
-- [ ] T048 [US3] Bỏ quy tắc "sau một câu trả lời của decider, câu hỏi tiếp ở cùng step chờ người" và nhãn `grill` khỏi
-  `src/engine/questions.ts` (FR-070). Xóa `WORKER_WAITS` khỏi đường đi mới; chỉ giữ những gì replay `DeciderRan` cần.
-  Cập nhật các test của decider đang dựa vào quy tắc này.
-- [ ] T049 [US3] Trong `src/daemon/deputy.ts`, đọc cờ `autonomous` lúc định tuyến (đọc lại mỗi 30 giây như
-  `currentUser('autonomous')` trong `src/daemon/production.ts`). Đổi cờ thì định tuyến lại câu hỏi đang mở theo FR-003.
-- [ ] T050 [US3] Thêm mục "Quyết định của deputy" vào hàm dựng thân PR trong `src/adapters/github/publish.ts`. Mục do code
-  dựng, đặt trước marker block, liệt kê câu trả lời cho câu hỏi về spec, `amend-policy` và `continue` của actor `deputy`
-  (FR-061, R-14). Probe so khớp toàn thân vẫn đúng. Contract test ở `test/contract/github/publish-deputy-section.test.ts`.
-
-**Checkpoint**: Deputy trả lời câu hỏi về spec theo cờ; chủ dự án thấy giả định trong PR.
+**Checkpoint**: deputy không lặp được cùng hành động khi không có tiến triển; bản miễn có hiệu lực và có dấu vết.
 
 ---
 
-## Phase 7: User Story 4 — Nhờ deputy viết task và chọn agent (Priority: P2)
+## Phase 5: Lát D — goal, kế hoạch, lease và sổ goal (US3 phần kế hoạch, US5, US6 phần goal)
 
-**Goal**: `task add --draft` tạo task chờ deputy viết. Deputy hoàn thiện bằng `task revise` và `task propose`. Chủ dự án
-luôn là người xác nhận.
+**Goal**: Giao việc bằng goal; deputy lập kế hoạch; duyệt một lần; sửa có phân loại; trao đổi từ mọi phiên.
 
-**Independent Test**: Tạo task bằng `task add --draft`. Kiểm tra deputy được đánh thức, task có mô tả và run config do
-deputy đề xuất, task chờ xác nhận, và lệnh xác nhận từ deputy bị từ chối.
+**Independent Test**: quickstart kịch bản US3 (kế hoạch) và US5.
 
-### Tests for User Story 4 ⚠️
+### Tests
 
-- [ ] T051 [P] [US4] Viết scenario `test/scenarios/deputy/us4.test.ts` cho acceptance 1–4:
-  - task nháp tới `needs_draft`, deputy `revise` rồi `propose`, task chờ xác nhận;
-  - agent do chủ dự án chỉ định được giữ;
-  - chủ dự án sửa trước khi xác nhận thì lần đánh thức sau deputy thấy bản đã sửa;
-  - `task confirm` của deputy bị từ chối `forbidden` với `reason: 'deputy_confirm'`, exit 5.
+- [ ] T054 [P] [US3] Property test kế hoạch `test/property/deputy/plan.test.ts`: `validatePlan` theo bảng lỗi của
+  [contracts/goal.md](contracts/goal.md#kiểm-tra-validateplan); hash ổn định với thứ tự khóa; `parallelGroups` là tầng
+  đúng của DAG; `classifyAmendment` theo bảng; `affectedUnits` bắc cầu.
+- [ ] T055 [P] [US3] Integration test aggregate goal `test/integration/store/goal-aggregate.test.ts`: lệnh goal qua
+  `accept` với request ID và expected version; projection `goals` và `goal_tasks`; replay ra cùng `GoalState`.
+- [ ] T056 [P] [US3] Scenario `test/scenarios/deputy/us3-plan.test.ts`: kịch bản 1–4, 8, 9 của US3; xác nhận tạo task đã
+  xác nhận intake và run config; goal một đơn vị không có nhánh goal; đổi `description` là sửa phạm vi, đổi `instructions`
+  là sửa thực thi.
+- [ ] T057 [P] [US5] Scenario `test/scenarios/deputy/us5.test.ts`: đọc không cần lease; ghi goal không lease bị
+  `lease_required`; sau khi lấy lease thì ghi được và tin tới phiên đó; không phiên nào mở thì goal vẫn chạy.
+- [ ] T058 [P] [US6] Scenario `test/scenarios/deputy/us6-goal.test.ts`: `goal revise` giữa lượt `plan` làm `goal propose` cũ
+  bị `plan_version` và mở lượt `plan` mới; hai `goal amend` cùng plan version chỉ một được nhận.
+- [ ] T059 [P] Property test context `test/property/deputy/context.test.ts` (SC-010): vùng 3–5 trong ngân sách với mọi
+  lịch sử; vùng 2 đủ; thứ tự vùng cố định; vùng 2 giống hệt giữa hai lượt khi yêu cầu, chỉ thị và kế hoạch không đổi.
 
-  Thêm hai trường hợp theo FR-043 và FR-052: `intake.auto_confirm` có `assistant` không làm task nháp tự xác nhận; task do deputy tạo
-  bằng `task add` thường vẫn chờ xác nhận.
-- [ ] T052 [P] [US4] Viết contract test `test/contract/cli/task-revise.test.ts`: `task revise` sửa được tiêu đề, mô tả và
-  acceptance trước khi policy đóng băng; sau đó trả `transition_not_allowed`, exit 6.
+### Implementation
 
-### Implementation for User Story 4
+- [ ] T060 [US3] `src/domain/goal.ts`: `GoalState`, `PlanSchema`, event của goal. `src/engine/plan.ts` (thuần). T054 phải
+  xanh.
+- [ ] T061 [US3] Aggregate goal: `src/engine/goal/` (decide/evolve), đường `accept` cho `stream = 'goal'`,
+  `src/store/goals.ts` (projection). Lọc `stream = 'task'` ở mọi chỗ T001 liệt kê. T055 phải xanh.
+- [ ] T062 [US3] Lệnh goal (`src/application/commands.ts`, `src/cli/goal.ts`): `add`, `revise`, `note`, `propose`, `amend`,
+  `confirm`, `cancel`, `show`, `list` theo [contracts/goal.md](contracts/goal.md); `task add` tạo goal ẩn (FR-070).
+- [ ] T063 [US3] Xác nhận kế hoạch (FR-074): trong một transaction ghi `PlanConfirmed` và trigger `task_add` nội bộ cho mỗi
+  đơn vị với `goal` (gồm `depends_on_units`), run config đã xác nhận theo digest kế hoạch. Lát này dùng `base_branch` là nhánh gốc cho
+  mọi đơn vị; lát E đổi sang nhánh goal.
+- [ ] T064 [US3] Sửa kế hoạch (FR-075): thực thi áp ngay và cập nhật `depends_on`, run config của task đơn vị chưa bắt đầu
+  hay đang ở ranh giới step; phạm vi vào `amendment_pending`, đơn vị bị chạm vào wait `plan_amendment` ở ranh giới step kế
+  tiếp.
+- [ ] T065 [US5] Lease cho lệnh goal của trợ lý (FR-101, R-26): `x-cusr-lease`, kiểm ở `admitCommand`; tin của goal qua
+  attention (FR-102).
+- [ ] T066 [US3] `src/application/goal-ledger.ts` và `src/application/deputy-context.ts` theo FR-060–FR-064 và
+  [contracts/deputy-turn.md](contracts/deputy-turn.md#context-của-lượt); thay context tạm của T029. T059 phải xanh.
+- [ ] T067 [US3] Lượt `plan` trong `deputy.ts` (FR-006): mở khi goal `planning` hay `replan`, tối đa một mỗi goal; không có
+  role `deputy` thì không mở và tin "goal cần kế hoạch" tới phiên giữ lease.
+- [ ] T068 [US3] Phạm vi lượt mở rộng tới goal (FR-051): lượt của một đơn vị được thao tác trên mọi task và kế hoạch của
+  goal đó; goal ẩn chỉ có một task.
+- [ ] T069 [US3] `goal show` (FR-073): kế hoạch đầy đủ, nhóm song song, version, hash, tiến độ từng đơn vị, sự cố đang mở,
+  lượt đang chạy.
+- [ ] T070 Task có trước nâng cấp là goal ẩn khi đọc (FR-123). Test ở `test/integration/runtime/legacy-task-goal.test.ts`.
 
-- [ ] T053 [US4] Hỗ trợ `draft: true` trong `task_add`:
-  - triage đưa task vào PENDING `needs_draft`, không chạy preflight (`src/engine/intake.ts`, `src/application/triage.ts`);
-  - `src/daemon/pending-preflight.ts` bỏ qua task ở `needs_draft`;
-  - `routeOf` đưa `needs_draft` tới deputy, và phiên tạo lúc này là phiên của task về sau (FR-041, FR-044).
-
-  CLI: `cusr task add --draft` ở `src/cli/tasks.ts`.
-- [ ] T054 [US4] Thêm lệnh `operate` `task_revise` với payload `{ title?, description?, acceptance? }`, chỉ nhận trước khi
-  policy đóng băng. Lệnh phát `TaskRevised` như `source_updated` trong `src/engine/intake.ts`, rồi đưa task qua triage
-  như `task confirm` mà không xác nhận (FR-042, R-10). Phía ứng dụng ở `src/application/commands.ts`,
-  `src/application/queries.ts`; CLI `cusr task revise` ở `src/cli/tasks.ts`.
-- [ ] T055 [US4] `admitCommand` từ chối `task_confirm` và mọi lệnh xác nhận run config khi actor là `deputy`, trên mọi
-  task, với `forbidden` và `reason: 'deputy_confirm'` (FR-043).
-- [ ] T056 [US4] Đặt requester kind `deputy` cho task deputy tạo (`buildNewTask` trong `src/application/queries.ts`). Áp
-  dụng chặn `intake.auto_confirm` theo R-15:
-  - `taskAdd` không đặt `intake_auto_confirm` khi `draft: true` hoặc requester kind là `deputy`;
-  - `src/config/validate.ts` báo lỗi khi `intake.auto_confirm` có `deputy` (FR-052).
-
-**Checkpoint**: Trợ lý nhờ deputy viết task được. Không đường nào cho task chạy mà chủ dự án chưa xác nhận.
-
----
-
-## Phase 8: User Story 6 — Xem deputy đã làm gì (Priority: P3)
-
-**Goal**: Quyết định của deputy hiện ở `decisions.md`, `cusr report`, chi tiết task và lịch sử (lát E). Chủ dự án xem
-và gõ được vào phiên tương tác của deputy trong terminal backend (lát C, hoàn tất FR-012–FR-014).
-
-**Independent Test**: Sau một loạt quyết định của deputy fake, `decisions.md`, `cusr report` và chi tiết task đều cho
-thấy chúng, mỗi quyết định gắn với sự cố qua `turn_id`. Có tmux thì cửa sổ `deputy: <tiêu đề>` xuất hiện và tự đóng khi
-hết lượt.
-
-### Tests for User Story 6 ⚠️
-
-- [ ] T057 [P] [US6] Viết scenario `test/scenarios/deputy/us6.test.ts` cho acceptance 1 và SC-007. Mỗi quyết định có
-  `at`, `task_id`, `incident`, `kind`, `reason`, `turn_id` trong `report` và `decisions.md`. Câu trả lời `agent:decider`
-  cũ vẫn hiện.
-- [ ] T058 [P] [US6] Viết contract test `test/contract/deputy/turn-end-hook.test.ts`, dùng script giả lập harness tương
-  tác:
-  - hook ghi `turn-ended.json` thì runner gửi TERM sau `term_grace_ms` và trả `turn_ended` có `final_message`;
-  - `recover` đọc lại file mà không spawn lại;
-  - hook của chủ dự án trong settings vẫn chạy.
-- [ ] T059 [P] [US6] Viết contract test `test/contract/deputy/stall.test.ts`. Phiên tương tác không ghi `turn-ended.json`
-  và không có hoạt động trong `stall_ms` thì process bị dừng, rồi cùng `session_ref` chạy headless cho cùng sự cố, không
-  có lượt thứ hai (FR-014, SC-003). Thêm trường hợp không có terminal backend: chạy headless ngay từ đầu.
-
-### Implementation for User Story 6 — ghi nhận (lát E)
-
-- [ ] T060 [US6] Dựng `decisions.md` từ event có actor `deputy` join `deputy_turns` qua `turn_id`. Chuyển logic rewrite
-  `decisions.md` từ `src/daemon/decider.ts` sang module dùng chung, ví dụ `src/application/decisions.ts`. Giữ các mục
-  `agent:decider` cũ (FR-060).
-- [ ] T061 [US6] Thay `decider_answers` bằng `deputy_decisions` trong `src/application/report.ts` và `src/cli/report.ts`,
-  vẫn đưa cả `agent:decider` cũ vào (FR-060).
-- [ ] T062 [US6] Hiện `reason` và `turn_id` của mỗi lệnh trong lịch sử task (`cusr task show --history`, `src/cli/render.ts`).
-
-### Implementation for User Story 6 — lượt tương tác (lát C)
-
-- [ ] T063 [US6] Thêm `interactiveArgv(input)` vào adapter harness theo kết luận của T002:
-  - Claude (`src/adapters/harness/claude.ts`): `claude --resume <session> [--model …] "<prompt>"`, không có `-p`;
-  - Codex (`src/adapters/harness/codex.ts`): `codex resume <session> "<prompt>"`.
-
-  Harness không có argv tương tác (pi, fake) trả `null`.
-- [ ] T064 [US6] Cài hook hết lượt trong `src/runner/private-home.ts`, gộp với hook của chủ dự án, không thay thế:
-  - Claude: hook Stop;
-  - Codex: `notify`.
-
-  Hook ghi `<run dir>/turn-ended.json` dạng `{ turn_id, final_message|null }` và lấy tin nhắn cuối từ nguồn đã chốt ở T002
-  (FR-013).
-- [ ] T065 [US6] Thêm chế độ tương tác trong `src/runner/invocation.ts`:
-  - chạy dưới terminal backend (`src/runner/terminal-host.ts`) khi `input.interactive`;
-  - theo dõi `turn-ended.json` như file kết quả, gửi TERM sau `term_grace_ms`, finalize run dir, trả `turn_ended`;
-  - headless trả `turn_ended` với tin nhắn cuối lấy từ stream;
-  - `recover` đọc lại `turn-ended.json`.
-
-  T058 phải xanh.
-- [ ] T066 [US6] Chọn chế độ trong `src/daemon/deputy.ts`: `interactive` khi terminal backend khả dụng và adapter có
-  `interactiveArgv`, ghi `mode` vào bản ghi lượt. Stall ở chế độ tương tác thì chạy lại cùng sự cố ở chế độ headless với
-  cùng `session_ref`. Lượt headless treo được coi là lỗi hạ tầng (FR-024c). T059 phải xanh.
-
-**Checkpoint**: Chủ dự án đọc được mọi quyết định của deputy ở những chỗ quen dùng, và xem được phiên đang chạy.
+**Checkpoint**: giao goal, duyệt kế hoạch một lần, sửa kế hoạch có phân loại, đọc tiến độ từ mọi phiên; đơn vị vẫn mở PR
+vào nhánh gốc.
 
 ---
 
-## Phase 9: Polish & Cross-Cutting Concerns — đồng bộ tài liệu và smoke (lát F)
+## Phase 6: Lát E — nhánh goal, tích hợp và task tổng (US3 phần tích hợp)
 
-**Purpose**: Đồng bộ tài liệu vận hành với hành vi đã có, kiểm bằng harness thật, và lập acceptance report.
+**Goal**: Goal nhiều đơn vị chạy xuyên đêm tới một PR xanh vào nhánh gốc.
 
-- [ ] T067 [P] Đồng bộ `SPEC.md` theo danh sách ở cuối [spec](spec.md#tác-động-lên-hiến-chương-và-spec):
-  - §4 (I09);
-  - §9.3 và §15.1: `amend-policy` thành `operate`, `task revise`, `task add --draft`, `task fail`, `--reason`,
-    `continue`/`amend-policy` mở rộng, dòng `cusr report`;
-  - §10: câu "không agent nào tự quyết thay" và đoạn Autonomous;
-  - §14.1: "scout và decider chỉ đọc";
-  - §15.2: actor `deputy`, mốc và trả về worktree như reviewer.
-- [ ] T068 [P] Sửa mục Autonomous trong `deploy/README.md`: bỏ dòng mỗi lượt giữ một reservation của
-  `budget.agent_runs`, thêm role `deputy` cùng limits `infra_retries`, `wall_ms`, `stall_ms`, ghi alias `decider`.
-- [ ] T069 [P] Sửa câu về decider trong `docs/adr/0005-native-harness-permissions.md`. Thêm
-  `docs/adr/0012-deputy-interactive-turn.md` cho phiên tương tác của role deputy: hook hết lượt, dừng process, stall sang
-  headless, mốc và trả về worktree.
-- [ ] T070 [P] Đổi decider → deputy trong `GLOSSARY.md`, sửa đoạn `cusr report` trong `docs/architecture.md`.
-- [ ] T071 [P] Sửa `specs/003-telegram-channel/spec.md`:
-  - không push khi deputy đang giữ sự cố thuộc FR-001;
-  - `/inbox` hiện "deputy đang xử lý";
-  - chuyển sự cố cho người thì push kèm tin nhắn cuối;
-  - thay các quy tắc riêng của decider bằng FR-003 và FR-021 của spec này.
-- [ ] T072 [P] Cập nhật skill `skills/cusr/SKILL.md`:
-  - `--reason`;
-  - `task add --draft`, `task revise`, `task fail`;
-  - `amend-policy --agent-runs/--deadline` với quyền `operate`;
-  - cách đọc trường `deputy` của `task show`;
-  - trợ lý không gỡ sự cố đang có lượt deputy.
-- [ ] T073 Thêm smoke `test/smoke/deputy.smoke.test.ts` với harness thật, theo [quickstart](quickstart.md):
-  1. task vào `ladder_exhausted`, deputy gỡ;
-  2. deputy kết thúc lượt mà không làm gì, sự cố chuyển cho chủ dự án kèm tin nhắn cuối;
-  3. tắt tmux, lượt chạy headless;
-  4. phiên treo, task tiếp tục chậm nhất 1 phút sau `stall_ms` (SC-003).
+**Independent Test**: quickstart kịch bản US3 (tích hợp) trên remote giả.
 
-  Chỉ chạy tay, tốn usage.
-- [ ] T074 Chạy một đêm thật với ít nhất 5 task đã xác nhận để kiểm SC-002. Ghi kết quả vào
-  `specs/007-deputy/acceptance-report.md`, cùng bằng chứng cho SC-001–SC-008 theo tầng. SC nào chưa chạy thì ghi "chưa
-  đạt".
-- [ ] T075 Chạy mọi kịch bản fake trong `specs/007-deputy/quickstart.md`, sửa đường dẫn test trong đó cho khớp với file
-  thật, và tick `specs/007-deputy/checklists/requirements.md`.
+### Tests
+
+- [ ] T071 [P] [US3] Contract test `test/contract/deputy/goal-branch.test.ts` trên remote giả: tạo nhánh goal idempotent
+  (gửi lại sau mất kết quả không tạo lần hai; ref trỏ chỗ khác thì `effect_failed`).
+- [ ] T072 [P] [US3] Scenario `test/scenarios/deputy/us3-integration.test.ts`: goal ba đơn vị (A, B độc lập; C phụ thuộc A,
+  B): A và B chạy song song; merge chỉ khi head chứa đỉnh nhánh goal, không thì base update rồi CI lại; C bắt đầu sau khi A
+  và B DONE từ đỉnh nhánh goal; first-parent của nhánh goal có đúng ba merge commit (SC-012); task tổng chạy `goal_final`,
+  mở PR có mục đơn vị, merge commit, bản miễn, quyết định; không có lệnh của người từ lúc duyệt tới PR ready.
+- [ ] T073 [P] Crash injection `test/integration/crash/goal-merge.test.ts`: restart giữa tạo nhánh và giữa merge vào
+  nhánh goal không tạo merge commit thứ hai (SC-004); push tay vào nhánh goal dừng merge và đưa goal vào `replan`.
+
+### Implementation
+
+- [ ] T074 [US3] Effect `git.create_goal_branch` (`src/daemon/goal-branch.ts`) và `GoalBranchCreated`; đơn vị chờ
+  `dependency_pending` có `detail.goal_branch` tới khi nhánh có. T071 phải xanh.
+- [ ] T075 [US3] Đơn vị của goal nhiều đơn vị có `base_branch` = nhánh goal và `merge_method` = `merge` (sửa T063).
+- [ ] T076 [US3] Merge vào nhánh goal (R-23): `src/daemon/yolo.ts` bật cho đơn vị của goal đã xác nhận nhắm nhánh goal của
+  nó; `onYoloMergeApprove` ghi approver `policy:goal`; required check lấy theo nhánh gốc; khóa một effect merge đang bay mỗi
+  nhánh goal; kiểm đỉnh nhánh goal bằng merge commit cuối daemon đã ghi, khác thì `goal_branch_drift` và replan (R-23).
+  Không đổi hành vi yolo hiện có của task khác.
+- [ ] T077 [US3] Workflow `goal_final` (`src/engine/workflows/goal-final.ts`) và task tổng (R-24): tạo lúc xác nhận, phụ
+  thuộc mọi đơn vị, `start_sha` là đỉnh nhánh goal khi bắt đầu, không qua `adopt_approval`.
+- [ ] T078 [US3] Context reviewer của task tổng (FR-086): diff nhánh goal so với nhánh gốc theo giới hạn, kế hoạch, tiêu chí
+  nghiệm thu, danh sách merge commit.
+- [ ] T079 [US3] Mô tả PR của goal (FR-087) trong `src/adapters/github/publish.ts`.
+- [ ] T080 [US3] Goal `done` khi task tổng DONE; `goal cancel` hủy mọi task chưa kết thúc (FR-078).
+- [ ] T081 `cusr doctor` báo project không có required check (chỉ dùng được goal một đơn vị).
+
+**Checkpoint**: goal nhiều đơn vị đi từ duyệt tới PR ready, CI xanh, không chờ người.
 
 ---
+
+## Phase 7: Lát F — điều phối xuyên goal và replan (US4)
+
+### Tests
+
+- [ ] T082 [P] [US4] Scheduler test `test/integration/runtime/goal-scheduler.test.ts` (SC-011): hai goal, scope rời chạy
+  song song tới hết slot; scope chồng thì chờ theo guard; một lượt deputy đang chạy không đổi kết quả dispatch.
+- [ ] T083 [P] [US4] Contract test `test/contract/deputy/branch-conflicts.test.ts`: hai nhánh xung đột thật thì có dòng
+  `branch_conflicts`; chỉ đổi cùng file mà không xung đột thì không; dòng bị xóa khi một task kết thúc; không task nào chờ vì
+  xung đột.
+- [ ] T084 [P] [US3] Scenario `test/scenarios/deputy/goal-replan.test.ts`: đơn vị FAILED đưa goal vào `replan`; lượt `plan`
+  thay đơn vị bằng task mới cùng khóa (thực thi), hoặc gửi sửa phạm vi chờ người, hoặc `handover`; đơn vị độc lập vẫn chạy;
+  task phụ thuộc và task tổng không bị hủy dây chuyền, kể cả khi scheduler chạy trước lượt `plan`, và được đánh thức khi
+  task thay thế DONE; thay đơn vị đã FAILED vì loop guard là sửa phạm vi.
+
+### Implementation
+
+- [ ] T085 [US4] `src/daemon/conflicts.ts`: sau checkpoint, `git merge-tree --write-tree` với task hoạt động có file đã đổi
+  chồng nhau; ghi `branch_conflicts` (FR-092). Đưa vào vùng 4 của context, `task explain`, `goal show`.
+- [ ] T086 [US4] Kiểm scheduler với đơn vị: scope khai báo bắt buộc đã có từ kế hoạch; không thêm luật chờ mới (FR-090,
+  FR-091).
+- [ ] T087 [US3] Replan (FR-076, R-29): đơn vị FAILED thì `GoalReplanNeeded`; `notifyDependents` giải phụ thuộc theo khóa
+  đơn vị và không hủy dây chuyền trong goal có kế hoạch chưa kết thúc; lối ra của lượt `plan` theo FR-076; thay đơn vị bằng
+  task mới cùng khóa trong `goal_tasks`; goal `failed`/`cancelled` thì hủy task chưa kết thúc.
+
+---
+
+## Phase 8: Lát G — lượt tương tác (US8)
+
+- [ ] T088 Spike hook hết lượt trên phiên bản Claude Code và Codex đang pin: trong private home tạm, cài hook Stop hay
+  `notify` ghi stdin ra file; chạy phiên tương tác mới có prompt đầu và resume tương tác; ghi lại input của hook có tin nhắn
+  cuối không, hook có chạy khi người gõ tiếp không. Kết luận vào R-03; harness không đáp ứng thì chỉ chạy headless.
+- [ ] T089 [P] Contract test hook hết lượt `test/contract/deputy/turn-end.test.ts`: `turn-ended.json` được ghi, runner dừng
+  process, `recover` không spawn lại; stall chuyển sang headless cùng phiên trong cùng lượt.
+- [ ] T090 Adapter `interactiveArgv` (`src/adapters/harness/claude.ts`, `codex.ts`); hook gộp vào settings của private home
+  (`src/runner/private-home.ts`); luật cấm sửa `<data dir>/worktrees/**` (FR-053).
+- [ ] T091 Runner chế độ tương tác (`src/runner/invocation.ts`): `--pty` trong terminal backend, theo dõi `turn-ended.json`,
+  outcome `turn_ended`, stall (FR-013).
+- [ ] T092 [US8] Cửa sổ mang tên `deputy: <tiêu đề>` trong terminal backend khi lượt chạy (US8 kịch bản 2).
+
+---
+
+## Phase 9: Lát H — ghi nhận và xem lại (US8)
+
+- [ ] T093 [P] [US8] Scenario `test/scenarios/deputy/us8.test.ts` (SC-007): `decisions.md`, `report`, `goal show`, chi tiết
+  task, mô tả PR có mỗi quyết định với goal, task, sự cố, hành động, lý do, giả thuyết, tiêu chí, kết quả; bản miễn hiện là
+  "miễn".
+- [ ] T094 [US8] `decisions.md` và `report` (`src/application/report.ts`): `deputy_decisions` (giữ `agent:decider` cũ),
+  `waivers`, `goals`; join command ledger và `deputy_turns` theo `turn_id`; kết quả đo lấy từ bảng thử.
+- [ ] T095 [US8] Mục quyết định và bản miễn trong mô tả PR đơn vị (FR-111).
+- [ ] T096 [US8] Lịch sử task hiện actor, lý do, ID lượt, thử nghiệm của mỗi lệnh.
+
+---
+
+## Phase 10: Lát I — đồng bộ tài liệu và smoke
+
+- [ ] T097 Đồng bộ `SPEC.md` theo danh sách cuối [spec](spec.md#tác-động-lên-hiến-chương-và-spec), gồm mục còn chờ của
+  amendment 10.0.0.
+- [ ] T098 [P] `deploy/README.md`: role `deputy` và limits, mục goal, bỏ decider.
+- [ ] T099 [P] ADR-0005 sửa câu về decider; ADR mới cho lượt deputy; ADR mới cho nhánh goal.
+- [ ] T100 [P] `GLOSSARY.md` và `docs/architecture.md`.
+- [ ] T101 [P] `specs/003-telegram-channel/spec.md` và skill `cusr` (lệnh `goal`, lease, đọc tiến độ).
+- [ ] T102 Cập nhật Sync Impact Report của hiến chương: không còn mục đồng bộ chờ.
+- [ ] T103 Smoke harness thật theo [quickstart](quickstart.md#kịch-bản-với-harness-thật-smoke-tốn-usage): SC-002 (một
+  đêm, goal ít nhất năm đơn vị có phụ thuộc), SC-003 (phiên treo); ghi acceptance report, mục chưa chạy ghi "chưa đạt".
 
 ## Dependencies & Execution Order
 
-### Phase Dependencies
+- Phase 1 → Phase 2 → Phase 3.
+- Phase 4 (C) và Phase 5 (D) song song được sau Phase 3; T066 (context đầy đủ) gộp vùng 3 của T051 khi cả hai xong.
+- Phase 6 (E) cần Phase 5. Phase 7 (F) cần Phase 6. Phase 9 (H) cần Phase 4 và Phase 6.
+- Phase 8 (G) chỉ cần Phase 3.
+- Phase 10 cuối cùng.
 
-- **Phase 1:**
-  - T002 chặn T063–T066;
-  - T001 và T003 đã xong trong PR #253.
-- **Phase 2:** phụ thuộc Phase 1 và chặn mọi story. Thứ tự trong phase:
-  - T009 → T010 → T015;
-  - T011 → T018 → T019;
-  - T013 → T014 → T015 → T017.
-- **Phase 3 (US2):** phụ thuộc Phase 2. Không cần `deputy.ts`; dùng caller giả lập của T005.
-- **Phase 4 (US1, MVP):** phụ thuộc Phase 2. T035 cần T020 để đi nhánh `system:deputy-absent`. Scenario T027 cần lệnh
-  của Phase 3 để deputy fake gỡ được `ladder_exhausted`.
-- **Phase 5 (US5)** và **Phase 6 (US3):** phụ thuộc Phase 4 (`deputy.ts`). Hai phase làm song song được.
-- **Phase 7 (US4):** phụ thuộc Phase 4 vì deputy phải được đánh thức ở `needs_draft`. Làm song song được với Phase 5 và
-  Phase 6.
-- **Phase 8 (US6):** phần ghi nhận (T060–T062) phụ thuộc Phase 4. Phần tương tác (T063–T066) phụ thuộc Phase 4 và T002.
-- **Phase 9:** T067–T072 sau khi hành vi tương ứng đã merge. T073–T075 sau mọi phase.
-
-### Within Each Story
-
-- Test viết trước, thấy đỏ rồi mới triển khai.
-- Thứ tự: domain/store → engine → application/CLI → daemon → adapter.
-- Story xong, checkpoint xanh, rồi mới mở PR của phase.
-
-### Parallel Opportunities
-
-- Phase 1: T004 ‖ T005.
-- Phase 2: T006 ‖ T007 ‖ T008 (test); T011 ‖ T012 ‖ T016.
-- Phase 3: T021 ‖ T022.
-- Phase 4: T027 ‖ T028 ‖ T029 ‖ T030 ‖ T031 ‖ T032; T033 ‖ T034 ‖ T041 ‖ T043.
-- Sau Phase 4: Phase 5 ‖ Phase 6 ‖ Phase 7 ‖ phần ghi nhận của Phase 8.
-- Phase 9: T067–T072 song song.
-
-## Parallel Example: User Story 1
-
-```text
-# Viết test cùng lúc (khác file):
-T027 test/scenarios/deputy/us1.test.ts
-T028 test/property/deputy/turn-state.test.ts
-T029 test/contract/deputy/restore.test.ts
-T030 test/integration/crash/deputy.test.ts
-T031 test/integration/runtime/deputy-failures.test.ts
-T032 test/integration/runtime/deputy-upgrade.test.ts
-
-# Rồi các phần độc lập với deputy.ts:
-T033 src/config/schema-user.ts, src/config/checks.ts
-T034 src/daemon/deputy-prompt.ts
-T041 src/runner/private-home.ts
-T043 src/application/doctor.ts
-```
-
-## Implementation Strategy
-
-### MVP
-
-Phase 1 → Phase 2 → Phase 3 (US2) → Phase 4 (US1), tức lát 0, A và B ở chế độ headless. Lúc này deputy đã gỡ được mọi
-sự cố vận hành qua đêm, đúng lý do tồn tại của feature. Dừng lại kiểm SC-001, SC-004, SC-005, SC-008 rồi mới làm tiếp.
-
-### Incremental Delivery
-
-1. Lát A (Phase 2 và 3): lệnh và danh tính. Trợ lý dùng được ngay các lệnh `continue`/`amend-policy` mở rộng và
-   `task fail`, kể cả khi chưa có deputy.
-2. Lát B (Phase 4): deputy headless thay decider (MVP).
-3. US5 và US3 (Phase 5 và 6): owner thắng, câu hỏi về spec.
-4. Lát D (Phase 7): task nháp.
-5. Lát C và E (Phase 8): lượt tương tác, ghi nhận.
-6. Lát F (Phase 9): tài liệu, smoke, acceptance report.
-
-## Notes
-
-- Không bao giờ đưa bản ghi lượt vào event log của task. Mọi test chạm `deputy_*` phải kiểm thêm rằng `version` không
-  đổi.
-- Deputy không merge, không bật yolo, không nhận PR có sẵn, không xác nhận task. Daemon chặn những việc này, không chỉ
-  văn bản vai trò.
-- Tên `deputy` là tên tạm; đổi tên thì đổi trước Phase 2.
+Trong mỗi phase: test `[P]` viết trước và đỏ; implementation theo thứ tự ghi, task `[P]` song song được.

@@ -1,7 +1,7 @@
-# Specification Quality Checklist: Deputy, agent theo task làm thay chủ dự án
+# Specification Quality Checklist: Deputy và goal
 
 **Purpose**: Validate specification completeness and quality before proceeding to planning
-**Created**: 2026-11-08
+**Created**: 2026-11-08 | **Viết lại**: 2026-11-09
 **Feature**: [spec.md](../spec.md)
 
 ## Content Quality
@@ -31,9 +31,10 @@
 
 ## Notes
 
-- Spec dùng tên lệnh `cusr`, mã wait và tên role như các spec 003, 006: đây là giao diện sản phẩm mà chủ dự án
-  dùng, không phải chi tiết hiện thực. Cơ chế cụ thể (cách chặn ghi worktree, cách đánh thức phiên, cách phát hiện
-  treo) để cho plan.
-- Mục "Tác động lên hiến chương và SPEC": feature cần amendment nguyên tắc III, V, trust boundary và SPEC I09 trước
-  khi triển khai; chỉ chủ dự án duyệt.
-- Spec đã qua một buổi chất vấn 25 câu đối chiếu hiến chương, SPEC, ADR và code (Clarifications, phiên thứ hai).
+- Spec dùng tên lệnh `cusr`, mã wait, tên role và tên nhánh như các spec 003, 006: đó là giao diện sản phẩm chủ dự án
+  dùng. Một số FR nêu cơ chế (`git merge-tree`, đường yolo) vì chủ dự án yêu cầu dùng lại cơ chế có sẵn; chi tiết hiện
+  thực nằm ở research.
+- Bản viết lại thay mô hình một phiên deputy sống lâu mỗi task bằng lượt ngắn cộng sổ goal, và đưa goal nhiều đơn vị vào
+  feature theo yêu cầu của chủ dự án ngày 2026-11-09. Ba quyết định của chủ dự án trong phiên đó: bản miễn gồm cả gate
+  và check; một PR cho goal với merge commit từng đơn vị; lệnh ghi goal của trợ lý cần lease.
+- Feature cần amendment 11.0.0 (nguyên tắc III, IV, V, VII), sửa cùng PR; chỉ chủ dự án duyệt.

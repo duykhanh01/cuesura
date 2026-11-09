@@ -51,6 +51,10 @@ comment hoặc merge đã thành công.
   chọn. Task cũ giữ trần đã đóng băng: không bắt đầu attempt khi vượt trần đó. Khi policy yêu cầu approval (nấc
   `needs_approval`), attempt MUST NOT bắt đầu nếu chưa có approval hợp lệ, tức gắn đúng
   task/revision, step, nấc và policy hash. Nấc `auto` không chờ duyệt.
+- Không có trần không có nghĩa là được lặp: daemon MUST từ chối lệnh của deputy lặp lại cùng hành động trên cùng chữ ký
+  lỗi khi chưa có bằng chứng mới; mỗi loại hành động MUST tự cạn theo quy tắc của code; khi mọi loại đã cạn mà không có
+  tiến triển, chỉ còn kết thúc task hoặc chuyển cho người, và lượt không chọn thì code kết thúc task. Chữ ký lỗi, bằng
+  chứng mới và tiến triển MUST được tính bằng code từ dữ liệu đã ghi, không từ lời của agent.
 - Task đang chờ MUST có lý do, điều kiện tiếp tục và đường kết thúc. Trạng thái kết thúc không tự
   mở lại; retry sau kết thúc tạo task mới có liên kết nguồn.
 - Usage MUST phân biệt `reported`, `estimated`, `unavailable`; không ghi 0 thay cho dữ liệu thiếu.
@@ -64,7 +68,11 @@ comment hoặc merge đã thành công.
 - Exit code thành công hay việc agent nói "xong" MUST NOT đủ để qua bước. Kết quả phải đúng schema,
   đúng attempt và đạt mọi gate bắt buộc theo policy/chế độ đã được xác nhận.
   `full-review` MUST có review; `direct-pr` không yêu cầu review, không giả bằng chứng approve
-  và không miễn gate/CI hoặc cấp quyền merge.
+  và tự nó không miễn gate/CI hay cấp quyền merge.
+- Deputy MAY miễn một finding của review, một gate hay một check CI cụ thể của một task khi có bằng chứng, gắn với chữ ký
+  lỗi đang gặp. Bản miễn MUST là event có actor, lý do và bằng chứng, MUST được liệt kê trong mô tả PR và báo cáo, và MUST
+  NOT được báo là đạt. Lỗi mang chữ ký khác không được bản miễn cũ che. Bản miễn không áp cho required check của
+  protected branch: merge vào đó vẫn do người dùng quyết.
 - Required checks ở trạng thái pending, cancelled, missing hoặc unknown MUST NOT được coi là pass.
 - Reviewer MUST dùng session riêng với coder và chỉ nhận dữ liệu cần thiết (diff có giới hạn kích
   thước). Reviewer MAY sửa và chạy kiểm tra trong worktree; thay đổi của nó MUST NOT vào task: daemon
@@ -81,10 +89,16 @@ comment hoặc merge đã thành công.
   `read`/`operate`: được xác nhận run config của task nó điều phối, theo digest và có ghi actor, được duyệt
   escalation trong ladder đã đóng băng (#205), được sửa policy của bước đang chờ (`amend-policy`: model trong
   `allow_models` và trạng thái nấc của profile, ngân sách, deadline), không được duyệt nhận PR có sẵn hay dùng quyền
-  admin. Deputy (actor `deputy`, do daemon gắn khi khởi chạy nó) có cùng quyền `read`/`operate`, MUST ghi lý do cho
-  mọi thao tác ghi và MUST NOT xác nhận intake hay run config của bất kỳ task nào. Đây
-  là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
+  admin. Lệnh ghi lên goal từ assistant MUST đến từ phiên đang giữ lease, để tin của goal về đúng phiên đó. Deputy
+  (actor `deputy`, do daemon gắn khi khởi chạy nó) có cùng quyền `read`/`operate`, MUST ghi lý do cho mọi thao tác ghi
+  và MUST NOT xác nhận intake, run config hay kế hoạch của bất kỳ task hay goal nào. Tên actor không phải bằng chứng
+  quyền: lệnh của deputy chỉ được nhận khi mang ID của một lượt đang chạy do daemon cấp, nhắm vào task hoặc goal của
+  lượt đó, và thuộc bảng quyền của deputy. Đây là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo
   mật với process cùng UID. Worker không gọi `cusr`.
+- Kế hoạch của một goal được người dùng, hoặc assistant giữ lease, xác nhận một lần theo hash; lần xác nhận đó là xác
+  nhận intake và run config của mọi đơn vị trong kế hoạch. Sau đó deputy MAY đổi thứ tự, phụ thuộc, model trong
+  `allow_models`, chỉ dẫn và giới hạn của đơn vị, mỗi lần ghi version kế hoạch mới kèm lý do. Thêm hay bỏ đơn vị, đổi
+  tiêu chí nghiệm thu, nới phạm vi hay đổi hành vi sản phẩm MUST được duyệt lại.
 - Code chỉ nâng effort/model/vendor theo thang đã duyệt trước, kích hoạt theo phân loại lỗi.
   Lỗi hạ tầng hoặc hết hạn mức MUST NOT kích hoạt nâng model; không hạ model ngầm. Ngoài thang, đổi model cho bước
   đang chờ chỉ đi qua `amend-policy` của caller `operate` hoặc owner, có event, actor và lý do.
@@ -96,8 +110,12 @@ comment hoặc merge đã thành công.
   Mặc định người duyệt từng merge vào protected branch; chế độ yolo
   chỉ người dùng admin bật qua kênh tin cậy, không bao giờ qua `cusr.yaml` của repo, và được kiểm
   tra lại ngay lúc dispatch merge.
-- Deputy làm thay người dùng trên một task: daemon chỉ gọi nó khi task đã vào wait mà bảng định tuyến giao cho deputy;
-  câu hỏi về spec và yêu cầu của worker chỉ tới deputy khi người dùng bật `autonomous` qua kênh tin cậy. Wait về
+- Cuesura MAY merge PR của một đơn vị vào nhánh tích hợp mà nó tạo cho goal có kế hoạch đã xác nhận, bằng merge commit,
+  sau cùng các kiểm tra như auto-merge (quyền, head/base SHA, gate, CI, review theo chế độ, bản miễn đã ghi), và chỉ khi
+  nhánh đó không thuộc protected branch. PR của goal vào nhánh gốc theo quy tắc merge ở trên: người dùng
+  merge, hoặc yolo do người dùng admin bật; goal không mở thêm đường auto-merge nào vào protected branch.
+- Deputy làm thay người dùng trên task và goal: daemon chỉ gọi nó khi task đã vào wait mà bảng định tuyến giao cho
+  deputy, hoặc khi goal cần lập hay sửa kế hoạch; câu hỏi về spec và yêu cầu của worker chỉ tới deputy khi người dùng bật `autonomous` qua kênh tin cậy. Wait về
   credentials, harness từ chối, vi phạm ranh giới, merge và xác nhận task luôn tới người. Deputy MUST NOT merge, bật
   yolo hay nhận PR có sẵn. Thao tác của người dùng thắng thao tác của deputy. Mỗi thao tác của deputy MUST được ghi lại
   với lý do và giải thích được; lật lại nghĩa là người dùng thao tác tiếp, revert hoặc tạo task mới, và deputy không
@@ -128,8 +146,8 @@ không được đòi sửa engine.
     fixture. Harness thật chạy trong smoke test riêng.
 - Property test của engine thuần MUST NOT được dùng làm bằng chứng cho bất biến nằm ở tầng I/O.
 - Typecheck, lint, test và build là các kiểm tra riêng; một bên xanh không thay thế bên khác.
-- Một gate hoặc tiêu chí nghiệm thu chưa đạt MUST được báo là chưa đạt; không thay bằng kiểm tra
-  mô phỏng rồi coi tương đương. Giả định chưa có bằng chứng (spike) MUST NOT được trình bày như
+- Một gate hoặc tiêu chí nghiệm thu chưa đạt MUST được báo là chưa đạt; gate được deputy miễn MUST được báo là miễn
+  kèm lý do. Không thay bằng kiểm tra mô phỏng rồi coi tương đương. Giả định chưa có bằng chứng (spike) MUST NOT được trình bày như
   tính năng đã có.
 
 **Lý do:** độ tin cậy là giá trị cốt lõi của sản phẩm; nó chỉ tồn tại khi được đo và nói thật.
@@ -298,4 +316,23 @@ hiện thực ở lát F của feature 007, để tài liệu vận hành không
 ADR-0006 riêng cho role này); `GLOSSARY.md`; `docs/architecture.md`; `specs/003-telegram-channel/spec.md`; skill `cusr`.
 Template Spec Kit đã kiểm tra, không cần thay đổi. Mục đồng bộ còn chờ: các tài liệu vừa nêu.
 
-**Version**: 10.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-08
+**Amendment 2026-11-09 (chủ dự án):** 10.0.0 → 11.0.0 vì định nghĩa lại nguyên tắc III, IV, V và VII cho deputy
+theo lượt và goal nhiều đơn vị (feature 007 viết lại). Nguyên tắc III: không trần tổng nhưng code chặn lặp (cùng hành
+động trên cùng chữ ký lỗi khi không có bằng chứng mới), mỗi loại hành động tự cạn, cạn hết thì chỉ còn kết thúc hoặc
+chuyển cho người. Nguyên tắc IV và VII: deputy được miễn một finding, gate hay check CI cụ thể có bằng chứng, ghi thành
+event, liệt kê trong PR, báo là miễn chứ không phải đạt, không áp cho required check của protected branch. Nguyên tắc
+V: kế hoạch goal xác nhận một lần theo hash thay cho xác nhận từng đơn vị; deputy đổi chi tiết thực thi trong kế hoạch,
+đổi phạm vi phải duyệt lại; Cuesura merge PR đơn vị vào nhánh tích hợp của goal bằng merge commit; quyền của deputy dựa
+trên ID lượt đang chạy, task/goal của lượt và bảng quyền, không dựa trên tên actor; lệnh ghi goal từ assistant phải từ
+phiên giữ lease. Giữ nguyên: engine quyết định mọi chuyển trạng thái, code là bên duy nhất gửi merge, deputy và agent
+không merge, goal không thêm đường auto-merge nào vào protected branch ngoài yolo, PR của goal theo quy tắc merge hiện hành, deputy không xác nhận task hay kế
+hoạch, credentials và refusal luôn tới người.
+
+**Sync Impact Report 2026-11-09:** nguyên tắc III, IV, V, VII đổi cho deputy theo lượt, bản miễn và goal. Spec, plan,
+research, data model, contracts và tasks của feature 007 được viết lại cùng amendment. Phần đồng bộ tài liệu vận hành
+gộp với mục còn chờ của amendment 10.0.0 và làm ở lát cuối của feature 007: `SPEC.md` (§4 I09 và I11, §9, §10, §14,
+§15), `deploy/README.md`, ADR-0005, một ADR mới cho lượt deputy và một ADR cho nhánh tích hợp của goal, `GLOSSARY.md`,
+`docs/architecture.md`, `specs/003-telegram-channel/spec.md`, skill `cusr`. Template Spec Kit đã kiểm tra, không cần thay
+đổi. Mục đồng bộ còn chờ: các tài liệu vừa nêu.
+
+**Version**: 11.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-09
