@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { CUSR_COMMANDS } from './commands.ts';
 import { DATA_DIR } from './tasks.ts';
-import { exitOnClosedPipe, packageVersion, processIo, runCli } from './program.ts';
+import { exitOnClosedPipe, buildInfo, packageVersion, processIo, runCli } from './program.ts';
 import { refuseWorker } from './worker-guard.ts';
 
 const argv = process.argv.slice(2);
@@ -29,6 +29,7 @@ if (refused !== null) {
       name: 'cusr',
       description: 'Cuesura control CLI',
       version: packageVersion(),
+      build: buildInfo(),
       globalOptions: [DATA_DIR],
     },
     argv,

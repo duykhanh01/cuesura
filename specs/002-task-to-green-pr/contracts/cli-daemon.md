@@ -30,7 +30,7 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | Lệnh | Quyền / hành vi |
 | --- | --- |
 | `cusrd --config FILE --data-dir DIR` | Owner khởi động daemon foreground; có unit systemd mẫu; một writer |
-| `cusr doctor --project NAME`, `cusr status` | read; doctor kiểm capability và health, lỗi health exit 1 |
+| `cusr doctor --project NAME`, `cusr status` | read; doctor kiểm capability và health, lỗi health exit 1. Doctor đạt trả `data.checks`; có check hỏng thì exit 1, `error.code` `unhealthy`, `data: null` và các check (check hỏng kèm `fix`) nằm ở `error.details.checks`. Probe unit systemd và terminal đạt được daemon dùng lại 30 giây (detail ghi `checked Ns ago`); probe hỏng chạy lại ở lần sau (issue #260). Xem [Health](#confirmrecheck-pending-và-health) cho `status` |
 | `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR. `acceptance` rỗng trả `invalid_arguments` (exit 2), không tạo task. `scope` (hoặc `--scope a,b`) khai đường dẫn/thư mục/glob tương đối trong repo task dự kiến đổi (tối đa 100, không `..` hay đường dẫn tuyệt đối; glob chỉ dùng `*`, `**`, `?`, `[...]`, còn brace `{}`, extglob `@(…)`/`!(…)`…, `!` đầu mục và lớp ký tự chứa `/` bị từ chối); không khai thì trường vắng mặt. Kết quả `task add`, `task propose` và `task confirm` có `slot_block` (như `scope.slot_block` của explain) khi phạm vi giao với task đang giữ slot, chỗ giữ hoặc chỗ mượn, `null` khi không (FR-044.08) |
 | `cusr task propose ID --profile P --mode M --worker H/M/E` | operate; đề xuất bộ lựa chọn chạy, xác nhận riêng. Daemon đối chiếu đề xuất (của `task propose` và `run_config` của `task add`) với `run_options`: profile, mode, worker, reviewer hay fallback không có trong đó trả `rejected` (`run_config_not_offered`) kèm `details.valid_values`; `task add` khi đó không tạo task. Không đọc được `run_options` thì trả lỗi của nó. Vắng `fallbacks` thì daemon điền các nấc ladder của worker từ `run_options`; `--fallback ''` (`fallbacks: []`) là không có (issue #263) |
 | `cusr task show/list/explain/history` | read; mặc định chỉ trả phần cần thiết, `--full` trả nguyên reply của daemon (xem [Output mặc định gọn](#output-mặc-định-gọn)); list mới nhất trước, `--limit` mặc định 20, tối đa 100, có cursor và `--order oldest`; show/explain nhận ID |
@@ -40,7 +40,7 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
 | `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
-| `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version |
+| `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version. Câu trả lời thua trả `conflict` (`reason: "already_answered"`, `answered_by`), exit 6, như `question_not_open`; event `AnswerRejected` nó ghi không đổi phần task mà version so sánh, nên version bên thua đã đọc vẫn dùng được cho mutation tiếp theo |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | operate; task/revision/policy hash đúng, không cấp merge. Engine chỉ xin duyệt nấc còn ngân sách escalation và nằm trong bộ đã xác nhận: hết ngân sách thì chờ `escalations_exhausted`, nấc ngoài bộ thì task kết thúc `run_config_unconfirmed` mà không mở wait `escalation` (issue #263) |
 | `cusr task approve ID --kind adopt --head-sha SHA` | admin; task khai `--pr`/`pr_ref`, chưa start; PR mở, cùng repo (không fork), đúng base, head đúng SHA, không task sống nào đang giữ PR |
 | `cusr project list`, `cusr task options/content/progress ID`, `cusr task board`, `cusr request show REQUEST_ID` | read; truy vấn chỉ đọc không tạo event, thêm cho giao diện terminal và assistant; hợp đồng đầy đủ ở [feature 004](../../004-terminal-tui/contracts/cli-daemon.md) |
@@ -100,6 +100,7 @@ CLI. Lỗi có `details.reason` là mã của engine và `details.detail` là ch
 | Trigger bị bỏ qua vì task đã kết thúc (`SignalIgnored{reason: "terminal"}`) | `conflict`, `reason: "task_terminal"` | 6 / 409 |
 | `dependency_invalid` | `invalid_arguments`; thiếu task thì `details.missing` liệt kê ID | 2 / 400 |
 | `invalid_trigger` với `base_repair_answer_must_be_continue_or_retry_fixer` | `invalid_arguments`, `details.choices` | 2 / 400 |
+| `invalid_trigger` với `recheck_not_applicable` | `nothing_to_recheck`, `details.target` là target engine từ chối | 6 / 409 |
 | `untrusted_confirmation`, `not_admin` | `forbidden` | 5 / 403 |
 | `unknown_task` | `task_not_found` | 4 / 404 |
 | `id_pool_exhausted` (daemon gán thiếu ID) | `id_pool_exhausted` | 1 / 422 |
@@ -107,6 +108,12 @@ CLI. Lỗi có `details.reason` là mã của engine và `details.detail` là ch
 `task cancel` vào task đã kết thúc không bị từ chối: trả `ok` với `ignored: "terminal"`, vì task đã dừng
 đúng như lệnh muốn. `task recheck` cũng vậy: trả `ok` với `target: "terminal"`, `performed: false`, chỉ
 ghi nhận tín hiệu (FR-046.08). Lệnh bị bỏ qua vẫn ghi `SignalIgnored` vào history.
+
+`task recheck` khi task không có gì để recheck luôn trả `nothing_to_recheck` (exit 6), dù service thấy
+trước (`details.target: null`, kèm `status`) hay engine từ chối target (`details.target` là target đó).
+`task pause` vào task đang tạm dừng và `task resume` vào task không tạm dừng đều trả `ok` với
+`ignored: "already_paused"`/`"not_paused"`, nên gửi lại sau timeout bằng request ID mới không ra exit 6
+cho lệnh đã có hiệu lực (issue #260).
 
 Data dir của `cusr` lấy theo thứ tự `--data-dir`, `CUSR_DATA_DIR`, `~/.cusr`. `--data-dir` là option toàn cục:
 đặt trước lệnh (`cusr --data-dir DIR status`) hay sau lệnh đều được; cho cả hai chỗ thì giá trị sau lệnh thắng.
@@ -153,7 +160,7 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   `terminal` và `unverified` (như `task explain`, chỉ khi có), `run_config` (`status`, `digest`, `mode`).
   Đủ cho mutation; nội dung task ở `task content`.
 - `task list`: mới nhất trước, mặc định 20, tối đa 100. Item chỉ có `task_id`, `project`, `title`, `status`,
-  `activity` (wait code hoặc step), `pr_ref`, `terminal`, `unverified`, `overlaps`, `base_conflicts` và
+  `activity` (wait code hoặc step; vắng khi task đã kết thúc), `pr_ref`, `terminal`, `unverified`, `overlaps`, `base_conflicts` và
   `scope_unknown: true` khi có;
   output cho người đọc in thêm dòng `Overlap:`/`Base conflict:`/`Scope unknown:` dưới bảng, ghi status `DONE (unverified)` khi có `unverified` và lý do kết thúc (cắt ở 60 ký tự) ở cột activity khi task đã kết thúc. Theo `next_cursor` tới khi `null` là thấy mọi task;
   `--order oldest` bắt đầu từ task đầu tiên. CLI gửi `order` trong query `task_list`; daemon vẫn mặc định
@@ -193,6 +200,8 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
 - `task gates` đọc kind `task_gates`: mỗi vòng gate và trạng thái log của từng gate (`available`, `expired`,
   `missing`). `task gate-log` đọc kind `task_gate_log` theo byte offset, không dùng cursor của log agent; mặc định
   lấy phần cuối có giới hạn, `--full` đọc hết. Log retention đã xóa là trạng thái bình thường, không phải lỗi.
+  Tên gate không có trả `gate_not_found` (exit 4) với `details.gates`: các gate đã chạy ở vòng được hỏi,
+  hoặc ở mọi vòng khi không có `--round`.
 - `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,
   không có route stream riêng. Cursor đếm record đã commit theo thứ tự event, không đổi qua rotation/restart;
   batch mất file hiện là `gap`, không bị bỏ im lặng.
@@ -308,8 +317,8 @@ thúc CANCELLED và kết quả có `warning` rằng PR có thể chưa được
   `paused` thay vì chạy tiếp. Task chưa bắt đầu rời hàng đợi slot và scheduler không xếp lại.
 - `task resume` chạy đúng hành động đã giữ: cùng revision, rung, worktree, PR, bằng chứng và lượt ghé
   (bước đã vào không bị đếm lại). Task đã bắt đầu thì xếp lại hàng đợi slot nhóm `resumed`.
-- Không tạm dừng được task đã kết thúc, đang hủy hoặc đã có bằng chứng merge; tạm dừng lần hai bị bỏ
-  qua. Task tạm dừng vẫn hủy được.
+- Không tạm dừng được task đã kết thúc, đang hủy hoặc đã có bằng chứng merge; tạm dừng lần hai và
+  resume task không tạm dừng bị bỏ qua, trả `ok` với `ignored`. Task tạm dừng vẫn hủy được.
 - `--now` dừng thêm các lượt agent đang chạy bằng cơ chế `stop_attempt`; lượt chưa khởi chạy thì bị
   rút. Bước đó chạy lại trong session mới khi resume, kể cả khi resume trước lúc lượt bị dừng kết thúc
   (không hỏi `attempt_stopped`); lượt đã chạy vẫn tính vào budget. Gate và hành
@@ -319,8 +328,9 @@ thúc CANCELLED và kết quả có `warning` rằng PR có thể chưa được
   lại slot. Task đã được cấp slot mà chưa start (crash giữa hai bước) trả slot và được xếp lại sau
   resume. `cusr queue resume` bỏ tạm dừng. Trạng thái nằm ở file `queue-paused.json` trong data dir
   (owner-only, giữ qua restart, không cần migration DB); file hỏng được coi là đang tạm dừng. File ghi
-  kèm request ID đã áp dụng, nên lệnh chạy lại sau crash không đổi gì và không lật quyết định mới hơn. `cusr status` có
-  `queue_paused` (`reason`, `by`, `at`) và không coi đây là lỗi health.
+  kèm request ID đã áp dụng, nên lệnh chạy lại sau crash không đổi gì và không lật quyết định mới hơn. Reply
+  có `changed`: `false` khi hàng đợi đã ở trạng thái đó (pause lần hai giữ lý do cũ) hoặc request ID đã áp
+  dụng. `cusr status` có `queue_paused` (`reason`, `by`, `at`) và không coi đây là lỗi health.
 
 ## Tin nhắn cho agent
 
@@ -364,3 +374,10 @@ chốt nguyên tử lúc bắt đầu theo FR-002.01.
 
 Health gồm writer/schema/integrity/replay, claims chưa rõ, runner/capabilities và lần observation
 cuối/hạn còn lại. Clock/next timer do code; không LLM, không coi health xanh thay gate/test/build.
+
+`GET /v1/health` (`cusr status`) có `build` (`version`, `commit`, `built_at` của bản daemon đang chạy;
+`commit` là `null` khi chạy từ source) và `startup` (`at`, `projections`, `timers`): số đếm lúc daemon
+khởi động, không phải hiện tại; `cusr doctor` đếm lại. `writer: "ok"` nghĩa là daemon trả lời đang giữ
+writer lock; ghi được hay không xem `store`. `cusr --version --json` trả `version`, `commit`, `built_at`
+của CLI; `pnpm build` ghi commit vào `dist/build-info.json` (lấy `CUSR_BUILD_COMMIT`, không có thì
+`git rev-parse HEAD`). `commit` của CLI khác của daemon là hai bản build khác nhau (issue #260).

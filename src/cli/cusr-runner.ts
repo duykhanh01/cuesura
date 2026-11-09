@@ -18,7 +18,14 @@ import {
   isEnvelope,
   type Envelope,
 } from './output.ts';
-import { packageVersion, processIo, runCli, type CliCommand, type CliIo } from './program.ts';
+import {
+  buildInfo,
+  packageVersion,
+  processIo,
+  runCli,
+  type CliCommand,
+  type CliIo,
+} from './program.ts';
 
 function refuser(json: boolean, io: CliIo) {
   return (
@@ -684,6 +691,7 @@ process.exitCode = await runCli(
     name: 'cusr-runner',
     description: 'Cuesura execution runner',
     version: packageVersion(),
+    build: buildInfo(),
   },
   process.argv.slice(2),
   processIo,

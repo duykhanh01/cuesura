@@ -408,6 +408,24 @@ describe('answer and inbox over the control socket (US5.1/US5.2, FR-024/FR-037)'
     expect(events('AnswerRejected')).toHaveLength(1);
   });
 
+  it('a losing answer does not make the version the loser read stale (issue #260)', async () => {
+    const { sd, answer, events, store, t, version } = await asking();
+    expect((await sd.command('owner', answer(1))).code).toBe(ExitCode.ok);
+    const read = version();
+    expect((await sd.command('assistant', answer(2, 'Latin-1'))).code).toBe(ExitCode.conflict);
+    expect(events('AnswerRejected')).toHaveLength(1);
+    expect(store().readTask(t.id)?.version).toBeGreaterThan(read);
+    const pause = await sd.command('assistant', {
+      request_id: '0192bbbb-0000-7000-8000-000000000099',
+      kind: 'task_pause',
+      project: 'acme',
+      task_id: t.id,
+      expected_version: read,
+      payload: { reason: 'after the race' },
+    });
+    expect(pause.code).toBe(ExitCode.ok);
+  });
+
   it('another project and an unknown question change nothing', async () => {
     const { sd, answer, events } = await asking();
     expect((await sd.command('assistant', answer(2, 'x', { project: 'elsewhere' }))).code).toBe(

@@ -44,8 +44,22 @@ function submitOne(
   if (!r.ok) return Promise.resolve(err(acceptError(r.error, after)));
   const refused = decisionError(r.value.decision);
   if (refused !== null) return Promise.resolve(err(refused));
+  const d = r.value.decision;
+  const ignored =
+    d.kind === 'accepted'
+      ? d.events.find(
+          (e) =>
+            e.type === 'SignalIgnored' &&
+            (e.payload as { trigger_kind?: unknown }).trigger_kind === trigger.kind,
+        )
+      : undefined;
   return Promise.resolve(
-    ok({ ...(after === null ? {} : extra(after)), task: after === null ? null : taskView(after) }),
+    ok({
+      ...(after === null ? {} : extra(after)),
+      // Like `cancel`: a repeated pause or resume is ok and says it changed nothing (issue #260).
+      ...(ignored === undefined ? {} : { ignored: (ignored.payload as { reason: string }).reason }),
+      task: after === null ? null : taskView(after),
+    }),
   );
 }
 

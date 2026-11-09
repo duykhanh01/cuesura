@@ -4,6 +4,8 @@
  * `--full` command that prints the daemon's complete reply.
  */
 
+import { TERMINAL_STATUSES } from '../domain/state.ts';
+
 type Data = Record<string, unknown>;
 
 /** Longest string a summary prints; longer values are cut and say how to get the rest. */
@@ -180,7 +182,10 @@ export function listSummary(data: unknown): unknown {
       const r = record(t);
       return compact({
         ...pick(r, ['task_id', 'project', 'title', 'status']),
-        activity: r['wait_code'] ?? r['step'] ?? null,
+        // A finished task's last step is history, not activity.
+        activity: (TERMINAL_STATUSES as readonly unknown[]).includes(r['status'])
+          ? null
+          : (r['wait_code'] ?? r['step'] ?? null),
         pr_ref: r['pr_ref'],
         terminal: clip(r['terminal'] ?? null),
         unverified: r['unverified'] ?? null,

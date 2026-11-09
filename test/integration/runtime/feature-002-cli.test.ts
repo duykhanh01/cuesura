@@ -12,6 +12,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { manifestHash } from '../../../src/application/capabilities.ts';
 import {
   DOCTOR_CLIENT_TIMEOUT_MS,
+  DOCTOR_PROBE_CACHE_MS,
   DOCTOR_PROBE_BUDGET_MS,
 } from '../../../src/application/doctor.ts';
 import { recheckTarget } from '../../../src/application/recheck.ts';
@@ -1041,7 +1042,10 @@ describe('task recheck end to end (T110, FR-046.01–08)', () => {
     const v = sd.daemon?.store.readTask(t.id)?.version;
     const r = await cli(sd, ['task', 'recheck', t.id, '--expected-version', String(v)]);
     expect(r.code).toBe(ExitCode.conflict);
-    expect(r.envelope.error.code).toBe('nothing_to_recheck');
+    expect(r.envelope.error).toMatchObject({
+      code: 'nothing_to_recheck',
+      details: { target: null },
+    });
   });
 
   it('PENDING on a capability: reads config once through triage, then READY; never starts anything', async () => {
@@ -1721,6 +1725,32 @@ describe('doctor (T112, FR-027.02/033)', () => {
     const r = await cli(sd, ['doctor']);
     expect(r.code).toBe(ExitCode.failure);
     expect(names(r)).toMatchObject({ host: 'ok', systemd_unit: 'fail' });
+  });
+
+  it('reuses a passed unit probe for a while, but runs a failed one again (issue #260)', async () => {
+    const { sd, host } = doctored();
+    const units = () => host.execs.filter((argv) => argv.includes('--wait')).length;
+    await sd.start();
+    expect((await cli(sd, ['doctor'])).code).toBe(ExitCode.ok);
+    expect(units()).toBe(1);
+    const again = await cli(sd, ['doctor']);
+    expect(again.code).toBe(ExitCode.ok);
+    expect(units()).toBe(1);
+    expect(JSON.stringify(again.envelope.data)).toContain('s ago)');
+    sd.now += DOCTOR_PROBE_CACHE_MS;
+    await cli(sd, ['doctor']);
+    expect(units()).toBe(2);
+
+    const exec = host.exec.bind(host);
+    host.exec = (argv, o) =>
+      argv.includes('--wait')
+        ? Promise.resolve({ kind: 'exited', code: 1, stdout: '', stderr: 'unit failed' })
+        : exec(argv, o);
+    sd.now += DOCTOR_PROBE_CACHE_MS;
+    expect((await cli(sd, ['doctor'])).code).toBe(ExitCode.failure);
+    host.exec = exec;
+    expect((await cli(sd, ['doctor'])).code).toBe(ExitCode.ok);
+    expect(units()).toBe(3);
   });
 
   it('a recorded manifest that does not prove what an attempt requires fails', async () => {

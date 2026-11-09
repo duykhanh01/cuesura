@@ -433,7 +433,7 @@ export async function taskRecheck(
   return err({
     code: e.code === 'unknown_task' ? 'task_not_found' : e.code,
     message: 'reason' in e ? String(e.reason) : e.code,
-    details: { ...e },
+    details: e.code === 'nothing_to_recheck' ? { ...e, target: null } : { ...e },
   });
 }
 

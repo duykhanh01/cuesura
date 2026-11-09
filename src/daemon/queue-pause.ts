@@ -90,7 +90,8 @@ function fsError(e: unknown): AppError {
 /**
  * The file records the request IDs it applied, and is rewritten rather than removed: a request run
  * again after a crash before its ledger row completed finds its ID and changes nothing, so it never
- * undoes a later pause or resume. A second pause keeps the first one's reason, as `task pause` does.
+ * undoes a later pause or resume. A second pause keeps the first one's reason, as `task pause` does;
+ * `changed` tells the caller whether this request paused or resumed the queue (issue #260).
  */
 export function queueCommands(deps: QueueDeps): { queue_pause: Handler; queue_resume: Handler } {
   const apply = (
@@ -99,7 +100,7 @@ export function queueCommands(deps: QueueDeps): { queue_pause: Handler; queue_re
   ): Promise<Result<unknown, AppError>> => {
     const state = readState(deps.dataDir);
     if (state.applied.includes(requestId))
-      return Promise.resolve(ok({ queue: { paused: state.paused } }));
+      return Promise.resolve(ok({ changed: false, queue: { paused: state.paused } }));
     const paused = next(state.paused);
     try {
       writeState(deps.dataDir, {
@@ -109,7 +110,9 @@ export function queueCommands(deps: QueueDeps): { queue_pause: Handler; queue_re
     } catch (e) {
       return Promise.resolve(err(fsError(e)));
     }
-    return Promise.resolve(ok({ queue: { paused } }));
+    return Promise.resolve(
+      ok({ changed: (state.paused === null) !== (paused === null), queue: { paused } }),
+    );
   };
   return {
     queue_pause: (admitted, input, caller) =>

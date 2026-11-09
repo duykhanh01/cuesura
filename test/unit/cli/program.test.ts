@@ -42,6 +42,27 @@ describe('runCli', () => {
     });
   });
 
+  it('names the commit it was built from, when it was built (issue #260)', async () => {
+    const io = () => {
+      const out: string[] = [];
+      return { out, io: { stdout: (t: string) => out.push(t), stderr: () => undefined } };
+    };
+    const built = {
+      ...spec,
+      build: { commit: 'abcdef1234567890', built_at: '2026-11-09T00:00:00Z' },
+    };
+    const text = io();
+    await runCli(built, ['--version'], text.io);
+    expect(text.out.join('')).toBe('1.2.3 (abcdef123456)\n');
+    const json = io();
+    await runCli(built, ['--version', '--json'], json.io);
+    expect((JSON.parse(json.out.join('')) as { data: unknown }).data).toEqual({
+      version: '1.2.3',
+      commit: 'abcdef1234567890',
+      built_at: '2026-11-09T00:00:00Z',
+    });
+  });
+
   it('prints help without listing any command', async () => {
     const r = await run(['--help']);
     expect(r.code).toBe(0);

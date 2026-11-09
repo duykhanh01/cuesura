@@ -89,7 +89,11 @@ export function onPause(ctx: Ctx, t: PauseTrigger): void {
 
 export function onUnpause(ctx: Ctx): void {
   requireOperator(ctx);
-  if (!isPaused(ctx)) reject('invalid_trigger', { reason: 'not_paused' });
+  // Mirrors a second pause: a resume retried after a timeout has already taken effect.
+  if (!isPaused(ctx)) {
+    ctx.emit('SignalIgnored', { reason: 'not_paused', trigger_kind: 'unpause' });
+    return;
+  }
   ctx.emit('TaskUnpaused', { by: ctx.actor, at: ctx.now });
   const w = ctx.state.wait;
   if (ctx.state.status === 'WAITING' && w?.detail.code === 'paused')

@@ -58,10 +58,9 @@ const proposal = (t: ReturnType<typeof buildTask>) => {
 };
 
 describe('a mutation the engine refuses for the task state is exit 6 (issue #261)', () => {
-  it('resume, continue and propose on a running task', async () => {
+  it('continue and propose on a running task', async () => {
     const { seeded: t, send } = await daemonWith((d) => started(d, { claimed: true }));
     const cases: [string, unknown, string][] = [
-      ['task_resume', {}, 'not_paused'],
       ['task_continue', {}, 'continue_not_applicable'],
       ['task_propose_run', proposal(t), 'run_config_frozen'],
     ];
@@ -78,6 +77,17 @@ describe('a mutation the engine refuses for the task state is exit 6 (issue #261
         details: { reason: 'invalid_trigger', detail: { reason } },
       });
     }
+  });
+
+  it('resume on a task that is not paused succeeds and says nothing changed (issue #260)', async () => {
+    const { seeded: t, send } = await daemonWith((d) => started(d, { claimed: true }));
+    const r = await send(t.id, 'task_resume');
+    expect(r.code).toBe(ExitCode.ok);
+    expect(r.envelope.data?.['result']).toMatchObject({ ignored: 'not_paused' });
+    const first = await send(t.id, 'task_pause', { reason: 'wait' });
+    expect(first.envelope.data?.['result']).not.toHaveProperty('ignored');
+    const again = await send(t.id, 'task_pause', { reason: 'again' });
+    expect(again.envelope.data?.['result']).toMatchObject({ ignored: 'already_paused' });
   });
 
   it('pause and message on a task that is being cancelled', async () => {

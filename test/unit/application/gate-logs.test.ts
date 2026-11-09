@@ -337,17 +337,18 @@ describe('task_gate_log', () => {
 
   it('refuses an unknown gate or round, and a caller that cannot read', () => {
     const { deps } = twoRounds();
+    // The refusal names the gates that did run (issue #260).
     expect(read(deps, { gate: 'e2e' })).toMatchObject({
       ok: false,
-      error: { code: 'gate_not_found' },
+      error: { code: 'gate_not_found', details: { gates: ['unit', 'lint'] } },
     });
     expect(read(deps, { gate: 'lint', round: 1 })).toMatchObject({
       ok: false,
-      error: { code: 'gate_not_found' },
+      error: { code: 'gate_not_found', details: { gates: ['unit'] } },
     });
     expect(read(deps, { gate: 'unit', round: 9 })).toMatchObject({
       ok: false,
-      error: { code: 'gate_not_found' },
+      error: { code: 'gate_not_found', details: { gates: [] } },
     });
     expect(read(deps, { gate: 'unit' }, NOBODY)).toMatchObject({
       ok: false,

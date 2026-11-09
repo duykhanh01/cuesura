@@ -16,6 +16,8 @@ export interface CliSpec {
   readonly name: string;
   readonly description: string;
   readonly version: string;
+  /** The commit this binary was built from, printed by `--version`. */
+  readonly build?: BuildInfo;
   /**
    * Also accepted before the command (`cusr --data-dir DIR status`). A command that declares the same
    * flag gets the value given either place; its own place wins.
@@ -69,6 +71,34 @@ export function packageVersion(): string {
   return version;
 }
 
+export type BuildInfo = { readonly commit: string | null; readonly built_at: string | null };
+
+let built: BuildInfo | undefined;
+
+/**
+ * What `pnpm build` stamped (scripts/write-build-info.ts); nulls when run from source. Read once, so a
+ * daemon keeps reporting the build it started from after the install is swapped under it.
+ */
+export function buildInfo(): BuildInfo {
+  if (built !== undefined) return built;
+  built = { commit: null, built_at: null };
+  try {
+    const raw: unknown = JSON.parse(
+      readFileSync(new URL('../build-info.json', import.meta.url), 'utf8'),
+    );
+    if (typeof raw === 'object' && raw !== null) {
+      const r = raw as Record<string, unknown>;
+      built = {
+        commit: typeof r['commit'] === 'string' ? r['commit'] : null,
+        built_at: typeof r['built_at'] === 'string' ? r['built_at'] : null,
+      };
+    }
+  } catch {
+    // Not built: running from source.
+  }
+  return built;
+}
+
 /**
  * Runs one binary invocation and returns its exit code. Only `--version`, `--help` and the given
  * commands succeed; anything else is reported as not_available with exit 2, so a command that is not
@@ -101,7 +131,12 @@ export async function runCli(
   program.action(() => {
     const opts = program.opts<{ version?: true; json?: true }>();
     if (opts.version === true) {
-      io.stdout(json ? renderEnvelope(okEnvelope({ version: spec.version })) : `${spec.version}\n`);
+      const commit = spec.build?.commit ?? null;
+      io.stdout(
+        json
+          ? renderEnvelope(okEnvelope({ version: spec.version, ...spec.build }))
+          : `${spec.version}${commit === null ? '' : ` (${commit.slice(0, 12)})`}\n`,
+      );
       return;
     }
     exitCode = notAvailable(spec.name, program.args, json, io, commands.length > 0);

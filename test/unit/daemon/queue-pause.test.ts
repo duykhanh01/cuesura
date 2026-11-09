@@ -39,21 +39,27 @@ describe('queue pause file (issue #142)', () => {
 
     expect(await run(q.queue_pause, { reason: 'release upgrade' })).toMatchObject({
       ok: true,
-      value: { queue: { paused: { reason: 'release upgrade', by: 'assistant', at: 1_000 } } },
+      value: {
+        changed: true,
+        queue: { paused: { reason: 'release upgrade', by: 'assistant', at: 1_000 } },
+      },
     });
     expect(readQueuePause(dir)).toEqual({ reason: 'release upgrade', by: 'assistant', at: 1_000 });
     expect(statSync(join(dir, QUEUE_PAUSE_FILE)).mode & 0o777).toBe(0o600);
 
-    // A second pause keeps the first reason.
-    await run(q.queue_pause, { reason: 'other' });
+    // A second pause keeps the first reason and says it changed nothing (issue #260).
+    expect(await run(q.queue_pause, { reason: 'other' })).toMatchObject({
+      ok: true,
+      value: { changed: false, queue: { paused: { reason: 'release upgrade' } } },
+    });
     expect(readQueuePause(dir)?.reason).toBe('release upgrade');
 
     expect(await run(q.queue_resume, {})).toMatchObject({
       ok: true,
-      value: { queue: { paused: null } },
+      value: { changed: true, queue: { paused: null } },
     });
     expect(readQueuePause(dir)).toBeNull();
-    expect(await run(q.queue_resume, {})).toMatchObject({ ok: true });
+    expect(await run(q.queue_resume, {})).toMatchObject({ ok: true, value: { changed: false } });
   });
 
   it('a request run again after a crash changes nothing, so it never undoes a later decision', async () => {

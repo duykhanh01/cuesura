@@ -34,6 +34,15 @@ export const DOCTOR_PROBE_BUDGET_MS = 30_000;
 export const DOCTOR_CLIENT_TIMEOUT_MS = 45_000;
 const PROBE_MS = 10_000;
 
+/**
+ * How long a passed unit or terminal probe stands (issue #260): together they cost over a second, and an
+ * agent runs doctor often. Only a pass is reused, so a fixed failure shows on the next run.
+ */
+export const DOCTOR_PROBE_CACHE_MS = 30_000;
+
+/** Passed slow probes of one daemon, by probe and its argv. */
+export type DoctorProbeCache = Map<string, { readonly check: DoctorCheck; readonly at: number }>;
+
 export type DoctorDeps = {
   readonly store: Store;
   readonly dataDir: string;
@@ -52,6 +61,7 @@ export type DoctorDeps = {
   /** Digest of a harness binary; reads the file by default. */
   readonly digest?: (path: string) => string;
   readonly probeBudgetMs?: number;
+  readonly probeCache?: DoctorProbeCache;
   /** What each recorded harness's sandbox can run, so a binary that cannot start shows before a task. */
   readonly harnessTools?: () => Readonly<Record<string, SandboxTools>>;
   /** Credential files, every directory a sandbox of this daemon mounts, and what could not be resolved. */
@@ -350,6 +360,25 @@ function manifestCheck(
     : fail(name, `binary ${m.binary.realpath} changed since the proof`, fix);
 }
 
+async function cachedProbe(
+  deps: DoctorDeps,
+  key: string,
+  probe: () => Promise<DoctorCheck>,
+): Promise<DoctorCheck> {
+  const cache = deps.probeCache;
+  const now = deps.now();
+  const hit = cache?.get(key);
+  if (hit !== undefined && now - hit.at < DOCTOR_PROBE_CACHE_MS)
+    return {
+      ...hit.check,
+      detail: `${hit.check.detail} (checked ${Math.round((now - hit.at) / 1000)}s ago)`,
+    };
+  const check = await probe();
+  if (check.status === 'ok') cache?.set(key, { check, at: now });
+  else cache?.delete(key);
+  return check;
+}
+
 export async function runDoctor(
   deps: DoctorDeps,
   caller: Caller,
@@ -397,20 +426,22 @@ export async function runDoctor(
       checks.push(
         ok_('wsl2', 'WSL2 host; the user-manager unit probe above is what counts, not PID 1'),
       );
+    const systemdRun =
+      runtime?.tool_paths['systemd-run'] ?? (await host.findExecutable('systemd-run'));
     checks.push(
-      await unitProbe(
-        host,
-        runtime?.tool_paths['systemd-run'] ?? (await host.findExecutable('systemd-run')),
-      ),
+      await cachedProbe(deps, `unit:${systemdRun ?? ''}`, () => unitProbe(host, systemdRun)),
     );
-    if (runtime !== null && runtime.terminal.backend !== 'background')
+    if (runtime !== null && runtime.terminal.backend !== 'background') {
+      const terminal = runtime.terminal;
+      const bin = await findTerminalBin(terminal, runtime.tool_paths, host);
       checks.push(
-        await terminalProbe(
-          host,
-          runtime.terminal,
-          await findTerminalBin(runtime.terminal, runtime.tool_paths, host),
+        await cachedProbe(
+          deps,
+          `terminal:${bin === null ? '' : JSON.stringify(terminalArgv(terminal, bin))}`,
+          () => terminalProbe(host, terminal, bin),
         ),
       );
+    }
     for (const ref of runtime?.credential_refs ?? [])
       checks.push(credentialCheck(ref, await host.realpath(ref.file), deps.now()));
     if (project !== undefined) {

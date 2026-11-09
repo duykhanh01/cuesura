@@ -125,17 +125,16 @@ describe('task pause and resume (issue #142)', () => {
     expect(sim.s.cancellation).not.toBeNull();
   });
 
-  it('needs the operate role; a second pause is ignored; resume without a pause is rejected', () => {
+  it('needs the operate role; a second pause and a resume without a pause are ignored', () => {
     const sim = run();
     toCode(sim);
     expect(sim.when({ kind: 'pause', reason: 'x' }, { authz: authz(['read']) })).toMatchObject({
       kind: 'rejected',
       detail: { reason: 'operate_required' },
     });
-    expect(sim.when({ kind: 'unpause' })).toMatchObject({
-      kind: 'rejected',
-      detail: { reason: 'not_paused' },
-    });
+    expect(expectAccepted(sim.when({ kind: 'unpause' }))).toMatchObject([
+      { type: 'SignalIgnored', payload: { reason: 'not_paused' } },
+    ]);
     expectAccepted(pause(sim));
     const again = expectAccepted(pause(sim, 'again'));
     expect(again.map((e) => e.type)).toEqual(['SignalIgnored']);

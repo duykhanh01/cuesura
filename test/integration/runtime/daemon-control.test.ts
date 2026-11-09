@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { callDaemon, exitCodeFor, statusCommand } from '../../../src/cli/client.ts';
 import type { CallerActor } from '../../../src/application/authz.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
+import { packageVersion } from '../../../src/cli/program.ts';
 import Database from 'better-sqlite3';
 import {
   STORE_FILE,
@@ -77,7 +78,8 @@ describe('daemon control socket (T026)', () => {
       ok: true,
       data: {
         writer: 'ok',
-        projections: { ok: true },
+        build: { version: packageVersion() },
+        startup: { at: clock.now(), projections: { ok: true }, timers: { armed: 0 } },
         dispatch: { blocked: null, in_flight: 0 },
         slots: [],
         concurrency: 1,

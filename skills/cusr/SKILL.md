@@ -43,6 +43,11 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr status --json
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr doctor --project "$PROJECT" --json
+# status: startup.{at, projections, timers} were counted when the daemon started, not now.
+# build.commit in status and in `cusr --version --json` differing means the CLI and the
+# daemon run different builds; tell the user (the daemon needs a restart).
+# doctor failing is exit 1, code unhealthy, data null: read error.details.checks, each
+# failed check with its fix. A passed unit or terminal probe is reused for 30 seconds.
 
 # PROJECT and BASE: operator-supplied configured project ID and target branch.
 # PROFILE, WORKER, REVIEWER, FALLBACKS: allowed run settings, matching the effective
@@ -165,8 +170,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # (null until proposed). Use it to quote the task back to the user before approval.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task content "$TASK_ID" --json
-# task list: newest first, 20 per page; items: task_id, project, title, status, activity, pr_ref,
-# terminal, unverified, overlaps (IDs of live tasks changing the same files) and base_conflicts when present.
+# task list: newest first, 20 per page; items: task_id, project, title, status, activity (absent
+# once the task has ended), pr_ref, terminal, unverified, overlaps (IDs of live tasks changing the same files) and base_conflicts when present.
 # Filter with --project/--status; follow next_cursor with --cursor to reach older tasks;
 # --order oldest starts from the first task.
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
@@ -220,10 +225,20 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 - Exit 6 (`rejected` or `conflict`): the task's state does not allow the command now. Reread the task;
   do not resend it unchanged. `details.reason` names the refusal and `details.detail` the engine's
   detail. `conflict` with `reason: "task_terminal"` means the task has ended and nothing was done.
+- Exit 6 `nothing_to_recheck`: the task has nothing a recheck can do now; `details.target` is the
+  recheck the engine refused, or null when none applies.
+- A losing `answer` (someone answered first) is exit 6 `conflict` with `reason: "already_answered"`;
+  it does not make the version you read stale for your next command.
 - Exit 2 with `invalid_arguments`: fix the input, e.g. `details.missing` (unknown `depends_on` IDs) or
   `details.choices` (allowed answers).
 - Exit 1 with `response_too_large`: the reply was over the client's limit; ask for less (lower
   `--limit`, drop `--full`). Exit 1 otherwise is the daemon failing to do the command.
+- `task pause` of a paused task is exit 0 with `ignored: "already_paused"` and `task resume` of a task
+  that is not paused is exit 0 with `ignored: "not_paused"`: a retry after a timeout is safe.
+- `queue pause`/`queue resume` reply `changed: false` when the queue already was in that state; a
+  second pause keeps the first reason.
+- `task gate-log` with a gate name that did not run is exit 4 `gate_not_found` with `details.gates`
+  (the gates that ran in that round, or in any round).
 - `task cancel` of an ended task is exit 0 with `ignored: "terminal"`; `task recheck` of one is exit 0
   with `target: "terminal"` and `performed: false` (nothing was checked).
 

@@ -1029,6 +1029,9 @@ export const answerCommand: CliCommand = {
 export const doctorCommand: CliCommand = {
   name: 'doctor',
   description: 'Check daemon health, host prerequisites, credentials, and harness capabilities',
+  help: `Healthy: exit 0 with the checks in data.checks. Any failed check: exit 1, error code unhealthy,
+and the checks, each failed one with its fix, in error.details.checks (data is null).
+A passed systemd unit or terminal probe is reused for 30 seconds; a failed one runs again.`,
   options: [DATA_DIR, { flags: '--project <id>', description: 'Include checks for this project' }],
   run: (values, json, io) =>
     query(

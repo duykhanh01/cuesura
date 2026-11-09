@@ -11,6 +11,7 @@ import { okEnvelope } from '../cli/output.ts';
 import { STARTUP_REPORT_FILE, type StartupReport } from './startup.ts';
 import type { SpoolIngestReport } from './ingest.ts';
 import type { QueuePause } from './queue-pause.ts';
+import { buildInfo, packageVersion } from '../cli/program.ts';
 
 export type HealthInput = {
   readonly store: Store;
@@ -36,12 +37,15 @@ export function healthProblem(d: Dispatcher): string | null {
 export function healthReply(h: HealthInput): Reply {
   const { dispatcher, startup, store } = h;
   const data = {
+    // Answering at all means this daemon holds the writer lock; `store` says whether it can write.
     writer: 'ok',
+    build: { version: packageVersion(), ...buildInfo() },
     store: {
       writable: dispatcher.latchedReason === null,
       failure: dispatcher.latchedReason,
     },
-    projections: startup.projections,
+    // Counted once while the daemon started (issue #260); `cusr doctor` counts now.
+    startup: { at: startup.at, projections: startup.projections, timers: startup.timers },
     dispatch: {
       blocked: dispatcher.blockedReason,
       held: dispatcher.heldReason,
@@ -53,7 +57,6 @@ export function healthReply(h: HealthInput): Reply {
       unresolved: h.unresolved,
       spool_problems: h.spoolProblems ?? [],
       legacy_read_only: startup.legacy_read_only,
-      timers: startup.timers,
     },
     slots: store.readSlots(),
     loans: store.readLoans(),

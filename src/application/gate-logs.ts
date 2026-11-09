@@ -264,7 +264,16 @@ export function taskGateLog(
         round === undefined
           ? `task ${task_id} has not run a gate named ${JSON.stringify(gate)}`
           : `round ${String(round)} of task ${task_id} has no gate named ${JSON.stringify(gate)}`,
-      details: {},
+      // The gates that did run (in the asked round, or in any), so a mistyped name can be corrected.
+      details: {
+        gates: [
+          ...new Set(
+            (round === undefined ? all : all.slice(at, at + 1)).flatMap((e) =>
+              e.payload.results.map((r) => r.gate),
+            ),
+          ),
+        ],
+      },
     });
 
   const facts = { task_id, gate, round: at + 1, passed: run.passed };

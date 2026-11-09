@@ -25,7 +25,8 @@ if [ ! -f "$RELEASE/dist/cli/cusr.js" ]; then
   TMP=$(mktemp -d "$ROOT/releases/.tmp.XXXXXX")
   trap 'rm -rf "$TMP"' EXIT
   git -C "$REPO" archive "$SHA" | tar -x -C "$TMP"
-  (cd "$TMP" && pnpm install --frozen-lockfile && pnpm build)
+  # An archive has no .git: the build stamps this commit for `cusr --version` and `cusr status`.
+  (cd "$TMP" && pnpm install --frozen-lockfile && CUSR_BUILD_COMMIT=$SHA pnpm build)
   rm -rf "$RELEASE"
   mv "$TMP" "$RELEASE"
   trap - EXIT

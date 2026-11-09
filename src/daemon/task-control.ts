@@ -12,7 +12,7 @@ import { statusSinceReader, taskBoard } from '../application/board.ts';
 import { cancelTask } from '../application/cancel.ts';
 import { continueTask } from '../application/continue.ts';
 import { messageTask, pauseTask, resumeTask } from '../application/pause.ts';
-import { runDoctor, type DoctorDeps } from '../application/doctor.ts';
+import { runDoctor, type DoctorDeps, type DoctorProbeCache } from '../application/doctor.ts';
 import { AttentionDesk, type DeciderWatch } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
 import { taskGateLog, taskGates } from '../application/gate-logs.ts';
@@ -152,6 +152,7 @@ export function taskControl(deps: TaskControlDeps): {
   const { store, logs, doctor } = deps;
   const statusSince = statusSinceReader(store);
   const logCache = new LogRecordCache();
+  const probeCache: DoctorProbeCache = new Map();
   const scope: ScopeDeps = {
     store,
     git: deps.confirm.ports.git,
@@ -258,7 +259,7 @@ export function taskControl(deps: TaskControlDeps): {
         ? {}
         : {
             doctor: async (caller, body) =>
-              reply(await runDoctor({ store, ...doctor }, caller, body)),
+              reply(await runDoctor({ store, probeCache, ...doctor }, caller, body)),
           }),
     },
   };

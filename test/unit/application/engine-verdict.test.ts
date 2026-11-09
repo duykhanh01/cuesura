@@ -49,6 +49,15 @@ describe('engineRejection', () => {
     expect(httpStatusFor(e.code)).toBe(400);
   });
 
+  it('a recheck that does not fit the task is nothing_to_recheck naming its target (issue #260)', () => {
+    const e = engineRejection('invalid_trigger', {
+      reason: 'recheck_not_applicable',
+      target: 'drain',
+    });
+    expect(e).toMatchObject({ code: 'nothing_to_recheck', details: { target: 'drain' } });
+    expect(exitCodeForError(e.code)).toBe(ExitCode.conflict);
+  });
+
   it('a refusal reads its message from the engine detail', () => {
     expect(engineRejection('invalid_trigger', { reason: 'run_config_frozen' }).message).toBe(
       'run_config_frozen',

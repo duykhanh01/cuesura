@@ -386,6 +386,20 @@ describe('listSummary', () => {
     });
   });
 
+  it('leaves out the last step of a finished task (issue #260)', () => {
+    const rows = (
+      listSummary({
+        items: ['DONE', 'FAILED', 'CANCELLED'].map((status) => ({
+          task_id: ID,
+          status,
+          step: 'merge_gate',
+        })),
+        next_cursor: null,
+      }) as { items: Record<string, unknown>[] }
+    ).items;
+    for (const row of rows) expect(row).not.toHaveProperty('activity');
+  });
+
   it('names why a task ended and a merge nobody verified (issue #264)', () => {
     const [row] = (
       listSummary({

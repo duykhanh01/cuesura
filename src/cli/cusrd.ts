@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 import { once } from 'node:events';
 import { daemonMain } from '../daemon/main.ts';
-import { packageVersion, processIo, runCli, type CliIo } from './program.ts';
+import { buildInfo, packageVersion, processIo, runCli, type CliIo } from './program.ts';
 
 const spec = {
   name: 'cusrd',
   description: 'Cuesura daemon',
   version: packageVersion(),
+  build: buildInfo(),
 };
 
 /** `cusrd --config FILE [--data-dir DIR]`; --version/--help and anything else go through runCli. */

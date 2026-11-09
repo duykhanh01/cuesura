@@ -49,6 +49,13 @@ export function engineRejection(code: string, detail?: unknown): AppError {
       };
     }
   }
+  // One code for "nothing to recheck", whether the service or the engine found it (issue #260).
+  if (reason === 'recheck_not_applicable')
+    return {
+      code: 'nothing_to_recheck',
+      message: reason,
+      details: { ...details, target: (detail as { target?: unknown }).target ?? null },
+    };
   if (reason === 'base_repair_answer_must_be_continue_or_retry_fixer')
     return {
       code: 'invalid_arguments',
