@@ -57,6 +57,8 @@ describe('goal aggregate', () => {
           .map((r) => [r.unit_key, r.role])
           .sort(),
       ).toEqual([
+        // With several units the integration task is indexed too (lát E).
+        [null, 'final'],
         ['a', 'unit'],
         ['b', 'unit'],
       ]);

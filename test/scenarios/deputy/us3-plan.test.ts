@@ -144,14 +144,26 @@ describe('US3: goal and plan', () => {
       expect(['READY', 'PENDING']).toContain(s?.status);
       expect(s?.wait?.detail.code ?? null).not.toBe('needs_confirmation');
       expect(s?.run.confirmation?.digest).toBe(s?.run.proposal?.digest);
+      // Lát E: with several units each unit targets the goal branch and waits for it to exist.
+      const branch = goalOf(x.store, g.goal_id)?.branch as string;
+      expect(branch).toMatch(/^goal\/[0-9a-f]{8}-export-the-report-as-csv$/);
       expect(s?.task.goal).toEqual({
         id: g.goal_id,
         unit_key: key,
         role: 'unit',
         depends_on_units: key === 'b' ? ['a'] : [],
+        branch,
       });
-      expect(s?.task.base_branch).toBe('main');
+      expect(s?.task.base_branch).toBe(branch);
+      expect(s?.wait?.detail['goal_branch']).toBe(branch);
     }
+    const stored0 = goalOf(x.store, g.goal_id);
+    const final = task(x.store, stored0?.final_task_id as string);
+    expect(final?.task.goal).toMatchObject({ role: 'final', branch: stored0?.branch });
+    expect(final?.task.base_branch).toBe('main');
+    expect([...(final?.task.depends_on ?? [])].sort()).toEqual(
+      [g.units['a']?.task_id, g.units['b']?.task_id].sort(),
+    );
     expect(task(x.store, g.units['b']?.task_id as string)?.task.depends_on).toEqual([
       g.units['a']?.task_id,
     ]);
@@ -161,6 +173,7 @@ describe('US3: goal and plan', () => {
     expect(stored?.branch).toBeNull();
     expect(stored?.final_task_id).toBeNull();
     expect(x.store.goals.tasks(one.goal_id)).toHaveLength(1);
+    expect(task(x.store, one.units['only']?.task_id as string)?.task.base_branch).toBe('main');
   });
 
   it('refuses a confirmation by a hash the plan no longer has (scenario 4)', async () => {

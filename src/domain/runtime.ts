@@ -217,6 +217,12 @@ export const FrozenRuntimeContextSchema = z
     // Additive: the project's setup commands at the frozen base, run by `prepare`. Absent when it has none
     // and in a snapshot frozen before it existed; that task runs no setup, as it did.
     setup_commands: z.array(z.string().min(1)).optional(),
+    // Additive (007, R-24): the goal branch tip an integration task starts from, read at its start the
+    // way an adopted PR's head is. Absent on every other task.
+    start_sha: z
+      .string()
+      .regex(/^[0-9a-f]{40}$/)
+      .optional(),
     runtime_hash: HashSchema,
   })
   .strict();

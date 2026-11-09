@@ -34,6 +34,7 @@ import { basename, join } from 'node:path';
 import {
   buildRoleContext,
   gateEvidenceFor,
+  type GoalBrief,
   type PublishContent,
   type RepairState,
   type RoleFailure,
@@ -71,7 +72,9 @@ import {
   finalBody,
   fitContent,
   updatePrDescription,
+  goalPrContent,
   withDeputyAssumptions,
+  type GoalPrInput,
   type DescriptionUpdate,
   type PrFact,
   type PrSpec,
@@ -131,7 +134,7 @@ import type { EpochMs, Uuid } from '../shared/brand.ts';
 import { hashCanonical, hashText } from '../shared/hash.ts';
 import { claimable } from '../engine/claim.ts';
 import { reviewInputDigest } from '../engine/review-evidence.ts';
-import { gatesPass, waiversSection } from '../engine/waivers.ts';
+import { gatesPass, waiverLine, waiversSection } from '../engine/waivers.ts';
 import { findingKey, latestRejection, splitFindingKey } from '../engine/failure-signature.ts';
 import { isBlocking } from '../engine/failure.ts';
 import type { Store } from '../store/index.ts';
@@ -240,7 +243,11 @@ async function commonDir(deps: HandlerDeps, project: string): Promise<string> {
  * task still works on its private `cusr/` branch, so a checkout of that head elsewhere cannot collide.
  */
 const remoteBranch = (s: TaskState): string =>
-  s.adoption?.head_branch ?? taskBranch(s.id, s.task.title);
+  s.adoption?.head_branch ?? integrationBranch(s) ?? taskBranch(s.id, s.task.title);
+
+/** A goal's integration task publishes the goal branch itself (007, R-24). */
+const integrationBranch = (s: TaskState): string | null =>
+  s.task.goal?.role === 'final' ? (s.task.goal.branch ?? null) : null;
 
 function where(deps: HandlerDeps, l: Loaded) {
   return {
@@ -400,6 +407,91 @@ function requireNativeExecution(deps: HandlerDeps, l: Loaded): void {
     );
 }
 
+/** The plan and unit merges an integration task's workers and reviewer read (007, R-24, FR-086). */
+export function goalBrief(store: Store, s: TaskState): GoalBrief | null {
+  const goal = s.task.goal;
+  if (goal?.role !== 'final' || goal.branch === undefined) return null;
+  const g = store.goals.read(goal.id);
+  if (g === null || g.plan === null) return null;
+  return {
+    summary: g.plan.summary,
+    branch: goal.branch,
+    base_branch: g.base_branch,
+    non_goals: g.plan.non_goals,
+    units: g.plan.units.map((u) => {
+      const id = Object.hasOwn(g.units, u.key) ? (g.units[u.key]?.task_id ?? null) : null;
+      const t = id === null ? null : store.readTask(id as Uuid);
+      const proof = t?.completion?.proof;
+      return {
+        key: u.key,
+        title: u.title,
+        acceptance: u.acceptance,
+        task_id: id ?? '-',
+        pr_ref: t?.pr_ref ?? null,
+        merge_commit:
+          proof !== undefined && proof.subject.target_ref === goal.branch
+            ? proof.merge_commit_sha
+            : null,
+      };
+    }),
+  };
+}
+
+/** What the PR of a goal lists, read from the goal, its units and their deputy turns (FR-087). */
+function goalPrInput(store: Store, s: TaskState): GoalPrInput | null {
+  const brief = goalBrief(store, s);
+  const goalId = s.task.goal?.id;
+  const g = goalId === undefined ? null : store.goals.read(goalId);
+  if (brief === null || g === null || goalId === undefined) return null;
+  const units = brief.units.map((u) => ({
+    ...u,
+    task: u.task_id === '-' ? null : store.readTask(u.task_id as Uuid),
+  }));
+  const keyOf = new Map(units.flatMap((u) => (u.task === null ? [] : [[u.task.id, u.key]])));
+  return {
+    summary: brief.summary,
+    request: g.request,
+    branch: brief.branch,
+    base_branch: brief.base_branch,
+    units: units.map((u) => ({
+      key: u.key,
+      title: u.title,
+      pr_ref: u.pr_ref,
+      merge_commit: u.merge_commit,
+    })),
+    waivers: units.flatMap((u) =>
+      (u.task?.run.waivers ?? []).map((w) => ({ unit: u.key, line: waiverLine(w) })),
+    ),
+    decisions: store.deputy.turnsOf({ goal_id: goalId }).flatMap((t) =>
+      t.handoff === null || (t.task_id !== null && !keyOf.has(t.task_id))
+        ? []
+        : [
+            {
+              unit: t.task_id === null ? null : (keyOf.get(t.task_id) ?? null),
+              decision: t.handoff.decision,
+            },
+          ],
+    ),
+    assumptions: units.flatMap((u) =>
+      Object.values(u.task?.questions ?? {}).flatMap((q) =>
+        q.answered_by === DEPUTY_ACTOR && q.answer !== null
+          ? [{ unit: u.key, question: q.body, answer: q.answer }]
+          : [],
+      ),
+    ),
+  };
+}
+
+/** The integration task's commit and PR content: built by code at its start, since no coder runs (R-24). */
+function integrationContent(
+  deps: HandlerDeps,
+  s: TaskState,
+): { digest: string; ref: string } | null {
+  if (s.task.goal?.role !== 'final' || currentContent(deps, s) !== null) return null;
+  const input = goalPrInput(deps.store, s);
+  return input === null ? null : contentStore(deps).put(goalPrContent(input));
+}
+
 // ---- prepare ----
 
 async function prepare(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome> {
@@ -413,7 +505,7 @@ async function prepare(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome
     project_realpath: l.rt.project_path,
     common_git_dir: await commonDir(deps, l.rt.project_path),
     base_sha: base,
-    ...(l.s.adoption === undefined ? {} : { start_sha: l.s.adoption.head_sha }),
+    ...(startOf(l) === null ? {} : { start_sha: startOf(l) as string }),
     worktrees_root: deps.paths.worktrees,
     markers_dir: deps.paths.markers,
     nonce: effect.id,
@@ -450,6 +542,7 @@ async function prepare(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome
     );
   const tree = await worktreeTree(deps, l);
   if (!tree.ok) return tree.outcome;
+  const content = integrationContent(deps, l.s);
   return {
     outcome: 'succeeded',
     data: {
@@ -458,6 +551,7 @@ async function prepare(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome
       branch: wt.branch,
       setup: { ran: commands.length > 0, passed: true },
       worktree_tree: tree.tree,
+      ...(content === null ? {} : { content }),
     },
   };
 }
@@ -1139,6 +1233,7 @@ async function startAgent(
           open_findings: openFindings(l.s),
         }
       : {}),
+    goal: goalBrief(deps.store, l.s),
     limits: {
       context_bytes: l.rt.limits.context_bytes,
       review_diff_bytes: l.rt.limits.review_diff_bytes,
@@ -1765,7 +1860,7 @@ async function publish(
       extra: [drift],
     };
   }
-  const published = publishedHead(l.s);
+  const published = publishedHead(l);
   const r = await pushBranch(deps.git, {
     cwd: spec.worktree_path,
     remote_url: deps.remoteUrl(l.rt.target.repo),
@@ -1886,7 +1981,7 @@ async function salvage(deps: HandlerDeps, effect: Effect): Promise<EffectOutcome
     cwd: spec.worktree_path,
     remote_url: deps.remoteUrl(l.rt.target.repo),
     branch: remoteBranch(l.s),
-    expected_old: publishedHead(l.s),
+    expected_old: publishedHead(l),
     new_sha: sha,
   });
   if (r.kind === 'unknown') return unknown(r.detail);
@@ -1927,8 +2022,14 @@ async function probeSalvage(deps: HandlerDeps, target: Effect): Promise<Probe> {
  * The head published by the last valid publish, else the head an adoption approved: what the remote
  * branch is expected to hold now. Null only for a branch that must not exist yet.
  */
-const publishedHead = (s: TaskState): string | null =>
-  s.evidence.publishes.filter((p) => p.valid).at(-1)?.head_sha ?? s.adoption?.head_sha ?? null;
+const publishedHead = (l: Loaded): string | null =>
+  l.s.evidence.publishes.filter((p) => p.valid).at(-1)?.head_sha ?? startOf(l);
+
+/**
+ * Where the worktree starts and what the remote branch holds before the first publish: an adopted head,
+ * else an integration task's goal branch tip frozen at its start.
+ */
+const startOf = (l: Loaded): string | null => l.s.adoption?.head_sha ?? l.rt.start_sha ?? null;
 
 /** A publish whose SHA is on the remote: the head and how it relates to the frozen base. */
 async function pushedOutcome(
@@ -2728,7 +2829,7 @@ async function probePublish(deps: HandlerDeps, target: Effect, done: boolean): P
   const sha = typeof target.request['sha'] === 'string' ? target.request['sha'] : null;
   if (sha === null) return still('publish without a SHA');
   const cwd = where(deps, l).worktree;
-  const published = publishedHead(l.s);
+  const published = publishedHead(l);
   const r = await probePush(deps.git, {
     cwd,
     remote_url: deps.remoteUrl(l.rt.target.repo),

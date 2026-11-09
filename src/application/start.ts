@@ -30,6 +30,7 @@ import {
   type SelectionProblem,
 } from './run-config.ts';
 import { adoptionInput, checkConfig, submit } from './triage.ts';
+import { integrationInput, integrationStartProblem } from './goal-tip.ts';
 
 /** Documents frozen into the execution context that do not live in the repo's base commit. */
 export interface StartDocsPort {
@@ -47,6 +48,14 @@ export type StartDeps = {
 };
 
 const START_IDS = 8;
+
+/** A unit merges into its goal branch with a merge commit, keeping its bounds on first-parent (R-23). */
+function goalUnitMergeMethod(s: TaskState): 'merge' | null {
+  const g = s.task.goal;
+  return g?.role === 'unit' && g.branch !== undefined && g.branch === s.task.base_branch
+    ? 'merge'
+    : null;
+}
 const DOC_BYTES = 1024 * 1024;
 
 export type StartResult =
@@ -163,7 +172,8 @@ async function freezeFor(deps: StartDeps, s: TaskState, candidate: PreflightCand
     },
     pr_template: template.value,
     review_template: reviewTemplate.value,
-    merge_method: resolveMergeMethod(config.project),
+    merge_method: goalUnitMergeMethod(s) ?? resolveMergeMethod(config.project),
+    ...(candidate.start_sha === undefined ? {} : { start_sha: candidate.start_sha }),
     setup_commands: config.project?.setup ?? [],
     role_prompts: Object.fromEntries(
       Object.values(frozen.value.policy.steps).flatMap((st) => {
@@ -232,11 +242,18 @@ export async function startTask(deps: StartDeps, taskId: string): Promise<StartR
     return { kind: 'not_startable', reason: 'run_config_unconfirmed' };
   }
 
+  // A goal's integration task starts only while its goal runs and no unit merge is in flight (R-24).
+  const held = integrationStartProblem(deps.store, s, null);
+  if (held !== null) {
+    release(held);
+    return { kind: 'not_startable', reason: held };
+  }
   const check = await checkConfig(deps.ports, {
     task: s.task,
     ...(await deps.configInputs()),
     mode: s.run.proposal?.selection.mode ?? null,
     ...adoptionInput(s),
+    ...integrationInput(deps.store, s),
   });
   if (check.kind === 'infra')
     return {
@@ -250,6 +267,22 @@ export async function startTask(deps: StartDeps, taskId: string): Promise<StartR
     check.kind === 'ok'
       ? await freezeFor(deps, s, check.candidate)
       : { ok: false as const, error: check.error };
+  // Last, with nothing awaited from here to the submit: preflight and the documents were awaited, so
+  // the goal and the goal branch as preflight read it are checked against the store as it is now. A
+  // push after that read is refused by the integration task's own publish (compare-and-swap on start_sha).
+  // The history is read from the goal's base, never from where the base branch now meets it.
+  if (check.kind === 'ok' && s.task.goal?.role === 'final') {
+    // Without the branch as read there is nothing to judge: the start does not go on.
+    const read = check.candidate.start_read ?? null;
+    const drift =
+      read === null
+        ? 'goal_branch_unread'
+        : integrationStartProblem(deps.store, deps.store.readTask(s.id as Uuid) ?? s, read);
+    if (drift !== null) {
+      release(drift);
+      return { kind: 'not_startable', reason: drift };
+    }
+  }
   const r = submit(deps.store, {
     task_id: s.id,
     dedup_key: dedup,

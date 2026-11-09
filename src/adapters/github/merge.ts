@@ -18,11 +18,13 @@ export type MergeTarget = {
 };
 
 export type MergeReadiness =
-  | { readonly ready: true }
+  /** `tip`: the target branch tip the head was compared with. */
+  | { readonly ready: true; readonly tip?: string }
   | {
       readonly ready: false;
       readonly reason: string;
       readonly base_sha?: string;
+      readonly tip?: string;
     };
 
 type Obj = Readonly<Record<string, unknown>>;
@@ -68,20 +70,21 @@ export async function readMergeReadiness(
     query: { per_page: '1', page: '2' },
     body: null,
   });
-  if (!comparison.ok) return notReady(`compare unreadable: ${comparison.error.detail}`);
+  if (!comparison.ok) return { ...notReady(`compare unreadable: ${comparison.error.detail}`), tip };
   const ahead = obj(comparison.value.body)['ahead_by'];
   if (typeof ahead === 'number' && Number.isSafeInteger(ahead) && ahead > 0)
     return {
       ready: false,
       reason: `compare ahead_by ${ahead}`,
       base_sha: tip,
+      tip,
     };
-  if (ahead !== 0) return notReady(`compare ahead_by ${String(ahead)}`);
+  if (ahead !== 0) return { ...notReady(`compare ahead_by ${String(ahead)}`), tip };
   // `unstable` only means a check outside the required set is failing or pending; the caller verifies
   // that the required set is non-empty and green before merging.
   if (state !== 'clean' && state !== 'unstable')
-    return notReady(`mergeable_state ${String(state)}`);
-  return { ready: true };
+    return { ...notReady(`mergeable_state ${String(state)}`), tip };
+  return { ready: true, tip };
 }
 
 export type MergeSent =

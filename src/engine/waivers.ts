@@ -155,12 +155,14 @@ export function unlistedWaivers(s: WithWaivers & Pick<TaskState, 'pr_ref'>): str
 }
 
 /** The PR body section that lists the waivers, always as waived, never as passed (FR-046). */
+/** One waiver as the PR lists it: always as waived. */
+export function waiverLine(w: Waiver): string {
+  return `**waived** ${w.target.kind} \`${w.target.key}\` by ${w.by}: ${w.reason ?? 'no reason'} — evidence: ${w.evidence}`;
+}
+
 export function waiversSection(waivers: readonly Waiver[]): string {
   if (waivers.length === 0) return '';
-  const lines = waivers.map(
-    (w) =>
-      `- **waived** ${w.target.kind} \`${w.target.key}\` by ${w.by}: ${w.reason ?? 'no reason'} — evidence: ${w.evidence}`,
-  );
+  const lines = waivers.map((w) => `- ${waiverLine(w)}`);
   return [
     '## Waivers',
     '',

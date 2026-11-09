@@ -155,6 +155,9 @@ export function fakeGit(o: GitOpts = {}): PreflightPorts['git'] & { calls: strin
         }
         case 'merge-base':
           return Promise.resolve(exited(SHA));
+        case 'rev-list':
+          // A goal branch still at its base: its first-parent history is the base alone.
+          return Promise.resolve(exited(`${SHA}\n`));
         default:
           throw new Error(`unexpected git ${c.args.join(' ')}`);
       }

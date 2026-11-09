@@ -241,6 +241,11 @@ export const PrepareDataSchema = z
     setup: z.object({ ran: z.boolean(), passed: z.boolean() }).strict(),
     // The worktree tree once prepared (T072); additive.
     worktree_tree: z.string().min(1).optional(),
+    // A goal's integration task: the commit and PR content code built for it (007, R-24); additive.
+    content: z
+      .object({ digest: HashSchema, ref: z.string().min(1) })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -707,6 +712,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       head_sha: z.string().regex(/^[0-9a-f]{40}$/),
     })
     .strict(),
+  // The goal branch a unit targets now exists (007, R-23): the unit triages again.
+  z.object({ kind: z.literal('goal_branch_ready') }).strict(),
   // Keep the old trigger readable for existing durable envelopes.
   BaseUpdateRequestSchema.extend({ kind: z.literal('yolo_update_base') }).strict(),
   BaseUpdateRequestSchema.extend({ kind: z.literal('update_base') }).strict(),
@@ -714,6 +721,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('yolo_merge_approve'),
       head_sha: z.string().regex(/^[0-9a-f]{40}$/),
+      /** A unit merging into its goal branch (007, R-23); absent for the owner's yolo. */
+      by: z.literal('policy:goal').optional(),
     })
     .strict(),
   z
@@ -907,6 +916,8 @@ export type RelatedFacts = {
    * active ends at the borrower's next slot-bound work (FR-044.04).
    */
   loan?: { active: boolean };
+  /** A unit of a goal with several units: its goal branch, and whether it exists yet (007, R-23). */
+  goal_branch?: { name: string; created: boolean };
 };
 
 export const EMPTY_RELATED: RelatedFacts = {

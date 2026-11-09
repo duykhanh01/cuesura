@@ -61,7 +61,8 @@ export function selectionFor(
     model: string;
     effort: RunSelection['worker']['effort'];
   }) => ({ harness: b.harness, model: b.model, effort: b.effort });
-  const code = policy.steps['code'] as FrozenPolicy['steps'][string];
+  // A goal's integration task has no coder step: its worker is the fixer's binding.
+  const code = (policy.steps['code'] ?? policy.steps['fix_gates']) as FrozenPolicy['steps'][string];
   const worker = pick(code.binding);
   const seen = new Set([JSON.stringify(worker)]);
   const fallbacks: RunSelection['fallbacks'] = [];

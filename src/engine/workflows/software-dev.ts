@@ -223,3 +223,28 @@ export function modeGraph(w: Workflow, mode: ExecutionMode): Workflow {
   }
   return WorkflowSchema.parse({ ...w, steps });
 }
+
+export const GOAL_FINAL = 'goal_final@1';
+
+export function goalFinalWorkflowName(mode: ExecutionMode): string {
+  return `${GOAL_FINAL}:${mode}`;
+}
+
+/**
+ * The integration task of a goal (007, R-24): the mode's graph without `scout` and `code`, starting at the
+ * gates on the goal branch tip. No coder runs: a CI failure goes to the fixer like a gate failure.
+ */
+export function goalFinalGraph(modeWorkflow: Workflow): Workflow {
+  const steps = structuredClone(modeWorkflow.steps);
+  delete steps['scout'];
+  delete steps['code'];
+  const prepare = steps['prepare'];
+  if (prepare !== undefined) prepare.next = { ...prepare.next, ok: 'gates' };
+  for (const step of Object.values(steps)) {
+    if (step.role === 'coder') step.role = 'fixer';
+    for (const [outcome, target] of Object.entries(step.next))
+      if (target === 'code') step.next[outcome] = 'fix_gates';
+    if (step.on_exhausted === 'code') step.on_exhausted = 'fix_gates';
+  }
+  return WorkflowSchema.parse({ ...modeWorkflow, steps });
+}

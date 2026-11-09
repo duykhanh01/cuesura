@@ -163,9 +163,15 @@ function projectGoal(db: Database, s: GoalState, events: readonly GoalEvent[]): 
     `INSERT INTO goal_tasks (goal_id, task_id, unit_key, role) VALUES (?, ?, ?, 'unit')
      ON CONFLICT (goal_id, task_id) DO NOTHING`,
   );
+  const final = db.prepare(
+    `INSERT INTO goal_tasks (goal_id, task_id, unit_key, role) VALUES (?, ?, NULL, 'final')
+     ON CONFLICT (goal_id, task_id) DO NOTHING`,
+  );
   for (const e of events)
-    if (e.type === 'PlanConfirmed')
+    if (e.type === 'PlanConfirmed') {
       for (const [key, taskId] of Object.entries(e.payload.units)) link.run(s.id, taskId, key);
+      if (e.payload.final_task_id !== undefined) final.run(s.id, e.payload.final_task_id);
+    }
 }
 
 /** The deduplicated request: everything the caller decided, so a changed retry is a conflict. */
@@ -175,7 +181,7 @@ function requestHash(env: GoalEnvelope): string {
   // envelope's IDs: neither is part of what the caller asked (principle II).
   const { now: _now, ...rest } = env;
   if (rest.trigger.kind !== 'confirm') return hashCanonical(rest);
-  const { units: _units, ...trigger } = rest.trigger;
+  const { units: _units, final_task_id: _final, branch: _branch, ...trigger } = rest.trigger;
   return hashCanonical({ ...rest, trigger });
 }
 

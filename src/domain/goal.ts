@@ -121,7 +121,12 @@ export type GoalState = {
   plans: PlanRecord[];
   pending_amendment: PendingAmendment | null;
   notes: GoalNote[];
+  /** The goal branch, named at the first confirmation of a plan with several units (R-23). */
   branch: string | null;
+  /** Where the goal branch starts: the base branch tip read at that confirmation. Absent before 007 E. */
+  branch_base_sha?: string | null;
+  /** Whether `GoalBranchCreated` is recorded; units wait for it. Absent before 007 E. */
+  branch_created?: boolean;
   units: Record<string, GoalUnit>;
   final_task_id: string | null;
   replan_reason: string | null;
@@ -148,14 +153,20 @@ export type GoalEventPayloads = {
     reason: string | null;
     at: number;
   };
-  /** `units` names the task created for each unit this confirmation adds. */
+  /**
+   * `units` names the task created for each unit this confirmation adds. The first confirmation of a plan
+   * with several units also names the goal branch and the integration task (R-23, R-24).
+   */
   PlanConfirmed: {
     plan_version: number;
     plan_hash: string;
     by: string;
     units: Record<string, string>;
+    branch?: { name: string; base_sha: string };
+    final_task_id?: string;
     at: number;
   };
+  GoalBranchCreated: { branch: string; sha: string; at: number };
   PlanAmended: {
     plan: Plan;
     plan_version: number;
@@ -188,6 +199,7 @@ export const GOAL_EVENT_TYPES = [
   'PlanConfirmed',
   'PlanAmended',
   'PlanAmendmentProposed',
+  'GoalBranchCreated',
   'GoalReplanNeeded',
   'GoalCompleted',
   'GoalFailed',
@@ -224,11 +236,30 @@ export type GoalTrigger =
       amendment: AmendmentKind;
       affected: string[];
     }
-  | { kind: 'confirm'; plan_hash: string; units: Record<string, string> }
+  | {
+      kind: 'confirm';
+      plan_hash: string;
+      units: Record<string, string>;
+      branch?: { name: string; base_sha: string };
+      final_task_id?: string;
+    }
+  | { kind: 'branch_created'; sha: string }
   | { kind: 'cancel'; reason: string }
   | { kind: 'replan'; reason: string }
   | { kind: 'complete' }
   | { kind: 'fail'; reason: string };
+
+/** `goal/<first 8 of the id>-<slug of the summary, at most 40>` (contracts/goal.md). */
+export function goalBranchName(goalId: string, summary: string): string {
+  const slug = summary
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40)
+    .replace(/-+$/g, '');
+  return `goal/${goalId.slice(0, 8)}${slug === '' ? '' : `-${slug}`}`;
+}
 
 export type GoalEnvelope = {
   goal_id: string;

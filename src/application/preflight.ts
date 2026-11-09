@@ -4,6 +4,7 @@
  * of the Isolated runtime and what daemon 002 can run. It only reports: it never changes the host, the
  * config or the task's bindings, and its result is a candidate; the single snapshot is frozen at start.
  */
+import { firstParentHistory, type GoalBranchRead } from '../adapters/git/goal-branch.ts';
 import type { GitHubPort, GitPort, GitResult, HostProbePort } from '../adapters/ports.ts';
 import { ROLES, type Role } from '../adapters/harness/result-schema.ts';
 import { manifestShortfalls } from './capabilities.ts';
@@ -75,6 +76,10 @@ export type PreflightCandidate = {
   };
   /** Harness → `manifest_hash` of the manifest the check accepted. */
   readonly capability_refs: Readonly<Record<string, Hash>>;
+  /** An integration task's start: the goal branch tip read now (007, R-24). */
+  readonly start_sha?: string;
+  /** And the goal branch as read then, for `verifyGoalBranch`, when the start gave the goal's base. */
+  readonly start_read?: GoalBranchRead;
 };
 
 export type PreflightInput = {
@@ -94,6 +99,8 @@ export type PreflightInput = {
   readonly gate_path?: readonly string[];
   /** The PR head the task continues from: the base it freezes is where that head left the base branch. */
   readonly adoption?: Pick<Adoption, 'head_branch' | 'head_sha'>;
+  /** A goal's integration task: the base its goal branch grows from, to read that branch's history. */
+  readonly integration?: { readonly branch_base_sha: string };
 };
 
 /** PATH directories of a harness's sandbox and the commands its binary cannot start without. */
@@ -262,12 +269,27 @@ async function run(
 
   const repo = await checkProjectRepo(ports, location.path, location.repo, task.base_branch);
   if (!repo.ok) return err(failed(repo.error));
-  const fork =
-    input.adoption === undefined
-      ? ok(repo.value.base_sha)
-      : await adoptedBase(ports, location.path, repo.value.base_sha, input.adoption);
+  const integration = integrationBranch(task);
+  const fork: Result<
+    { base_sha: string; start_sha?: string; start_read?: GoalBranchRead },
+    PreflightProblem
+  > =
+    input.adoption !== undefined
+      ? mapOk(
+          await adoptedBase(ports, location.path, repo.value.base_sha, input.adoption),
+          (base_sha) => ({ base_sha }),
+        )
+      : integration !== null
+        ? await integrationBase(
+            ports,
+            location.path,
+            repo.value.base_sha,
+            integration,
+            input.integration?.branch_base_sha ?? null,
+          )
+        : ok({ base_sha: repo.value.base_sha });
   if (!fork.ok) return err(failed([fork.error]));
-  const base_sha = fork.value;
+  const { base_sha, start_sha, start_read } = fork.value;
 
   const config = await readBaseFile(ports.git, location.path, base_sha, PROJECT_CONFIG_FILE);
   if (!config.ok) return err(failed([config.error]));
@@ -290,7 +312,11 @@ async function run(
   const remote = await readRepoIdentity(ports.github, location.repo);
   if (!remote.ok) support.problems.push(remote.error);
   else {
-    const stacked = await checkStackedBase(ports.github, location.repo, task, remote.value);
+    // A unit of a goal targets the goal branch, which the goal's own integration PR later heads.
+    const stacked =
+      task.goal?.branch !== undefined && task.goal.branch === task.base_branch
+        ? null
+        : await checkStackedBase(ports.github, location.repo, task, remote.value);
     if (stacked !== null) support.problems.push(stacked);
   }
   if (support.problems.length > 0 || !remote.ok) return err(failed(support.problems));
@@ -307,6 +333,8 @@ async function run(
       base_ref: task.base_branch,
     },
     capability_refs: support.capability_refs,
+    ...(start_sha === undefined ? {} : { start_sha }),
+    ...(start_read === undefined ? {} : { start_read }),
   });
 }
 
@@ -563,6 +591,80 @@ async function adoptedBase(
       problem('config_invalid', 'adopt_pr', 'the PR head shares no history with the base branch'),
     );
   return ok(fork.stdout.trim());
+}
+
+/** The goal branch an integration task publishes; null for any other task. */
+function integrationBranch(task: CanonicalTask): string | null {
+  return task.goal?.role === 'final' && task.goal.branch !== undefined ? task.goal.branch : null;
+}
+
+/**
+ * The start of a goal's integration task (007, R-24), as an adopted PR's: the goal branch tip read now,
+ * and the base where that tip left the base branch. No approval: the confirmed plan stands for it.
+ */
+const mapOk = <T, U, E>(r: Result<T, E>, f: (t: T) => U): Result<U, E> =>
+  r.ok ? ok(f(r.value)) : r;
+
+async function integrationBase(
+  ports: PreflightPorts,
+  path: string,
+  baseTip: string,
+  branch: string,
+  goalBase: string | null,
+): Promise<
+  Result<{ base_sha: string; start_sha: string; start_read?: GoalBranchRead }, PreflightProblem>
+> {
+  const tracking = `refs/remotes/origin/${branch}`;
+  const fetch = await git(
+    ports.git,
+    path,
+    [
+      'fetch',
+      '--no-tags',
+      '--no-write-fetch-head',
+      '--quiet',
+      'origin',
+      `+refs/heads/${branch}:${tracking}`,
+    ],
+    'goal_branch',
+    { timeout_ms: FETCH_TIMEOUT_MS },
+  );
+  if (fetch.code !== 0) {
+    if (/couldn't find remote ref/i.test(fetch.stderr))
+      return err(
+        problem(
+          'config_invalid',
+          'goal_branch',
+          `goal branch '${branch}' does not exist on origin`,
+        ),
+      );
+    throw new Infra('goal_branch', `git fetch failed: ${fetch.stderr.trim().slice(0, 512)}`);
+  }
+  const tip = await git(
+    ports.git,
+    path,
+    ['rev-parse', '--verify', '--quiet', `${tracking}^{commit}`],
+    'goal_branch',
+  );
+  if (tip.code !== 0) throw new Infra('goal_branch', `fetched ${tracking} does not resolve`);
+  const start_sha = tip.stdout.trim();
+  const fork = await git(ports.git, path, ['merge-base', baseTip, start_sha], 'goal_branch');
+  if (fork.code !== 0)
+    return err(
+      problem(
+        'config_invalid',
+        'goal_branch',
+        'the goal branch shares no history with the base branch',
+      ),
+    );
+  // The merge-base is only where the integration task's diff starts. The goal branch's history is read
+  // from the goal's own base, which the base branch moving on (or taking part of the goal) never moves.
+  const base_sha = fork.stdout.trim();
+  if (goalBase === null) return ok({ base_sha, start_sha });
+  const read = await firstParentHistory(ports.git, path, tracking, goalBase, FETCH_TIMEOUT_MS);
+  if (read === null || read.tip !== start_sha)
+    throw new Infra('goal_branch', 'goal branch history unreadable');
+  return ok({ base_sha, start_sha, start_read: read });
 }
 
 async function checkProjectRepo(

@@ -9,7 +9,7 @@ import { mkWait } from './waits.ts';
 import { selectionDigest } from '../domain/run-config.ts';
 import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import { runConfigConfirmed } from './run-config.ts';
-import { modeWorkflowName } from './workflows/software-dev.ts';
+import { goalFinalWorkflowName, modeWorkflowName } from './workflows/software-dev.ts';
 
 /**
  * Verify task/revision identity and hashes. Later revisions must retain the repository and
@@ -150,7 +150,9 @@ function acceptRunConfig(
     rc.mode !== rc.selection.mode
   )
     reject('invalid_trigger', { reason: 'run_config_mismatch' });
-  if (policy.workflow_name !== modeWorkflowName(rc.mode))
+  const graph =
+    s.task.goal?.role === 'final' ? goalFinalWorkflowName(rc.mode) : modeWorkflowName(rc.mode);
+  if (policy.workflow_name !== graph)
     reject('invalid_trigger', {
       reason: 'run_config_graph_mismatch',
       workflow: policy.workflow_name,

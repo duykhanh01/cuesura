@@ -206,12 +206,48 @@ export type ContextInput = {
   readonly open_findings?: readonly OpenFinding[];
   /** Decider: what the worker is waiting on, every question of its result together. */
   readonly question?: string;
+  /** A goal's integration task: its plan and how each unit came into the goal branch (007, FR-086). */
+  readonly goal?: GoalBrief | null;
   readonly limits: {
     readonly context_bytes: number;
     readonly review_diff_bytes: number;
   };
   readonly redactor: Redactor;
 };
+
+export type GoalBrief = {
+  readonly summary: string;
+  readonly branch: string;
+  readonly base_branch: string;
+  readonly non_goals: readonly string[];
+  readonly units: readonly {
+    readonly key: string;
+    readonly title: string;
+    readonly acceptance: readonly string[];
+    readonly task_id: string;
+    readonly pr_ref: string | null;
+    /** The merge commit that brought the unit into the goal branch; null when not seen. */
+    readonly merge_commit: string | null;
+  }[];
+};
+
+function goalBody(g: GoalBrief, clean: (t: string) => string): string {
+  const units = g.units
+    .map((u) =>
+      [
+        `### ${clean(u.key)}: ${clean(u.title)}`,
+        `Task ${u.task_id}${u.pr_ref === null ? '' : `, PR ${clean(u.pr_ref)}`}, merge commit ${u.merge_commit ?? 'not seen'}`,
+        ...u.acceptance.map((a) => `- ${clean(a)}`),
+      ].join('\n'),
+    )
+    .join('\n\n');
+  return [
+    `Goal: ${clean(g.summary)}`,
+    `The diff is the whole goal branch ${clean(g.branch)} against ${clean(g.base_branch)}. Each unit came in as one merge commit on its first-parent history; when the diff is too large to read at once, read one unit at a time with: git diff <merge commit>^1 <merge commit>`,
+    ...(g.non_goals.length === 0 ? [] : [`Non-goals:\n${list(g.non_goals.map(clean))}`]),
+    units,
+  ].join('\n\n');
+}
 
 export type Truncation = {
   readonly section: string;
@@ -543,6 +579,9 @@ export function buildRoleContext(
     ...(input.messages === undefined || input.messages.length === 0
       ? []
       : [{ name: 'messages', body: messagesBody(input.messages, clean), required: true }]),
+    ...(input.goal == null
+      ? []
+      : [{ name: 'goal', body: goalBody(input.goal, clean), required: true }]),
     ...(input.role === 'reviewer' && (input.open_findings?.length ?? 0) > 0
       ? [
           {

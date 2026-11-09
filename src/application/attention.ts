@@ -4,6 +4,7 @@
  * no fact: what needs a person is rebuilt from the tasks. Delivery is at least once: what was sent counts as
  * received only when the holder comes back with the lease of that reply.
  */
+import { targetsGoalBranch } from '../engine/external-completion.ts';
 import { randomUUID } from 'node:crypto';
 import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -157,6 +158,22 @@ function goalKeyed(g: GoalState): Keyed | null {
       code,
       question_id: null,
       question: null,
+      task_version: g.version,
+      goal: true,
+    },
+  };
+}
+
+function goalPrReady(g: GoalState, s: TaskState): Keyed {
+  return {
+    key: `${g.id}:goal:goal_pr_ready:${s.revision}:${s.head_sha ?? ''}`,
+    item: {
+      task_id: g.id,
+      project: g.project,
+      title: g.plan?.summary ?? s.task.title,
+      code: 'goal_pr_ready',
+      question_id: null,
+      question: `goal done, PR ${s.pr_ref ?? ''} is ready to merge`,
       task_version: g.version,
       goal: true,
     },
@@ -465,6 +482,17 @@ export class AttentionDesk {
           : (this.#store.readEvents(id as Uuid).findLast((e) => ENTERS_WAIT.has(e.type))
               ?.global_seq ?? 0);
       entered.set(id, { version: s.version, seq });
+      const merge = s.wait?.detail.code === 'merge';
+      // A unit's merge into its goal branch is the daemon's (R-23), not a person's.
+      if (merge && targetsGoalBranch(s)) continue;
+      // The goal's PR is ready: the person hears it of the goal (FR-102).
+      if (merge && s.task.goal?.role === 'final') {
+        const g = this.#store.goals.read(s.task.goal.id);
+        if (g !== null) {
+          waiting.push(goalPrReady(g, s));
+          continue;
+        }
+      }
       waiting.push(keyed(s, seq, this.#deputy?.handedOff?.(s) ?? null));
     }
     this.#entered = entered;

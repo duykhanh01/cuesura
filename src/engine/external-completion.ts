@@ -19,6 +19,9 @@ import { waitObservationExpired } from './observation.ts';
  */
 
 const YOLO_APPROVER = 'policy:yolo';
+/** A unit's merge into its goal branch (007, R-23): the confirmed plan stands for the owner's yolo. */
+export const GOAL_APPROVER = 'policy:goal';
+const DAEMON_APPROVERS: readonly string[] = [YOLO_APPROVER, GOAL_APPROVER];
 
 /** Runtime tasks complete by external confirmation only (the snapshot's completion_mode is fixed). */
 export function externalConfirmation(ctx: Ctx): boolean {
@@ -69,7 +72,10 @@ export function verifiedHead(ctx: Ctx, head: string): boolean {
   );
 }
 
-/** The yolo approval of `head` in this revision, which names the content its merge uses. */
+/**
+ * The daemon's merge approval (yolo, or a goal unit's) of `head` in this revision, which names the content
+ * its merge uses.
+ */
 export function yoloApproval(
   s: Pick<TaskState, 'approvals' | 'revision'>,
   head: string,
@@ -78,11 +84,17 @@ export function yoloApproval(
     (a) =>
       a.kind === 'merge' &&
       a.status === 'granted' &&
-      a.granted_by === YOLO_APPROVER &&
+      DAEMON_APPROVERS.includes(a.granted_by ?? '') &&
       !a.revoked &&
       a.revision === s.revision &&
       a.head_sha === head,
   );
+}
+
+/** A unit of a goal with several units, targeting its goal branch. */
+export function targetsGoalBranch(s: Pick<TaskState, 'task'>): boolean {
+  const g = s.task.goal;
+  return g?.role === 'unit' && g.branch !== undefined && g.branch === s.task.base_branch;
 }
 
 type YoloMergeApprove = Extract<Trigger, { kind: 'yolo_merge_approve' }>;
@@ -104,6 +116,7 @@ export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
   if (!externalConfirmation(ctx) || s.run.mode === null) return ignored('yolo_not_runtime');
   if (s.wait?.detail.code !== 'merge') return ignored('yolo_not_waiting');
   if (s.cancellation !== null || s.completion !== null) return ignored('yolo_not_waiting');
+  if (t.by === GOAL_APPROVER && !targetsGoalBranch(s)) return ignored('goal_not_unit');
   if (!verifiedHead(ctx, t.head_sha)) return ignored('yolo_head_unverified');
   if (yoloApproval(s, t.head_sha) !== undefined) return ignored('yolo_approved');
   const content = s.run.content;
@@ -119,7 +132,7 @@ export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
   });
   ctx.emit('ApprovalGranted', {
     approval_id: id,
-    by: YOLO_APPROVER,
+    by: t.by ?? YOLO_APPROVER,
     head_sha: t.head_sha,
     content_digest: content.digest,
   });

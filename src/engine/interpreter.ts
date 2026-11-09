@@ -1567,6 +1567,20 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         });
         return;
       }
+      // No coder writes an integration task's content: the daemon built it from the goal (R-24).
+      if (
+        d.content !== undefined &&
+        ctx.state.task.goal?.role === 'final' &&
+        ctx.state.run.content?.revision !== ctx.state.revision
+      )
+        ctx.emit('PublishContentRecorded', {
+          content: {
+            revision: ctx.state.revision,
+            digest: d.content.digest,
+            ref: d.content.ref,
+            attempt_id: null,
+          },
+        });
       proceed(ctx, { kind: 'route', step: step as string, outcome: 'ok' });
       return;
     }

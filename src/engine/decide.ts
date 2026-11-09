@@ -21,6 +21,7 @@ import { IdPoolExhausted } from './ids.ts';
 import {
   onConfigChecked,
   onDependencyStatus,
+  onGoalBranchReady,
   onConfirmTask,
   onCreateTask,
   onSourceUpdated,
@@ -137,6 +138,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
     'config_checked',
     'source_updated',
     'dependency_status',
+    'goal_branch_ready',
     'start',
     'cancel',
     'request_execution',
@@ -171,6 +173,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'dependency_status':
       onDependencyStatus(ctx, t);
+      return;
+    case 'goal_branch_ready':
+      onGoalBranchReady(ctx);
       return;
     case 'start':
       onStart(ctx, t);

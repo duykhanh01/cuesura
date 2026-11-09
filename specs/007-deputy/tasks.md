@@ -301,31 +301,31 @@ vào nhánh gốc.
 
 ### Tests
 
-- [ ] T071 [P] [US3] Contract test `test/contract/deputy/goal-branch.test.ts` trên remote giả: tạo nhánh goal idempotent
+- [x] T071 [P] [US3] Contract test `test/contract/deputy/goal-branch.test.ts` trên remote giả: tạo nhánh goal idempotent
   (gửi lại sau mất kết quả không tạo lần hai; ref trỏ chỗ khác thì `effect_failed`).
-- [ ] T072 [P] [US3] Scenario `test/scenarios/deputy/us3-integration.test.ts`: goal ba đơn vị (A, B độc lập; C phụ thuộc A,
+- [x] T072 [P] [US3] Scenario `test/scenarios/deputy/us3-integration.test.ts`: goal ba đơn vị (A, B độc lập; C phụ thuộc A,
   B): A và B chạy song song; merge chỉ khi head chứa đỉnh nhánh goal, không thì base update rồi CI lại; C bắt đầu sau khi A
   và B DONE từ đỉnh nhánh goal; first-parent của nhánh goal có đúng ba merge commit (SC-012); task tổng chạy `goal_final`,
   mở PR có mục đơn vị, merge commit, bản miễn, quyết định; không có lệnh của người từ lúc duyệt tới PR ready.
-- [ ] T073 [P] Crash injection `test/integration/crash/goal-merge.test.ts`: restart giữa tạo nhánh và giữa merge vào
+- [x] T073 [P] Crash injection `test/integration/crash/goal-merge.test.ts`: restart giữa tạo nhánh và giữa merge vào
   nhánh goal không tạo merge commit thứ hai (SC-004); push tay vào nhánh goal dừng merge và đưa goal vào `replan`.
 
 ### Implementation
 
-- [ ] T074 [US3] Effect `git.create_goal_branch` (`src/daemon/goal-branch.ts`) và `GoalBranchCreated`; đơn vị chờ
+- [x] T074 [US3] Effect `git.create_goal_branch` (`src/daemon/goal-branch.ts`) và `GoalBranchCreated`; đơn vị chờ
   `dependency_pending` có `detail.goal_branch` tới khi nhánh có. T071 phải xanh.
-- [ ] T075 [US3] Đơn vị của goal nhiều đơn vị có `base_branch` = nhánh goal và `merge_method` = `merge` (sửa T063).
-- [ ] T076 [US3] Merge vào nhánh goal (R-23): `src/daemon/yolo.ts` bật cho đơn vị của goal đã xác nhận nhắm nhánh goal của
+- [x] T075 [US3] Đơn vị của goal nhiều đơn vị có `base_branch` = nhánh goal và `merge_method` = `merge` (sửa T063).
+- [x] T076 [US3] Merge vào nhánh goal (R-23): `src/daemon/yolo.ts` bật cho đơn vị của goal đã xác nhận nhắm nhánh goal của
   nó; `onYoloMergeApprove` ghi approver `policy:goal`; required check lấy theo nhánh gốc; khóa một effect merge đang bay mỗi
   nhánh goal; kiểm đỉnh nhánh goal bằng merge commit cuối daemon đã ghi, khác thì `goal_branch_drift` và replan (R-23).
   Không đổi hành vi yolo hiện có của task khác.
-- [ ] T077 [US3] Workflow `goal_final` (`src/engine/workflows/goal-final.ts`) và task tổng (R-24): tạo lúc xác nhận, phụ
+- [x] T077 [US3] Workflow `goal_final` (`src/engine/workflows/goal-final.ts`) và task tổng (R-24): tạo lúc xác nhận, phụ
   thuộc mọi đơn vị, `start_sha` là đỉnh nhánh goal khi bắt đầu, không qua `adopt_approval`.
-- [ ] T078 [US3] Context reviewer của task tổng (FR-086): diff nhánh goal so với nhánh gốc theo giới hạn, kế hoạch, tiêu chí
+- [x] T078 [US3] Context reviewer của task tổng (FR-086): diff nhánh goal so với nhánh gốc theo giới hạn, kế hoạch, tiêu chí
   nghiệm thu, danh sách merge commit.
-- [ ] T079 [US3] Mô tả PR của goal (FR-087) trong `src/adapters/github/publish.ts`.
-- [ ] T080 [US3] Goal `done` khi task tổng DONE; `goal cancel` hủy mọi task chưa kết thúc (FR-078).
-- [ ] T081 `cusr doctor` báo project không có required check (chỉ dùng được goal một đơn vị).
+- [x] T079 [US3] Mô tả PR của goal (FR-087) trong `src/adapters/github/publish.ts`.
+- [x] T080 [US3] Goal `done` khi task tổng DONE; `goal cancel` hủy mọi task chưa kết thúc (FR-078).
+- [x] T081 `cusr doctor` báo project không có required check (chỉ dùng được goal một đơn vị).
 
 **Checkpoint**: goal nhiều đơn vị đi từ duyệt tới PR ready, CI xanh, không chờ người.
 

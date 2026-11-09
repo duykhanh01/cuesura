@@ -69,11 +69,20 @@ export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing
     });
   }
   const waiting = status.filter(([, st]) => st !== 'DONE');
-  if (waiting.length > 0) {
+  // A unit dispatches only once its goal branch exists (contracts/goal.md, "Khi xác nhận").
+  const branch = ctx.related.goal_branch;
+  const noBranch = branch !== undefined && !branch.created;
+  if (waiting.length > 0 || noBranch) {
     return mkWait('dependency', 'dependency_pending', {
       resume: { kind: 'triage' },
-      resume_when: waiting.map(([d]) => `dependency_status(${d}=DONE)`),
-      detail: { deps: Object.fromEntries(waiting) },
+      resume_when: [
+        ...waiting.map(([d]) => `dependency_status(${d}=DONE)`),
+        ...(noBranch ? ['goal_branch_ready'] : []),
+      ],
+      detail: {
+        deps: Object.fromEntries(waiting),
+        ...(noBranch ? { goal_branch: branch.name } : {}),
+      },
     });
   }
   return null;

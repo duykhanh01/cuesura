@@ -24,6 +24,11 @@ export type PushSpec = {
   /** Remote branch value this push replaces; null when the branch must not exist yet. */
   readonly expected_old: string | null;
   readonly new_sha: string;
+  /**
+   * Create the branch, nothing else (007, a goal branch): the lease stays "no such ref" for the push
+   * itself, and a ref found anywhere but `new_sha` is `head_changed`, even one `new_sha` descends from.
+   */
+  readonly create_only?: boolean;
 };
 
 export type RemoteRef =
@@ -115,7 +120,7 @@ export async function pushBranch(port: GitPort, spec: PushSpec): Promise<PushOut
   if (before.kind === 'unknown') return { kind: 'unknown', detail: `probe: ${before.detail}` };
   const seen = classifyRemote(before, spec);
   if (seen === 'at_new') return { kind: 'already_pushed', remote_sha: spec.new_sha };
-  if (seen === 'elsewhere' && before.kind === 'at') {
+  if (seen === 'elsewhere' && before.kind === 'at' && spec.create_only !== true) {
     const ahead = await movedAlong(port, spec, before.sha);
     if (ahead === null)
       return { kind: 'unknown', detail: 'ancestry of the remote head unreadable' };

@@ -117,7 +117,17 @@ export function decideGoal(state: GoalState | null, env: GoalEnvelope): GoalDeci
       return accepted({
         type: 'PlanConfirmed',
         actor: by,
-        payload: { plan_version: version, plan_hash: current, by, units: t.units, at },
+        payload: {
+          plan_version: version,
+          plan_hash: current,
+          by,
+          units: t.units,
+          ...(t.branch === undefined || state.branch !== null ? {} : { branch: t.branch }),
+          ...(t.final_task_id === undefined || state.final_task_id !== null
+            ? {}
+            : { final_task_id: t.final_task_id }),
+          at,
+        },
       });
     }
     case 'cancel':
@@ -125,6 +135,14 @@ export function decideGoal(state: GoalState | null, env: GoalEnvelope): GoalDeci
         type: 'GoalCancelled',
         actor: by,
         payload: { reason: t.reason, by, at },
+      });
+    case 'branch_created':
+      if (state.branch === null || state.branch_created === true)
+        return rejected('goal_status', { status: state.status, allowed: [] });
+      return accepted({
+        type: 'GoalBranchCreated',
+        actor: by,
+        payload: { branch: state.branch, sha: t.sha, at },
       });
     case 'replan': {
       const bad = statusIs(state, ['running']);

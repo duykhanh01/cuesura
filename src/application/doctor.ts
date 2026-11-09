@@ -9,7 +9,7 @@
 import { lstatSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
-import type { HostProbePort } from '../adapters/ports.ts';
+import type { GitPort, HostProbePort } from '../adapters/ports.ts';
 import { ROLE_SCHEMA_DIGESTS } from '../adapters/harness/result-schema.ts';
 import type { NormalizedRole } from '../domain/config.ts';
 import { CapabilityManifestSchema, type CapabilityManifest } from '../domain/runtime.ts';
@@ -21,7 +21,7 @@ import { snapshotDrift } from '../store/verify.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
 import { binaryDigest, manifestHash } from './capabilities.ts';
-import { checkHost, missingTools, type SandboxTools } from './preflight.ts';
+import { checkHost, missingTools, readLocalBaseConfig, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 import type { AttachedTerminal } from '../config/schema-user.ts';
 import { findTerminalBin, terminalArgv, terminalProbeArgs } from '../runner/terminal-host.ts';
@@ -66,6 +66,8 @@ export type DoctorDeps = {
   readonly probeCache?: DoctorProbeCache;
   /** What each recorded harness's sandbox can run, so a binary that cannot start shows before a task. */
   readonly harnessTools?: () => Readonly<Record<string, SandboxTools>>;
+  /** Reads a project's `cusr.yaml` at its base branch; without it the required-check report is skipped. */
+  readonly git?: GitPort;
   /** Credential files, every directory a sandbox of this daemon mounts, and what could not be resolved. */
   readonly credentialMounts?: () => Promise<{
     readonly credentials: readonly string[];
@@ -100,6 +102,35 @@ const fail = (name: string, detail: string, fix: string | null = null): DoctorCh
   detail,
   fix,
 });
+
+/**
+ * Whether the project declares required CI checks (007, R-23): without them a goal with several units is
+ * refused (`no_required_checks`), so only one-unit goals run. A report, not a failure.
+ */
+async function requiredChecksCheck(
+  git: GitPort,
+  inputs: Awaited<ReturnType<ConfigInputs>>,
+  project: string,
+  path: string,
+  base: string,
+): Promise<DoctorCheck> {
+  const name = `required_checks:${project}`;
+  const read = await readLocalBaseConfig(git, path, base);
+  if (!read.ok) return ok_(name, `not read: ${read.error.detail}`);
+  const v = validateConfig({
+    user: inputs.user,
+    ...(read.value.config === null ? {} : { project: read.value.config }),
+    packs: inputs.packs,
+  });
+  if (!v.ok) return ok_(name, `not read: the config at ${base} is invalid`);
+  const required = v.value.config.project?.required_checks ?? [];
+  return required.length > 0
+    ? ok_(name, required.join(', '))
+    : ok_(
+        name,
+        'none declared: only one-unit goals run; declare ci.required_checks in cusr.yaml for goals with several units',
+      );
+}
 
 /**
  * The earliest refresh-token expiry (`refreshTokenExpiresAt`, epoch ms) in an OAuth login file, as the
@@ -500,6 +531,8 @@ export async function runDoctor(
             )
           : ok_(`project:${project}`, path),
       );
+      if (path !== null && deps.git !== undefined)
+        checks.push(await requiredChecksCheck(deps.git, inputs, project, path, loc.base_branch));
     }
     for (const [h, tools] of Object.entries(deps.harnessTools?.() ?? {}).sort(([a], [b]) =>
       a < b ? -1 : 1,

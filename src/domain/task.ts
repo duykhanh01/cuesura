@@ -28,6 +28,11 @@ export const TaskGoalSchema = z
     unit_key: z.string().min(1).nullable(),
     role: z.enum(['unit', 'final']),
     depends_on_units: z.array(z.string().min(1)),
+    /**
+     * The goal branch of a goal with several units: units target it, the integration task publishes it.
+     * Absent with one unit, so the hashes of those tasks do not change.
+     */
+    branch: z.string().min(1).optional(),
   })
   .strict();
 export type TaskGoal = z.infer<typeof TaskGoalSchema>;

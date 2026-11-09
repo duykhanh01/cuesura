@@ -96,6 +96,19 @@ export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
   retriage(ctx, { ...ctx.related.deps, [t.depends_on]: t.status });
 }
 
+/** The goal branch a unit waited for exists now; anything else waiting is left as it is. */
+export function onGoalBranchReady(ctx: Ctx): void {
+  const s = ctx.state;
+  if (s.status !== 'PENDING' || s.wait?.detail['goal_branch'] === undefined) {
+    ctx.emit('SignalIgnored', {
+      reason: 'goal_branch_not_awaited',
+      trigger_kind: 'goal_branch_ready',
+    });
+    return;
+  }
+  retriage(ctx, ctx.related.deps);
+}
+
 const CASCADE = /^dependency_failed:root=([0-9a-f-]{36})\b/;
 
 /**

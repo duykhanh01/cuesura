@@ -19,6 +19,8 @@ import {
 import {
   modeGraph,
   modeWorkflowName,
+  goalFinalGraph,
+  goalFinalWorkflowName,
   SOFTWARE_DEV,
   SOFTWARE_DEV_NAME,
 } from '../../src/engine/workflows/software-dev.ts';
@@ -185,6 +187,8 @@ export type PolicyOptions = {
   protected_branches?: string[];
   /** 002: freeze the `software_dev@2:<mode>` graph derived from `workflow`. */
   mode?: ExecutionMode;
+  /** 007: a goal's integration task, `goal_final@1:<mode>` (needs `mode`). */
+  goal_final?: boolean;
 };
 
 export const DEFAULT_CI_RULES: CiRule[] = [
@@ -195,10 +199,11 @@ export const DEFAULT_CI_RULES: CiRule[] = [
 ];
 
 export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
-  const workflow =
+  const moded =
     o.mode === undefined
       ? (o.workflow ?? SOFTWARE_DEV)
       : modeGraph(o.workflow ?? SOFTWARE_DEV, o.mode);
+  const workflow = o.goal_final === true && o.mode !== undefined ? goalFinalGraph(moded) : moded;
   const roles: Record<string, RoleSpec> = { ...DEFAULT_ROLES };
   for (const [k, v] of Object.entries(o.roles ?? {})) if (v) roles[k] = v;
   const esc: EscalationPolicy = {
@@ -274,7 +279,12 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     base_sha: o.base_sha ?? 'base0000',
     project: o.project ?? 'acme',
     profile: 'standard',
-    workflow_name: o.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(o.mode),
+    workflow_name:
+      o.mode === undefined
+        ? SOFTWARE_DEV_NAME
+        : o.goal_final === true
+          ? goalFinalWorkflowName(o.mode)
+          : modeWorkflowName(o.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,

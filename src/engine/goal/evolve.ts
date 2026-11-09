@@ -19,6 +19,8 @@ function empty(goalId: string): GoalState {
     pending_amendment: null,
     notes: [],
     branch: null,
+    branch_base_sha: null,
+    branch_created: false,
     units: {},
     final_task_id: null,
     replan_reason: null,
@@ -82,6 +84,12 @@ export function evolveGoal(state: GoalState | null, goalId: string, e: GoalEvent
       }
       s.pending_amendment = null;
       s.confirmed_plan_version = e.payload.plan_version;
+      if (e.payload.branch !== undefined) {
+        s.branch = e.payload.branch.name;
+        s.branch_base_sha = e.payload.branch.base_sha;
+        s.branch_created = false;
+      }
+      if (e.payload.final_task_id !== undefined) s.final_task_id = e.payload.final_task_id;
       for (const [key, taskId] of Object.entries(e.payload.units)) {
         const prev = Object.hasOwn(s.units, key) ? s.units[key] : undefined;
         s.units[key] = {
@@ -128,6 +136,9 @@ export function evolveGoal(state: GoalState | null, goalId: string, e: GoalEvent
         at: e.payload.at,
       });
       s.status = 'amendment_pending';
+      break;
+    case 'GoalBranchCreated':
+      s.branch_created = true;
       break;
     case 'GoalReplanNeeded':
       s.status = 'replan';

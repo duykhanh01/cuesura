@@ -18,6 +18,8 @@ import type { CanonicalTask } from '../domain/task.ts';
 import { isAgentStep, type StepDef, type Workflow } from '../domain/workflow.ts';
 import { sameChoice, type ExecutionMode, type RunSelection } from '../domain/run-config.ts';
 import {
+  goalFinalGraph,
+  goalFinalWorkflowName,
   modeGraph,
   modeWorkflowName,
   SOFTWARE_DEV_NAME,
@@ -256,7 +258,9 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
       `Workflow '${workflowName}' does not exist`,
     );
 
-  const workflow = input.mode === undefined ? configured : modeGraph(configured, input.mode);
+  const integration = task.goal?.role === 'final';
+  const moded = input.mode === undefined ? configured : modeGraph(configured, input.mode);
+  const workflow = integration && input.mode !== undefined ? goalFinalGraph(moded) : moded;
 
   const steps: Record<string, StepPolicy> = {};
   for (const name of Object.keys(workflow.steps).sort()) {
@@ -323,7 +327,12 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
     project: task.project,
     profile: profileName,
 
-    workflow_name: input.mode === undefined ? SOFTWARE_DEV_NAME : modeWorkflowName(input.mode),
+    workflow_name:
+      input.mode === undefined
+        ? SOFTWARE_DEV_NAME
+        : integration
+          ? goalFinalWorkflowName(input.mode)
+          : modeWorkflowName(input.mode),
     workflow,
     structure_hash: structureHash(workflow),
     steps,
@@ -334,7 +343,13 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
     gates: gates.value,
     limits,
     permissions,
-    protected_branches: projects?.[task.project]?.protected_branches ?? [task.base_branch],
+    protected_branches:
+      projects?.[task.project]?.protected_branches ??
+      // A unit's target is its goal branch, which only the daemon writes (R-23); the project's base stays
+      // protected through the project entry when there is one.
+      (task.goal?.branch !== undefined && task.goal.branch === task.base_branch
+        ? []
+        : [task.base_branch]),
     config_hashes: {
       user: config.hashes.user,
       project: config.hashes.project,

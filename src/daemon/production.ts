@@ -64,6 +64,7 @@ import { ObservationCoordinator, observationRound } from './observation.ts';
 import { statusSinceReader } from '../application/board.ts';
 import { retireDecider } from './decider-upgrade.ts';
 import { goalProgress } from '../application/goals.ts';
+import { goalBranchRound } from './goal-branch.ts';
 import { createDeputy, deputyHandoffHandler } from './deputy.ts';
 import { createDeputyAbsent } from './deputy-absent.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
@@ -322,6 +323,8 @@ export async function productionControl(opts: {
       github: newGitHub,
       content: (ref, digest) => new FileContentStore(dir('content')).get(ref, digest),
       enabled: async () => (await currentUser('yolo'))?.yolo ?? false,
+      git: ports.git,
+      remoteUrl: (repo) => remoteUrl(repo),
       ...(opts.log === undefined ? {} : { log: opts.log }),
     };
     const process_ = new SystemdSupervisor({
@@ -569,6 +572,7 @@ export async function productionControl(opts: {
       doctor: {
         dataDir: opts.dataDir,
         host,
+        git: ports.git,
         configInputs,
         harnessTools,
         health: daemon.health,
@@ -612,6 +616,20 @@ export async function productionControl(opts: {
         },
         () => deputyAbsent.round(),
         () => Promise.resolve(goalProgress(store, opts.clock.now())),
+        () =>
+          goalBranchRound({
+            store,
+            git: ports.git,
+            clock: opts.clock,
+            remoteUrl,
+            location: async (project) => {
+              const where = (await currentConfig('goal branch'))?.locations[project];
+              return where?.path == null || where.repo == null
+                ? null
+                : { path: where.path, repo: where.repo };
+            },
+            ...(opts.log === undefined ? {} : { log: opts.log }),
+          }),
         retentionRound({
           store,
           dataDir: opts.dataDir,

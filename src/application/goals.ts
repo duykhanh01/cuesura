@@ -4,8 +4,10 @@
  * by the plan's hash (FR-074).
  */
 import { z } from 'zod';
+import { validateConfig } from '../config/validate.ts';
 import {
   PlanSchema,
+  goalBranchName,
   isGoalTerminal,
   type GoalHints,
   type GoalState,
@@ -38,7 +40,9 @@ import {
   type RunSelectionProposal,
   type TaskServiceDeps,
 } from './queries.ts';
+import { readLocalBaseConfig } from './preflight.ts';
 import { DeclaredScopeSchema, scopeWithin } from './scope-match.ts';
+import { branchMatches } from '../domain/workflow.ts';
 import { envelope } from './triage.ts';
 
 export type GoalServiceDeps = TaskServiceDeps & {
@@ -218,6 +222,7 @@ export function unitTask(
   taskId: string,
   keyToTask: ReadonlyMap<string, string>,
   requester: Caller,
+  branch: string | null = null,
 ): CanonicalTask {
   const description =
     unit.instructions === ''
@@ -229,7 +234,8 @@ export function unitTask(
     title: unit.title,
     type: 'implementation',
     project: goal.project,
-    base_branch: goal.base_branch,
+    // With several units, a unit targets the goal branch (R-23); its merge method is fixed at start.
+    base_branch: branch ?? goal.base_branch,
     description,
     requirements: [],
     acceptance: unit.acceptance,
@@ -254,8 +260,131 @@ export function unitTask(
     source_key: `goal:${goal.id}:${unit.key}:${taskId}`,
     retry_of: null,
     ...(unit.scope === undefined || unit.scope.length === 0 ? {} : { scope: unit.scope }),
-    goal: { id: goal.id, unit_key: unit.key, role: 'unit', depends_on_units: unit.depends_on },
+    goal: {
+      id: goal.id,
+      unit_key: unit.key,
+      role: 'unit',
+      depends_on_units: unit.depends_on,
+      ...(branch === null ? {} : { branch }),
+    },
   });
+}
+
+/**
+ * The goal's integration task (R-24): it depends on every unit, publishes the goal branch into the base
+ * branch, and starts from the goal branch tip at its start. Its acceptance is the plan's.
+ */
+export function finalTask(
+  goal: GoalState,
+  plan: Plan,
+  taskId: string,
+  keyToTask: ReadonlyMap<string, string>,
+  branch: string,
+  requester: Caller,
+): CanonicalTask {
+  const units = plan.units.map((u) => `- \`${u.key}\`: ${u.title}`).join('\n');
+  return CanonicalTaskSchema.parse({
+    schema_version: TASK_SCHEMA_VERSION,
+    id: taskId,
+    title: `Goal: ${plan.summary}`.slice(0, 200),
+    type: 'integration',
+    project: goal.project,
+    base_branch: goal.base_branch,
+    description: `${plan.summary}\n\nIntegrates the goal branch \`${branch}\` into \`${goal.base_branch}\`.\n\n## Units\n\n${units}`,
+    requirements: [],
+    acceptance: plan.units.flatMap((u) => u.acceptance.map((a) => `${u.key}: ${a}`)),
+    constraints: [],
+    out_of_scope: plan.non_goals,
+    attachments: [],
+    group: null,
+    parent: null,
+    depends_on: plan.units.flatMap((u) => {
+      const id = keyToTask.get(u.key);
+      return id === undefined ? [] : [id];
+    }),
+    priority: 0,
+    size: null,
+    labels: [],
+    profile: plan.units[0]?.run_config.profile ?? null,
+    requested_by: {
+      kind: requester.grant.actor === 'assistant' ? 'assistant' : 'human',
+      id: requester.grant.actor,
+    },
+    revision: 1,
+    source_key: `goal:${goal.id}:final:${taskId}`,
+    retry_of: null,
+    ...(plan.scope.length === 0 ? {} : { scope: plan.scope }),
+    goal: {
+      id: goal.id,
+      unit_key: null,
+      role: 'final',
+      depends_on_units: plan.units.map((u) => u.key),
+      branch,
+    },
+  });
+}
+
+/** The integration task's run: the first unit in `full-review`, else the first unit (R-24). */
+function finalRun(plan: Plan): PlanUnit['run_config'] {
+  const unit = plan.units.find((u) => u.run_config.mode === 'full-review') ?? plan.units[0];
+  return { ...(unit as PlanUnit).run_config, reason: 'goal integration' };
+}
+
+type GoalBase = {
+  readonly base_sha: string;
+  readonly required_checks: readonly string[];
+  readonly protected_branches: readonly string[];
+};
+
+/** The base branch as this machine knows it, with the project's required checks and protected branches. */
+async function goalBase(
+  deps: GoalServiceDeps,
+  goal: GoalState,
+): Promise<Result<GoalBase, AppError>> {
+  const { user, packs } = await deps.confirm.configInputs();
+  const userOnly = validateConfig({ user, packs: {} });
+  const unavailable = (message: string): Result<GoalBase, AppError> =>
+    err({ code: 'options_unavailable', message, details: {} });
+  if (!userOnly.ok) return unavailable('the user config is invalid');
+  const path = userOnly.value.locations[goal.project]?.path ?? null;
+  if (path === null)
+    return unavailable(`projects.${goal.project}.path is not set in the user config`);
+  const base = await readLocalBaseConfig(deps.confirm.ports.git, path, goal.base_branch);
+  if (!base.ok) return unavailable(base.error.detail);
+  const validated = validateConfig({
+    user,
+    ...(base.value.config === null ? {} : { project: base.value.config }),
+    packs,
+  });
+  if (!validated.ok) return unavailable(`the config at base ${base.value.base_sha} is invalid`);
+  const config = validated.value.config;
+  return ok({
+    base_sha: base.value.base_sha,
+    required_checks: config.project?.required_checks ?? [],
+    protected_branches: config.user.projects?.[goal.project]?.protected_branches ?? [
+      goal.base_branch,
+    ],
+  });
+}
+
+/** The goal branch checks of contracts/goal.md, for a plan with several units. */
+function branchIssues(goal: GoalState, plan: Plan, base: GoalBase): PlanIssue[] {
+  const issues: PlanIssue[] = [];
+  const branch = goal.branch ?? goalBranchName(goal.id, plan.summary);
+  if (base.protected_branches.some((b) => branchMatches(b, branch)))
+    issues.push({
+      code: 'protected_goal_branch',
+      unit: null,
+      detail: `goal branch ${branch} matches protected_branches; units could not merge into it`,
+    });
+  if (base.required_checks.length === 0)
+    issues.push({
+      code: 'no_required_checks',
+      unit: null,
+      detail:
+        'a goal with several units needs ci.required_checks in cusr.yaml; without them only a one-unit goal runs',
+    });
+  return issues;
 }
 
 /**
@@ -268,11 +397,23 @@ async function checkPlan(
   plan: Plan,
   caller: Caller,
   units: readonly string[] = plan.units.map((u) => u.key),
-): Promise<Result<{ groups: string[][]; runs: Record<string, RunSelectionProposal> }, AppError>> {
+): Promise<
+  Result<
+    { groups: string[][]; runs: Record<string, RunSelectionProposal>; base: GoalBase | null },
+    AppError
+  >
+> {
   const v = validatePlan(plan, RULES);
   if (!v.ok) return err(planInvalid(v.issues));
   const runs: Record<string, RunSelectionProposal> = {};
   const issues: PlanIssue[] = [];
+  let base: GoalBase | null = null;
+  if (plan.units.length > 1) {
+    const b = await goalBase(deps, goal);
+    if (!b.ok) return b;
+    base = b.value;
+    issues.push(...branchIssues(goal, plan, base));
+  }
   for (const u of plan.units) {
     if (!units.includes(u.key)) continue;
     const task = unitTask(goal, plan, u, goal.id, new Map(), caller);
@@ -285,7 +426,7 @@ async function checkPlan(
     else issues.push({ code: 'run_config', unit: u.key, detail: `${u.key}: ${r.error.message}` });
   }
   if (issues.length > 0) return err(planInvalid(issues));
-  return ok({ groups: v.parallel_groups, runs });
+  return ok({ groups: v.parallel_groups, runs, base });
 }
 
 /** Creates the unit task: intake confirmed by the plan, run config proposed and confirmed (FR-074). */
@@ -347,6 +488,19 @@ function confirmRun(
   );
 }
 
+/** The integration task of a goal with several units; null with one unit. */
+function finalView(store: Store, g: GoalState): Record<string, unknown> | null {
+  if (g.final_task_id === null) return null;
+  const s = store.readTask(g.final_task_id as Uuid);
+  return {
+    task_id: g.final_task_id,
+    status: s?.status ?? null,
+    step: s?.current_step ?? null,
+    wait: s?.wait?.detail.code ?? null,
+    pr: s?.pr_ref ?? null,
+  };
+}
+
 export function goalView(store: Store, g: GoalState): Record<string, unknown> {
   return {
     goal_id: g.id,
@@ -365,6 +519,8 @@ export function goalView(store: Store, g: GoalState): Record<string, unknown> {
             plan_hash: g.pending_amendment.plan_hash,
             affected: g.pending_amendment.affected,
           },
+    branch: g.branch,
+    final: finalView(store, g),
     units: Object.fromEntries(
       Object.entries(g.units).map(([k, u]) => {
         const s = store.readTask(u.task_id as Uuid);
@@ -487,7 +643,7 @@ function rewriteUnit(
   const { s } = o;
   const authz = authzContext(o.caller, o.now);
   const task = {
-    ...unitTask(o.goal, o.plan, o.unit, s.id, o.keyToTask, o.caller),
+    ...unitTask(o.goal, o.plan, o.unit, s.id, o.keyToTask, o.caller, s.task.goal?.branch ?? null),
     requested_by: s.task.requested_by,
     source_key: s.task.source_key,
     revision: s.revision + 1,
@@ -676,6 +832,29 @@ export async function goalConfirm(
   if (!checked.ok) return checked;
   for (const k of added) keyToTask.set(k, deps.newId());
   const units = Object.fromEntries(added.map((k) => [k, keyToTask.get(k) as string]));
+  // The first confirmation of a plan with several units names the goal branch and the integration task.
+  const base = checked.value.base;
+  const branch =
+    goal.branch === null && base !== null
+      ? { name: goalBranchName(goal.id, plan.summary), base_sha: base.base_sha }
+      : undefined;
+  const branchName = goal.branch ?? branch?.name ?? null;
+  let final: { task: CanonicalTask; run: RunSelectionProposal } | null = null;
+  if (branch !== undefined && goal.final_task_id === null) {
+    const task = finalTask(goal, plan, deps.newId(), keyToTask, branch.name, caller);
+    const run = await checkedProposal(
+      deps,
+      { id: task.id, revision: 1, project: goal.project, task },
+      finalRun(plan),
+    );
+    if (!run.ok)
+      return err(
+        planInvalid([
+          { code: 'run_config', unit: null, detail: `integration: ${run.error.message}` },
+        ]),
+      );
+    final = { task, run: run.value };
+  }
   const rid = admitted.record.request_id;
   const r = submitGoal(
     deps,
@@ -683,14 +862,28 @@ export async function goalConfirm(
     input,
     caller,
     goal.id,
-    { kind: 'confirm', plan_hash: p.plan_hash, units },
+    {
+      kind: 'confirm',
+      plan_hash: p.plan_hash,
+      units,
+      ...(branch === undefined ? {} : { branch }),
+      ...(final === null ? {} : { final_task_id: final.task.id }),
+    },
     (tx) => {
       // Created in dependency order, so each task's `depends_on` names tasks that exist.
       for (const layer of parallelGroups(plan) ?? [])
         for (const key of layer) {
           if (!added.includes(key)) continue;
           const unit = plan.units.find((u) => u.key === key) as PlanUnit;
-          const task = unitTask(goal, plan, unit, keyToTask.get(key) as string, keyToTask, caller);
+          const task = unitTask(
+            goal,
+            plan,
+            unit,
+            keyToTask.get(key) as string,
+            keyToTask,
+            caller,
+            branchName,
+          );
           createUnit(
             tx,
             deps,
@@ -700,6 +893,7 @@ export async function goalConfirm(
             `cmd:${rid}:unit:${key}`,
           );
         }
+      if (final !== null) createUnit(tx, deps, caller, final.task, final.run, `cmd:${rid}:final`);
       const now = deps.now();
       for (const key of touched.all) {
         const s = tx.readTask(keyToTask.get(key) as string);
@@ -738,6 +932,10 @@ export async function goalConfirm(
   for (const key of added) {
     const s = deps.store.readTask(keyToTask.get(key) as Uuid);
     if (s !== null) await recordConfigCheck(deps.confirm, s, `cmd:${rid}:unit:${key}:config`);
+  }
+  if (final !== null) {
+    const s = deps.store.readTask(final.task.id);
+    if (s !== null) await recordConfigCheck(deps.confirm, s, `cmd:${rid}:final:config`);
   }
   return resultOf(
     deps.store,
@@ -909,6 +1107,9 @@ export function goalShow(
             parallel_groups: parallelGroups(g.pending_amendment.plan) ?? [],
           },
     replan_reason: g.replan_reason,
+    branch: g.branch,
+    branch_created: g.branch_created ?? false,
+    final: finalView(store, g),
     units,
     incidents: units.filter((u) => u.status === 'WAITING' && u.wait !== null),
     plans: g.plans,
@@ -961,8 +1162,9 @@ export function goalList(
 }
 
 /**
- * Moves goals on from their units' ends (FR-076, FR-078), as daemon facts: every unit DONE ends the goal
- * `done`; a unit FAILED while the goal runs asks for a new plan. Derived from committed state on every
+ * Moves goals on from their tasks' ends (FR-076, FR-078), as daemon facts: the integration task DONE (or,
+ * with one unit, that unit DONE) ends the goal `done`, the integration task FAILED ends it `failed`; a
+ * unit FAILED while the goal runs asks for a new plan. Derived from committed state on every
  * pass, so a crash loses nothing and a repeat is deduplicated.
  */
 export function goalProgress(store: Store, now: number): string[] {
@@ -977,7 +1179,16 @@ export function goalProgress(store: Store, now: number): string[] {
       return { key: u.key, s: id === undefined ? null : store.readTask(id as Uuid) };
     });
     let trigger: GoalTrigger | null = null;
-    if (current.every((c) => c.s?.status === 'DONE')) trigger = { kind: 'complete' };
+    // With several units the goal ends with its integration task (R-24); with one, with that unit.
+    const final = g.final_task_id === null ? null : store.readTask(g.final_task_id as Uuid);
+    if (final?.status === 'DONE') trigger = { kind: 'complete' };
+    else if (final?.status === 'FAILED')
+      trigger = {
+        kind: 'fail',
+        reason: `integration_failed:${final.terminal?.reason ?? 'failed'}`,
+      };
+    else if (g.final_task_id === null && current.every((c) => c.s?.status === 'DONE'))
+      trigger = { kind: 'complete' };
     else if (g.status === 'running') {
       const failed = current.find((c) => c.s?.status === 'FAILED');
       if (failed !== undefined) trigger = { kind: 'replan', reason: `unit_failed:${failed.key}` };

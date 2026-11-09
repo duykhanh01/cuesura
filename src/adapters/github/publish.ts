@@ -465,3 +465,93 @@ export function withDeputyAssumptions(
 }
 
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+/** What the PR of a goal lists (007, FR-087), all read from committed state. */
+export type GoalPrInput = {
+  readonly summary: string;
+  readonly request: string;
+  readonly branch: string;
+  readonly base_branch: string;
+  readonly units: readonly {
+    readonly key: string;
+    readonly title: string;
+    readonly pr_ref: string | null;
+    readonly merge_commit: string | null;
+  }[];
+  /** One line per waiver of a unit, as the unit's own PR listed it. */
+  readonly waivers: readonly { readonly unit: string; readonly line: string }[];
+  readonly decisions: readonly { readonly unit: string | null; readonly decision: string }[];
+  readonly assumptions: readonly {
+    readonly unit: string;
+    readonly question: string;
+    readonly answer: string;
+  }[];
+};
+
+const REQUEST_SHOWN = 2_000;
+const cell = (text: string): string => oneLine(text).replace(/\|/g, '\\|');
+
+/** The commit message, title and body of a goal's PR, built by code, not by a worker (FR-087). */
+export function goalPrContent(g: GoalPrInput): {
+  commit_message: string;
+  pr_title: string;
+  pr_body: string;
+} {
+  const request = g.request.trim();
+  const quoted = (
+    request.length > REQUEST_SHOWN ? `${request.slice(0, REQUEST_SHOWN)}…` : request
+  ).replace(/^/gm, '> ');
+  const units = g.units.map(
+    (u) =>
+      `| \`${cell(u.key)}\` | ${cell(u.title)} | ${u.pr_ref ?? '-'} | ${u.merge_commit === null ? '-' : `\`${u.merge_commit}\``} |`,
+  );
+  const sections = [
+    '## Summary',
+    '',
+    oneLine(g.summary),
+    '',
+    quoted,
+    '',
+    `Integrates the goal branch \`${g.branch}\` into \`${g.base_branch}\`. Each unit came in as one merge commit on its first-parent history.`,
+    '',
+    '## Units',
+    '',
+    '| Unit | Title | Unit PR | Merge commit |',
+    '| --- | --- | --- | --- |',
+    ...units,
+  ];
+  if (g.waivers.length > 0)
+    sections.push(
+      '',
+      '## Waivers of the units',
+      '',
+      'These did not pass; each was let through with the evidence given.',
+      '',
+      ...g.waivers.map((w) => `- \`${cell(w.unit)}\`: ${w.line}`),
+    );
+  if (g.decisions.length > 0)
+    sections.push(
+      '',
+      '## Decisions made by the deputy',
+      '',
+      ...g.decisions.map(
+        (d) => `- ${d.unit === null ? 'goal' : `\`${cell(d.unit)}\``}: ${oneLine(d.decision)}`,
+      ),
+    );
+  if (g.assumptions.length > 0)
+    sections.push(
+      '',
+      ASSUMPTIONS_HEADING,
+      '',
+      ...g.assumptions.map(
+        (a) =>
+          `- \`${cell(a.unit)}\` **${oneLine(a.question)}**\n  ${a.answer.trim().replace(/\n/g, '\n  ')}`,
+      ),
+    );
+  const title = `goal: ${oneLine(g.summary)}`.slice(0, 120);
+  return {
+    commit_message: `${title}\n\nIntegrate ${g.units.length} units of the goal branch ${g.branch}.`,
+    pr_title: title,
+    pr_body: `${sections.join('\n')}\n`,
+  };
+}

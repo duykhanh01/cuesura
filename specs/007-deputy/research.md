@@ -634,3 +634,91 @@ Dựng trên nhánh lát B (`007/slice-b`, PR #291).
   chữ ký, cơ sở của nó và trạng thái loop guard từng loại. `deputy_turns.signature` được ghi lúc mở lượt.
 - **`task show`/`explain`** có `loop_signals` và `signature` khi task WAITING (rỗng và `null` khi không), và `waivers`.
   Mục bản miễn trong `report` để lát H.
+
+### Quyết định khi làm lát E
+
+Đối chiếu tại `origin/main` `d81de2b` ngày 2026-11-10.
+
+- **`start_sha` của task tổng (sửa quyết định 1 của lead, phương án A).** `TaskInput` đóng băng lúc intake, còn task tổng
+  được tạo lúc `goal confirm`, khi nhánh goal chưa có đỉnh nào để đóng băng. Vì vậy `TaskInput.goal` thêm trường
+  `branch` (tên nhánh goal, biết lúc confirm; có ở cả đơn vị lẫn task tổng). `start_sha` không nằm ở `TaskInput`: preflight
+  của task tổng đóng băng nó lúc start như `adoptedBase`, bằng cách fetch nhánh goal, lấy `start_sha` là đỉnh nhánh goal và
+  `base_sha` là merge-base với nhánh gốc. Giá trị này vào runtime context (trường thêm `start_sha`, tùy chọn).
+  `prepare`, `publishedHead` và `remoteBranch` của task tổng đọc từ đó. Không qua `adopt_approval`. Task tổng tạo lúc
+  confirm, phụ thuộc mọi đơn vị.
+- **Tên, `base_sha` và kiểm nhánh goal.** Lần confirm đầu của kế hoạch từ hai đơn vị ghi `PlanConfirmed.branch
+  { name, base_sha }` và `final_task_id`. `base_sha` là `origin/<nhánh gốc>` máy này đang biết (`readLocalBaseConfig`),
+  không phải input của lệnh nên không vào request hash. `protected_goal_branch` và `no_required_checks` kiểm ở tầng
+  application khi `propose`, `amend` và `confirm`: tên nhánh khớp `protected_branches` của user config (mặc định là nhánh
+  gốc), và `ci.required_checks` của `cusr.yaml` tại nhánh gốc rỗng. Check bắt buộc chỉ khai trên GitHub không tính.
+- **`git.create_goal_branch` là round của daemon (`src/daemon/goal-branch.ts`), không phải effect trong outbox của task.**
+  Goal không có outbox. Round dẫn từ state đã commit: probe `ls-remote` trước, chỉ push khi ref chưa có. Ref đã ở
+  `base_sha` thì là push bị mất kết quả nên ghi `GoalBranchCreated`, không push lần hai. Ref ở chỗ khác thì không ghi đè,
+  goal vào `replan` với `goal_branch_exists` và lượt `plan` của deputy nhận việc này (thay cho `effect_failed` của hợp đồng).
+  Daemon tắt thì chờ round đang chạy xong như mọi round khác.
+- **Đơn vị chờ nhánh goal.** `RelatedFacts.goal_branch` đọc `goals` trong cùng transaction. `pendingWait` trả
+  `dependency_pending` có `detail.goal_branch` cho tới khi nhánh có. Trigger mới `goal_branch_ready` (round trên gửi, dedup
+  theo version của task) cho đơn vị triage lại.
+- **Merge `policy:goal`.** `advanceTaskPr` bật merge cho đơn vị có `goal.branch == base_branch` khi goal đã tạo nhánh và
+  đang `running`, không đọc `yolo`. Khi amendment phạm vi đang chờ duyệt, không đơn vị nào merge vào nhánh goal. Trigger `yolo_merge_approve` mang `by: 'policy:goal'`; engine
+  chỉ nhận cho đơn vị nhắm nhánh goal, và `yoloApproval` nhận cả hai approver. Required check đọc theo nhánh gốc của goal;
+  `ciVerdict` và `waivedChecks` dùng chung với yolo. Unit có `protected_branches` mặc định rỗng khi user config không khai
+  project, nên bản miễn check của lát C dùng được cho PR vào nhánh goal.
+- **Một merge đang bay mỗi nhánh goal** có hai lớp. Lớp bền: một đơn vị khác của goal đã có approval merge cho head hiện tại
+  mà chưa có completion thì giữ nhánh, kể cả qua restart. Lớp trong tiến trình: khóa theo nhánh quanh cả `advanceTaskPr`,
+  để hai đơn vị không cùng qua lớp bền trước khi approval nào được ghi.
+- **Drift.** Đỉnh mong đợi là merge commit của completion ghi sau cùng (`recorded_at`) trên nhánh goal, chưa có thì là
+  `base_sha`. Không dùng `merged_at` của GitHub vì có thể trùng giây. Thứ tự ghi đúng vì merge sau chỉ được duyệt khi merge
+  trước đã ghi. Đỉnh khác trước khi gửi merge hay base update thì goal vào `replan` (`goal_branch_drift`). Goal không ở
+  trạng thái merge được thì đơn vị nhắm nhánh goal không merge và không base update (`goal_held`), để không kéo commit lạ
+  vào đơn vị.
+- **Workflow `goal_final@1:<mode>`** dựng trong `src/engine/workflows/software-dev.ts` (`goalFinalGraph`), không tách
+  file `goal-final.ts` như T077 ghi. Graph bỏ `scout`, `code`; `prepare → gates`; bước role `coder` còn lại (`ci_fix`) đổi
+  thành `fixer`. Run config của task tổng lấy từ đơn vị `full-review` đầu tiên, không có thì đơn vị đầu.
+- **Content của task tổng do code dựng.** Không có coder thì không có content cho commit của gate và cho PR, nên `prepare`
+  của task tổng trả `content`. Engine ghi `PublishContentRecorded` (`attempt_id: null`) chỉ cho `role: 'final'`. Mô tả PR
+  (`goalPrContent`, FR-087) gồm tóm tắt và yêu cầu; bảng đơn vị với PR đơn vị và merge commit; bản miễn của các đơn vị;
+  quyết định trong bàn giao của các lượt deputy của goal; giả định deputy đã trả lời. Fixer về sau có thể sửa content như
+  mọi worker.
+- **Context reviewer (FR-086):** mục `goal` gồm tóm tắt, non-goals, từng đơn vị với tiêu chí, PR và merge commit, kèm lệnh
+  `git diff <merge>^1 <merge>` để đọc từng đơn vị khi diff vượt giới hạn. Diff là `base_sha..head`; với task tổng,
+  `base_sha` là merge-base nên diff là toàn goal.
+- **Goal xong (T080):** có task tổng thì goal `done` khi task tổng DONE và `failed` khi nó FAILED; goal một đơn vị giữ
+  luật của lát D. `goal_tasks` ghi task tổng với `role = 'final'`, nên `goal cancel` hủy cả task tổng.
+- **Tin của goal:** khi task tổng chờ `merge`, attention có mục `goal_pr_ready` (của goal) thay cho mục `merge` của task.
+  Mục `merge` của đơn vị nhắm nhánh goal không tới người vì daemon tự merge.
+- **`cusr doctor --project`** có check `required_checks:<project>`, luôn `ok`, ghi rõ khi project không khai check nào
+  (chỉ chạy được goal một đơn vị).
+- **Dời sang lát F:** sửa đổi thêm đơn vị sau lần confirm đầu không cập nhật `depends_on` của task tổng (phụ thuộc theo khóa
+  của R-29). Goal một đơn vị được sửa thành nhiều đơn vị không có nhánh goal.
+- **Bất biến của nhánh goal (review #294, ba vòng).** Từ lúc tạo tới khi task tổng start, chỉ daemon ghi nhánh goal.
+  Lịch sử first-parent của nhánh, từ đỉnh xuống `branch_base_sha`, đúng bằng ledger: các merge commit daemon đã ghi, sắp
+  theo `global_seq` của event `ExternalCompletionObserved` (thứ tự bền vững của log, không theo đồng hồ, vì đồng hồ có thể
+  lùi). Lịch sử luôn đọc từ `branch_base_sha`; merge-base với nhánh gốc chỉ dùng cho diff của task tổng. Sau khi task tổng
+  start thì bất biến hết hiệu lực: fixer, base update và salvage của task tổng được thêm commit hợp lệ, có compare-and-swap
+  của push bảo vệ.
+  - **Một trọng tài:** `verifyGoalBranch({ branch_base_sha, history, ledger })` (thuần, `src/application/goal-tip.ts`).
+    Mọi nơi đọc một bản đọc qua cùng một reader (`src/adapters/git/goal-branch.ts`: fetch vào `refs/cusr/goal/<id>`, rồi
+    `rev-list --first-parent` cắt sau `branch_base_sha`), không nơi nào tự so tip hay lịch sử.
+  - **Cho phép đi tiếp là điều kiện của chính đường ghi:**
+    1. lấy mốc của goal (trạng thái, ledger, merge đang bay) trước mọi await;
+    2. đọc nhánh lần cuối;
+    3. trong một đoạn đồng bộ, không await xen giữa: mốc phải giữ nguyên (khác thì bỏ lượt, lượt sau đọc lại), trọng tài
+       phải đồng ý (không thì ghi drift, goal vào `replan`), rồi mới ghi.
+
+    Daemon là writer duy nhất của store, nên đoạn đồng bộ đó là nguyên tử với store. Round nhánh goal chỉ là lưới an toàn.
+  - **Tạo nhánh** dùng `pushBranch` ở chế độ `create_only`: lease luôn là "ref chưa có", không tự đổi `expected_old`. Ref
+    xuất hiện sau probe, kể cả ở ancestor của `base_sha`, là `head_changed`.
+
+  | Đường ghi | Kiểm ngay trước khi ghi (đồng bộ) | Cửa sổ còn lại và cách đóng |
+  | --- | --- | --- |
+  | Tạo nhánh (`createGoalBranch`) | probe | Push `create_only`, lease "ref chưa có" |
+  | Base update của đơn vị (`advanceTaskPr`) | đọc nhánh sau `readMergeReadiness`; mốc, trọng tài, tip GitHub = tip git | Không ghi vào nhánh goal; đơn vị chỉ được đưa lên nhánh đã qua trọng tài |
+  | Merge đơn vị (`advanceTaskPr`) | sau khi đọc CI: `readMergeReadiness`, đọc nhánh lần cuối; mốc, trọng tài, tip GitHub = tip git; rồi approval và send | Push lọt vào giữa lần đọc cuối và lúc GitHub merge (merge của GitHub chỉ ghim head). Đường ghi kế tiếp (merge, base update, start task tổng) đều qua trọng tài nên dừng lại và goal vào `replan` |
+  | Ghi drift (đường ghi, round) | mốc trước và sau khi đọc | Không có: chỉ ghi store |
+  | Start task tổng (`startTask`) | trước preflight; ngay trước submit: goal `running`, không merge đang bay, trọng tài trên bản đọc của preflight (`start_read`) | Push sau lần đọc của preflight bị chặn ở publish của task tổng (compare-and-swap trên `start_sha`) |
+  | Publish, PR và salvage của task tổng | compare-and-swap của `pushBranch` trên đỉnh đã publish (hay `start_sha`) | Sau khi start bất biến hết hiệu lực; push lạ làm task vào `head_drift` |
+
+  Một người merge tay PR đơn vị trên GitHub, trong lúc observation chưa ghi, cũng bị coi là drift.
+- **Chưa kiểm:** CI thật trên PR vào nhánh `goal/*`. Workflow GitHub Actions lọc `pull_request.branches` có thể không
+  chạy, khi đó đơn vị đứng ở bước CI.

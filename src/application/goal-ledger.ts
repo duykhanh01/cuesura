@@ -78,6 +78,14 @@ function fromEvent(e: GoalEvent): LedgerEntry | null {
         kind: writeKind(e.actor),
         text: `plan v${e.payload.plan_version} confirmed`,
       };
+    case 'GoalBranchCreated':
+      return {
+        ...base,
+        at: e.payload.at,
+        actor: e.actor,
+        kind: 'event',
+        text: `goal branch ${e.payload.branch} created at ${e.payload.sha}`,
+      };
     case 'GoalReplanNeeded':
       return {
         ...base,

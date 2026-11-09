@@ -115,6 +115,7 @@ export type RuntimeFreezeInput = {
   merge_method?: MergeMethod;
   role_prompts?: Readonly<Record<string, string>>;
   setup_commands?: readonly string[];
+  start_sha?: string;
 };
 
 export type RuntimeFreezeError = {
@@ -153,6 +154,7 @@ export function freezeRuntimeContext(
     ...(input.setup_commands === undefined || input.setup_commands.length === 0
       ? {}
       : { setup_commands: [...input.setup_commands] }),
+    ...(input.start_sha === undefined ? {} : { start_sha: input.start_sha }),
   };
   const parsed = FrozenRuntimeContextSchema.safeParse({
     ...body,

@@ -180,6 +180,17 @@ export function relatedFacts(
     related.pr_holders = rows.map((r) => r.id);
   }
 
+  const goal = (incoming ?? state?.task)?.goal;
+  if (goal?.role === 'unit' && goal.branch !== undefined) {
+    const g = db.prepare('SELECT branch, state_json FROM goals WHERE id = ?').get(goal.id) as
+      | { branch: string | null; state_json: string }
+      | undefined;
+    const created =
+      g !== undefined &&
+      (JSON.parse(g.state_json) as { branch_created?: boolean }).branch_created === true;
+    related.goal_branch = { name: goal.branch, created };
+  }
+
   const retryOf = incoming?.retry_of ?? null;
   if (t.kind === 'create_task' && retryOf !== null) related.retry_of = readTaskStatus(db, retryOf);
 
