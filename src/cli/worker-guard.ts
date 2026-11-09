@@ -5,7 +5,7 @@
  * process that clears them gets through. It only stops an agent that follows the rules from calling by
  * mistake.
  */
-import { ATTEMPT_ENV, OPERATION_ENV } from '../runner/process-tag.ts';
+import { ATTEMPT_ENV, OPERATION_ENV } from '../runner/process-env.ts';
 import { ExitCode, errorEnvelope, renderEnvelope } from './output.ts';
 import type { CliIo } from './program.ts';
 

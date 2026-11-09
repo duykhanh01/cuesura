@@ -86,6 +86,10 @@ export interface Store {
   lastGlobalSeq(): number;
   triggerTime(dedupKey: string): number | null;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
+  readEventPage(
+    taskId: Uuid,
+    page: read.EventPage,
+  ): { readonly event: DomainEvent; readonly at: number | null }[];
   readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null;
   readContext(taskId: Uuid, revision: number): FrozenExecutionContext | null;
   readRuntimeContext(taskId: Uuid, revision: number): FrozenRuntimeContext | null;
@@ -209,6 +213,12 @@ export class SqliteStore implements Store {
   }
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[] {
     return read.readEvents(this.db, taskId, fromSeq);
+  }
+  readEventPage(
+    taskId: Uuid,
+    page: read.EventPage,
+  ): { readonly event: DomainEvent; readonly at: number | null }[] {
+    return read.readEventPage(this.db, taskId, page);
   }
   readPolicy(taskId: Uuid, revision: number, policyVersion?: number): FrozenPolicy | null {
     return read.readPolicy(this.db, taskId, revision, policyVersion);

@@ -644,12 +644,19 @@ const TaskHistorySchema = z
   .object({
     kind: z.literal('task_history'),
     task_id: UuidSchema,
-    after: z.number().int().nonnegative().default(0),
+    after: z.number().int().nonnegative().optional(),
+    tail: z.boolean().default(false),
     limit: z.number().int().min(1).max(HISTORY_PAGE).default(HISTORY_PAGE),
   })
-  .strict();
+  .strict()
+  .refine((q) => !(q.tail && q.after !== undefined), {
+    message: 'tail and after cannot be used together',
+  });
 
-/** `task_history`: the accepted events in order; `after` is an event `seq`. */
+/**
+ * `task_history`: accepted events in order; `after` is an event `seq`, `tail` the newest page. `at` is the
+ * time of the trigger behind the event. A forward page reads one event past `limit` to learn `more`.
+ */
 export function taskHistory(
   store: Store,
   caller: Caller,
@@ -659,27 +666,39 @@ export function taskHistory(
   if (!q.success) return err(invalidQuery('task_history', q.error));
   const s = readable(store, caller, q.data.task_id);
   if (!s.ok) return s;
-  const all = store.readEvents(s.value.id as Uuid, q.data.after + 1);
-  const events: unknown[] = [];
+  const after = q.data.after ?? 0;
+  const { tail, limit } = q.data;
+  const rows = store.readEventPage(s.value.id as Uuid, {
+    after,
+    limit: tail ? limit : limit + 1,
+    tail,
+  });
+  // A tail page keeps its newest events when the byte cap cuts it.
+  const ordered = tail ? rows.toReversed() : rows.slice(0, limit);
+  const kept: typeof rows = [];
   let bytes = 0;
-  for (const e of all) {
-    if (events.length === q.data.limit || bytes >= HISTORY_BYTES) break;
-    bytes += JSON.stringify(e.payload).length;
-    events.push({
-      seq: e.seq,
-      type: e.type,
-      revision: e.revision,
-      actor: e.actor,
-      dedup_key: e.causation.dedup_key,
-      payload: e.payload,
-    });
+  for (const r of ordered) {
+    if (bytes >= HISTORY_BYTES) break;
+    bytes += JSON.stringify(r.event.payload).length;
+    kept.push(r);
   }
-  const last = events.at(-1) as { seq: number } | undefined;
+  if (tail) kept.reverse();
+  const events = kept.map(({ event: e, at }) => ({
+    seq: e.seq,
+    type: e.type,
+    revision: e.revision,
+    actor: e.actor,
+    at: at === null ? null : new Date(at).toISOString(),
+    dedup_key: e.causation.dedup_key,
+    payload: e.payload,
+  }));
+  const last = events.at(-1);
   return ok({
     task_id: s.value.id,
     events,
-    next_cursor: last?.seq ?? q.data.after,
-    more: events.length < all.length,
+    next_cursor: last?.seq ?? after,
+    // Nothing follows a tail page; a forward page stops early on the limit or the byte cap.
+    more: !tail && kept.length < rows.length,
   });
 }
 

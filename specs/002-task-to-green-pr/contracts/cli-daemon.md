@@ -34,13 +34,13 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 | `cusr task add --file FILE` | operate; JSON task input, trả task có thể PENDING/READY, không chờ tới PR. `acceptance` rỗng trả `invalid_arguments` (exit 2), không tạo task. `scope` (hoặc `--scope a,b`) khai đường dẫn/thư mục/glob tương đối trong repo task dự kiến đổi (tối đa 100, không `..` hay đường dẫn tuyệt đối; glob chỉ dùng `*`, `**`, `?`, `[...]`, còn brace `{}`, extglob `@(…)`/`!(…)`…, `!` đầu mục và lớp ký tự chứa `/` bị từ chối); không khai thì trường vắng mặt. Kết quả `task add`, `task propose` và `task confirm` có `slot_block` (như `scope.slot_block` của explain) khi phạm vi giao với task đang giữ slot, chỗ giữ hoặc chỗ mượn, `null` khi không (FR-044.08) |
 | `cusr task propose ID --profile P --mode M --worker H/M/E` | operate; đề xuất bộ lựa chọn chạy, xác nhận riêng. Daemon đối chiếu đề xuất (của `task propose` và `run_config` của `task add`) với `run_options`: profile, mode, worker, reviewer hay fallback không có trong đó trả `rejected` (`run_config_not_offered`) kèm `details.valid_values`; `task add` khi đó không tạo task. Không đọc được `run_options` thì trả lỗi của nó. Vắng `fallbacks` thì daemon điền các nấc ladder của worker từ `run_options`; `--fallback ''` (`fallbacks: []`) là không có (issue #263) |
 | `cusr task show/list/explain/history` | read; mặc định chỉ trả phần cần thiết, `--full` trả nguyên reply của daemon (xem [Output mặc định gọn](#output-mặc-định-gọn)); list mới nhất trước, `--limit` mặc định 20, tối đa 100, có cursor và `--order oldest`; show/explain nhận ID |
-| `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; chuỗi dài hơn 1000 ký tự bị cắt trừ khi có `--full`; một follow session tối đa 1 giờ, có thể nối lại |
+| `cusr task logs ID --after CURSOR [--follow]` | read; snapshot hữu hạn (mặc định 20 record) hoặc stream JSONL có seq/cursor; mặc định in bản gọn (xem [Output mặc định gọn](#output-mặc-định-gọn)), `--full` in nguyên record; một follow session tối đa 1 giờ, có thể nối lại |
 | `cusr task confirm/cancel/recheck ID` | operate; version/dedup; recheck chọn cấu hình/PR/drain/worktree theo task, không gọi agent; với `worktree_changed` (trước lượt worker, hoặc sau gate có checkpoint commit khác tree) thì nhận tree đã quan sát làm mốc của task rồi chạy lại bước; với `manifest_changed` thì nhận manifest harness đang hiệu lực rồi chạy lại bước; với `harness_auth`, hoặc `loop_exhausted` mà các lượt cuối lỗi infra/rate limit/đăng nhập, thì trả visit của các lượt đó rồi chạy lại bước |
 | `cusr task pause ID --reason TEXT [--now]`, `cusr task resume ID` | operate; version/dedup; xem [Tạm dừng task](#tạm-dừng-task) |
-| `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
+| `cusr task message ID --file FILE [--behavior steer\|interrupt\|queue]` | operate; `--file -` đọc stdin; version/dedup; xem [Tin nhắn cho agent](#tin-nhắn-cho-agent) |
 | `cusr queue pause --reason TEXT`, `cusr queue resume` | operate; không có project, task hay version; xem [Tạm dừng task](#tạm-dừng-task) |
 | `cusr dispatch --project ID` | read trong phạm vi project; trả `project`, `source` (`project`, `global` hoặc `none`), `modes`, `rules`, `default`. Lấy từ `projects.<id>.dispatch`, không có thì `runtime.dispatch`; đọc config mỗi lần gọi; `use[]` trả về dạng `{worker, reviewer?}` kèm `profile`, `mode` để chép thẳng vào `task propose`; không chứa secret, không chọn thay người dùng |
-| `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version. Câu trả lời thua trả `conflict` (`reason: "already_answered"`, `answered_by`), exit 6, như `question_not_open`; event `AnswerRejected` nó ghi không đổi phần task mà version so sánh, nên version bên thua đã đọc vẫn dùng được cho mutation tiếp theo |
+| `cusr inbox`, `cusr answer QUESTION --file FILE --expected-version N` | read/operate; câu trả lời đầu thắng, ràng buộc revision/version; `--file -` đọc stdin. Câu trả lời thua trả `conflict` (`reason: "already_answered"`, `answered_by`), exit 6, như `question_not_open`; event `AnswerRejected` nó ghi không đổi phần task mà version so sánh, nên version bên thua đã đọc vẫn dùng được cho mutation tiếp theo |
 | `cusr task approve ID --kind escalation --step STEP --rung N` | operate; task/revision/policy hash đúng, không cấp merge. Engine chỉ xin duyệt nấc còn ngân sách escalation và nằm trong bộ đã xác nhận: hết ngân sách thì chờ `escalations_exhausted`, nấc ngoài bộ thì task kết thúc `run_config_unconfirmed` mà không mở wait `escalation` (issue #263) |
 | `cusr task approve ID --kind adopt --head-sha SHA` | admin; task khai `--pr`/`pr_ref`, chưa start; PR mở, cùng repo (không fork), đúng base, head đúng SHA, không task sống nào đang giữ PR |
 | `cusr project list`, `cusr task options/content/progress ID`, `cusr task board`, `cusr request show REQUEST_ID` | read; truy vấn chỉ đọc không tạo event, thêm cho giao diện terminal và assistant; hợp đồng đầy đủ ở [feature 004](../../004-terminal-tui/contracts/cli-daemon.md) |
@@ -50,7 +50,10 @@ hết thang/lượt, và chính lần xác nhận amendment của owner là xác
 
 Mọi mutation nhận `--request-id UUID`, `--expected-version N` khi sửa task hiện có; task add không
 cần expected-version. Nếu CLI tự sinh request ID phải in lại trong kết quả để người dùng đối chiếu
-sau timeout. `--project` tùy chọn với lệnh theo ID: CLI đọc project của task qua `task_show`. Cùng ID+canonical payload trả cùng kết quả; payload khác conflict. New request ID mới
+sau timeout. `--project` tùy chọn với lệnh theo ID: CLI gửi `project: null` và daemon điền project của
+`task_id` trước admission (issue #259), nên không tốn thêm `task_show`; mỗi handler vẫn kiểm cặp project/task
+như trước, task không tồn tại trả `task_not_found`. Daemon cũ trả `project: required` thì CLI đọc project
+qua `task_show` rồi gửi lại cùng request ID. Cùng ID+canonical payload trả cùng kết quả; payload khác conflict. New request ID mới
 thử lại cấu hình đã sửa; replay request cũ không âm thầm đọc base mới rồi đổi kết quả.
 
 `--expected-version N` của lệnh người dùng (`HUMAN_TRIGGERS`) đi qua `accept` của store vẫn hợp lệ
@@ -174,9 +177,19 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   output cho người đọc in thêm dòng `Overlap:`/`Base conflict:`/`Scope unknown:` dưới bảng, ghi status `DONE (unverified)` khi có `unverified` và lý do kết thúc (cắt ở 60 ký tự) ở cột activity khi task đã kết thúc. Theo `next_cursor` tới khi `null` là thấy mọi task;
   `--order oldest` bắt đầu từ task đầu tiên. CLI gửi `order` trong query `task_list`; daemon vẫn mặc định
   `oldest` cho caller cũ.
-- `task history`: mặc định 50 event, mỗi event `seq`, `type`, `revision`, `actor`; `--full` thêm `payload`,
-  `dedup_key`.
-- `task logs`: snapshot mặc định 20 record, chuỗi dài hơn 1000 ký tự bị cắt; `--full` giữ nguyên.
+- `task history`: mặc định 50 event, mỗi event `seq`, `type`, `revision`, `actor`, `at`; `--full` thêm
+  `payload`, `dedup_key`. `--tail` trả trang event mới nhất (không dùng chung với `--after`), `more` là
+  `false` và `next_cursor` là `seq` cuối để đọc tiếp event mới hơn. Query `task_history` của daemon có thêm
+  `tail` và mỗi event có `at` (ISO 8601, thời điểm trigger gây ra event; `null` khi log không ghi). Daemon
+  chỉ đọc event của trang trả về (`LIMIT`, cộng một event để biết `more`), không đọc hết log.
+- `task logs`: snapshot mặc định 20 record. Bản gọn giữ nguyên `cursor`, ID, `at`, `kind`, `gap` của record;
+  trong `data` bỏ phần sổ sách của harness (`uuid`, `session_id`, `hook_id`, `signature`, `request_id`,
+  `parent_tool_use_id`, `timestamp`, `usage`, `rate_limit_info`, bản sao `tool_use_result`,
+  `tool_result_meta`, `wire_tool_inputs`, `thinking_display`, `stop_details`, `stop_sequence`, `container`)
+  cùng field rỗng, mảng giữ 10 phần tử đầu, chuỗi cắt ở 1000 ký tự; `--full` giữ nguyên.
+- `task board --json`: task cần người có trong `items` của trang chỉ còn `task_id` và `wait_code` trong
+  `attention.items`; task cần người nằm ngoài trang giữ nguyên hàng. `--full` trả nguyên reply. Output cho
+  người đọc vẫn in mỗi task một lần như trước.
 - `task_explain` của daemon có thêm `running` (attempt đang chạy: `attempt_id`, `step`, `kind`, `rung`,
   `binding`, `started_at` lúc runner khởi động operation mới nhất của attempt hoặc `null` khi chưa runner
   nào nhận, `last_output_at` thời điểm record log cuối của operation đó kể cả spool chưa ingest hoặc
@@ -208,7 +221,9 @@ trước khi in, cho cả `--json` lẫn output cho người đọc.
   `read`/`operate`, giá trị khác bị từ chối 401. Không lấy role từ body request. Xem ADR 0011.
 - `task gates` đọc kind `task_gates`: mỗi vòng gate và trạng thái log của từng gate (`available`, `expired`,
   `missing`). `task gate-log` đọc kind `task_gate_log` theo byte offset, không dùng cursor của log agent; mặc định
-  lấy phần cuối có giới hạn, `--full` đọc hết. Log retention đã xóa là trạng thái bình thường, không phải lỗi.
+  lấy phần cuối có giới hạn: 4 KiB với gate đã đạt, 64 KiB với gate lỗi (CLI đọc 4 KiB trước, gate lỗi còn
+  phần trước đó thì đọc lại 64 KiB của cùng vòng); `--limit` hay `--offset` tự chọn, `--full` đọc hết. Log
+  retention đã xóa là trạng thái bình thường, không phải lỗi.
   Tên gate không có trả `gate_not_found` (exit 4) với `details.gates`: các gate đã chạy ở vòng được hỏi,
   hoặc ở mọi vòng khi không có `--round`.
 - `task logs` đọc `POST /v1/query` kind `task_logs`; `--follow` là CLI hỏi lại theo cursor rồi in JSONL,

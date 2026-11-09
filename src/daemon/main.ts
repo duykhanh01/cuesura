@@ -19,6 +19,7 @@ import {
   COMMAND_PAYLOADS,
   UNSUPPORTED_GUIDANCE,
   admitCommand,
+  withTaskProject,
   type AdmitError,
   type Admitted,
   type CommandInput,
@@ -481,7 +482,7 @@ export async function startDaemon(
       return handler(caller, body as Record<string, unknown>);
     },
     async command(caller, body) {
-      const input = body as CommandInput;
+      const input = withTaskProject(store, body) as CommandInput;
       const requestId = typeof input?.request_id === 'string' ? input.request_id : null;
       const kind = typeof input?.kind === 'string' ? input.kind : '';
       // A supported kind without a handler in this build is refused before admission, so no ledger row
@@ -505,7 +506,7 @@ export async function startDaemon(
           request_id: requestId,
         });
       }
-      const admitted = admitCommand({ store, now: () => clock.now(), newId }, caller, body);
+      const admitted = admitCommand({ store, now: () => clock.now(), newId }, caller, input);
       if (!admitted.ok) {
         if (admitted.error.code === 'write_failed')
           dispatcher.latch(`store write failed: ${admitted.error.cause}`);

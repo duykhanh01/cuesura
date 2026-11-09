@@ -12,6 +12,11 @@ export interface CliOption {
   readonly description: string;
 }
 
+export const DATA_DIR: CliOption = {
+  flags: '--data-dir <dir>',
+  description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
+};
+
 export interface CliSpec {
   readonly name: string;
   readonly description: string;

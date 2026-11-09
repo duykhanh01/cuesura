@@ -233,7 +233,8 @@ describe('task history', () => {
     const page = await data(sd, ['task', 'history', t.id]);
     const events = page['events'] as Record<string, unknown>[];
     expect(events.length).toBeLessThanOrEqual(50);
-    expect(Object.keys(events[0] ?? {})).toEqual(['seq', 'type', 'revision', 'actor']);
+    expect(Object.keys(events[0] ?? {})).toEqual(['seq', 'type', 'revision', 'actor', 'at']);
+    expect(events[0]?.['at']).toMatch(/^\d{4}-\d\d-\d\dT/);
     expect(page['details']).toBe(`cusr task history ${t.id} --full`);
     expect(JSON.stringify(page)).not.toContain('stack line');
     const full = await data(sd, ['task', 'history', t.id, '--full']);
@@ -241,8 +242,26 @@ describe('task history', () => {
 
     const human = await run(sd, ['task', 'history', t.id, '--limit', '2'], false);
     const lines = human.out.trimEnd().split('\n');
-    expect(lines[0]).toMatch(/^SEQ\s+REVISION\s+ACTOR\s+TYPE$/);
+    expect(lines[0]).toMatch(/^SEQ\s+AT\s+REVISION\s+ACTOR\s+TYPE$/);
     expect(lines[1]).toMatch(/TaskCreated$/);
     expect(lines.at(-1)).toBe(`More: cusr task history ${t.id} --after 2`);
+  });
+
+  it('--tail shows the newest events, each with its time, and nothing after them', async () => {
+    const sd = daemon();
+    const t = failedGate(sd);
+    await sd.start();
+    const all = (await data(sd, ['task', 'history', t.id, '--limit', '500']))['events'] as {
+      seq: number;
+    }[];
+    const page = await data(sd, ['task', 'history', t.id, '--tail', '--limit', '3']);
+    const events = page['events'] as { seq: number; at?: string }[];
+    expect(events.map((e) => e.seq)).toEqual(all.slice(-3).map((e) => e.seq));
+    for (const e of events) expect(e.at).toMatch(/^\d{4}-\d\d-\d\dT/);
+    expect(page['next_cursor']).toBe(all.at(-1)?.seq);
+    expect(page['more']).toBe(false);
+
+    const both = await run(sd, ['task', 'history', t.id, '--tail', '--after', '1']);
+    expect(both.code).toBe(2);
   });
 });

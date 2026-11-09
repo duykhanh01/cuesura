@@ -19,8 +19,9 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import type { Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
+import { BOARD_LIMIT } from './limits.ts';
 
-export const BOARD_LIMIT = 100;
+export { BOARD_LIMIT };
 export const ATTENTION_LIMIT = 200;
 /** Entries remembered for `status_since`; losing them only makes the next read slower. */
 const STATUS_SINCE_ENTRIES = 5_000;

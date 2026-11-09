@@ -9,7 +9,7 @@ import { CONTROL_SOCKET, ExitCode } from './output.ts';
 import type { CliCommand } from './program.ts';
 import { print } from './tasks.ts';
 import { errorEnvelope } from './output.ts';
-import { logRecordSummary, logsSummary, LOG_TEXT_LIMIT } from './summary.ts';
+import { LOG_LIST_LIMIT, LOG_TEXT_LIMIT, logRecordSummary, logsSummary } from './summary.ts';
 
 export const FOLLOW_SESSION_MS = 3_600_000;
 /** A snapshot without --limit; --follow keeps the daemon's larger page since it streams anyway. */
@@ -75,7 +75,7 @@ Examples:
       },
       {
         flags: '--full',
-        description: `Print records as recorded; by default strings longer than ${LOG_TEXT_LIMIT} characters are cut`,
+        description: `Print records as recorded; by default harness bookkeeping (IDs, signatures, usage) and empty fields are dropped, lists keep ${LOG_LIST_LIMIT} items and strings ${LOG_TEXT_LIMIT} characters`,
       },
       {
         flags: '--follow',

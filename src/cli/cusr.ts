@@ -1,7 +1,13 @@
 #!/usr/bin/env node
-import { CUSR_COMMANDS } from './commands.ts';
-import { DATA_DIR } from './tasks.ts';
-import { exitOnClosedPipe, buildInfo, packageVersion, processIo, runCli } from './program.ts';
+import { commandsFor } from './command-index.ts';
+import {
+  DATA_DIR,
+  buildInfo,
+  exitOnClosedPipe,
+  packageVersion,
+  processIo,
+  runCli,
+} from './program.ts';
 import { refuseWorker } from './worker-guard.ts';
 
 const argv = process.argv.slice(2);
@@ -34,6 +40,6 @@ if (refused !== null) {
     },
     argv,
     processIo,
-    CUSR_COMMANDS,
+    await commandsFor(argv),
   );
 }

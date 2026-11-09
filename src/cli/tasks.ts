@@ -6,18 +6,15 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { v7 as uuidv7 } from 'uuid';
 import { stringify } from 'yaml';
-import {
-  CONTROL_SOCKET,
-  ExitCode,
-  errorEnvelope,
-  renderEnvelope,
-  type Envelope,
-} from './output.ts';
+import { CONTROL_SOCKET, errorEnvelope, renderEnvelope, type Envelope } from './output.ts';
 import { callDaemon, clientErrorEnvelope, readClientActor, resolveDataDir } from './client.ts';
 import { exitCodeFor } from './errors.ts';
-import { BOARD_LIMIT } from '../application/board.ts';
-import { UNSUPPORTED_GUIDANCE } from '../application/commands.ts';
-import { DOCTOR_CLIENT_TIMEOUT_MS } from '../application/doctor.ts';
+import { DATA_DIR, badFlag } from './base.ts';
+import {
+  BOARD_LIMIT,
+  DOCTOR_CLIENT_TIMEOUT_MS,
+  UNSUPPORTED_GUIDANCE,
+} from '../application/limits.ts';
 import { TASK_STATUSES } from '../domain/state.ts';
 import { UuidSchema } from '../shared/brand.ts';
 import type { CliCommand, CliIo } from './program.ts';
@@ -28,14 +25,17 @@ import {
   renderTaskList,
   type Render,
 } from './render.ts';
-import { explainSummary, historySummary, listSummary, showSummary } from './summary.ts';
+import {
+  boardSummary,
+  explainSummary,
+  historySummary,
+  listSummary,
+  showSummary,
+} from './summary.ts';
 
 type Values = Readonly<Record<string, string | undefined>>;
 
-export const DATA_DIR = {
-  flags: '--data-dir <dir>',
-  description: 'Daemon data directory (default: $CUSR_DATA_DIR or ~/.cusr)',
-};
+export { DATA_DIR, badFlag } from './base.ts';
 
 export async function call(
   values: Values,
@@ -102,18 +102,6 @@ function fail(
 
 function usage(message: string, json: boolean, io: CliIo): number {
   return print(fail('invalid_arguments', message, {}, null), json, io);
-}
-
-/** A flag this command can check itself: the message says how to fix it, with no error code in front. */
-export function badFlag(
-  message: string,
-  details: Readonly<Record<string, unknown>>,
-  json: boolean,
-  io: CliIo,
-): number {
-  if (json) return print(fail('invalid_arguments', message, details, null), json, io);
-  io.stderr(`cusr: ${message}\n`);
-  return ExitCode.usage;
 }
 
 function badChoice(
@@ -227,20 +215,8 @@ async function mutate(
   if (expected === null)
     return usage(`${kind} requires --expected-version with a non-negative integer`, json, io);
   const requestId = values['requestId'] ?? uuidv7();
-  let project = values['project'];
-  if (project === undefined) {
-    const shown = await call(
-      values,
-      '/v1/query',
-      { kind: 'task_show', task_id: taskId },
-      requestId,
-    );
-    if (!shown.ok)
-      return print({ ...shown, error: { ...shown.error, request_id: requestId } }, json, io);
-    project = (shown.data as { project: string }).project;
-  }
-  return print(
-    await call(
+  const send = (project: string | null) =>
+    call(
       values,
       '/v1/command',
       {
@@ -252,10 +228,30 @@ async function mutate(
         payload,
       },
       requestId,
-    ),
-    json,
-    io,
-  );
+    );
+  const reply = await send(values['project'] ?? null);
+  // A daemon older than #259 does not fill in the project of the task, so it is read here.
+  if (values['project'] === undefined && needsProject(reply)) {
+    const shown = await call(
+      values,
+      '/v1/query',
+      { kind: 'task_show', task_id: taskId },
+      requestId,
+    );
+    if (!shown.ok)
+      return print({ ...shown, error: { ...shown.error, request_id: requestId } }, json, io);
+    return print(await send((shown.data as { project: string }).project), json, io);
+  }
+  return print(reply, json, io);
+}
+
+function needsProject(reply: Envelope): boolean {
+  const issues = reply.ok ? undefined : reply.error.details['issues'];
+  return Array.isArray(issues) && issues.includes('project: required');
+}
+
+function readText(path: string): string {
+  return readFileSync(path === '-' ? 0 : path, 'utf8').trimEnd();
 }
 
 /** `view` reshapes a successful reply before it is printed, for both `--json` and the human output. */
@@ -524,10 +520,11 @@ export const HISTORY_DEFAULT_LIMIT = 50;
 export const historyCommand: CliCommand = {
   name: 'task history',
   description: `Show accepted task events in sequence order, ${HISTORY_DEFAULT_LIMIT} per page by default`,
-  help: `By default each event shows seq, type, revision and actor; --full adds payloads.
-Continue with --after set to next_cursor while more is true.
+  help: `By default each event shows seq, type, revision, actor and at; --full adds payloads.
+Continue with --after set to next_cursor while more is true; --tail shows the newest page.
 
 Examples:
+  cusr task history 019a0000-0000-7000-8000-000000000001 --tail
   cusr task history 019a0000-0000-7000-8000-000000000001
   cusr task history 019a0000-0000-7000-8000-000000000001 --after 120 --full --json`,
   args: ['<id>'],
@@ -542,6 +539,10 @@ Examples:
       description: `Page size, at most 500 (default: ${HISTORY_DEFAULT_LIMIT})`,
     },
     {
+      flags: '--tail',
+      description: 'Show the newest events instead of starting after --after',
+    },
+    {
       flags: '--full',
       description: 'Include each event payload and deduplication key',
     },
@@ -549,6 +550,9 @@ Examples:
   run(values, json, io) {
     const after = values['after'] === undefined ? undefined : Number(values['after']);
     const limit = Number(values['limit'] ?? HISTORY_DEFAULT_LIMIT);
+    const tail = values['tail'] !== undefined;
+    if (tail && after !== undefined)
+      return Promise.resolve(usage('--tail and --after cannot be used together', json, io));
     if ((after !== undefined && !Number.isInteger(after)) || !Number.isInteger(limit))
       return Promise.resolve(usage('--after and --limit must be integers', json, io));
     return query(
@@ -557,6 +561,7 @@ Examples:
         kind: 'task_history',
         task_id: values['id'],
         ...(after === undefined ? {} : { after }),
+        ...(tail ? { tail } : {}),
         limit,
       },
       json,
@@ -707,7 +712,7 @@ export const messageCommand: CliCommand = {
     REQUEST_ID,
     PROJECT,
     EXPECTED_VERSION,
-    { flags: '--file <file>', description: 'Text file containing the message' },
+    { flags: '--file <file>', description: 'Text file containing the message; - reads stdin' },
     {
       flags: '--behavior <behavior>',
       description:
@@ -721,7 +726,7 @@ export const messageCommand: CliCommand = {
       return usage('--behavior must be steer, interrupt or queue', json, io);
     let body: string;
     try {
-      body = readFileSync(values['file'], 'utf8').trimEnd();
+      body = readText(values['file']);
     } catch (e) {
       return usage(
         `Cannot read ${values['file']}: ${e instanceof Error ? e.message : String(e)}`,
@@ -975,7 +980,7 @@ export const answerCommand: CliCommand = {
     DATA_DIR,
     REQUEST_ID,
     EXPECTED_VERSION,
-    { flags: '--file <file>', description: 'Text file containing the answer' },
+    { flags: '--file <file>', description: 'Text file containing the answer; - reads stdin' },
   ],
   async run(values, json, io) {
     const expected = version(values);
@@ -987,7 +992,7 @@ export const answerCommand: CliCommand = {
       );
     let answer: string;
     try {
-      answer = readFileSync(values['file'], 'utf8').trimEnd();
+      answer = readText(values['file']);
     } catch (e) {
       return usage(
         `Cannot read ${values['file']}: ${e instanceof Error ? e.message : String(e)}`,
@@ -1072,6 +1077,11 @@ export const boardCommand: CliCommand = {
       description: `Page size, from 1 to ${BOARD_LIMIT}`,
     },
     { flags: '--cursor <id>', description: 'Show tasks after this task ID' },
+    {
+      flags: '--full',
+      description:
+        'With --json, repeat the whole row in attention for a task that is also in items',
+    },
   ],
   run(values, json, io) {
     const { project, status, scope, cursor } = values;
@@ -1117,6 +1127,8 @@ export const boardCommand: CliCommand = {
           ] as const
         ).flatMap(([flag, value]) => (value === undefined ? [] : [flag, value])),
       ),
+      // The table needs whole rows and already lists each task once.
+      json ? unlessFull(values, boardSummary) : undefined,
     );
   },
 };

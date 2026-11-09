@@ -6,7 +6,7 @@ Quy tắc chung (FR-040):
 
 - Mọi query đều chỉ đọc, cần quyền `read`, kiểm phạm vi project ở application service và không tạo event.
 - Mỗi query có một lệnh CLI với `--json`, nên CLI và assistant kiểm chứng được cùng dữ liệu.
-- Output của `task_show`, `task_list`, `task_explain`, `task_history` không đổi. `task_logs` chỉ thêm trường.
+- Output của `task_show`, `task_list`, `task_explain` không đổi. `task_history` và `task_logs` chỉ thêm trường.
 - Không trả nội dung token, đường dẫn token, `credential_refs` hay `tool_paths`.
 
 ## Lệnh
@@ -117,6 +117,7 @@ Khi có thay đổi:
   `needs_user`. `status_since` là `null` khi không xác định được. `step_visits` là số lần vào mỗi bước; TUI dùng nó để thanh stage không lùi khi vòng sửa chạy lại gate.
 - `items` và `attention.items` sắp theo task ID như `task_list`: `order` mặc định `oldest`, `newest` xếp task mới tạo lên đầu và
   `cursor` đi dần về task cũ hơn. TUI gửi `newest`; `cusr task board` không gửi nên giữ thứ tự cũ.
+- `cusr task board --json` không lặp hàng: task trong `items` chỉ còn `task_id` và `wait_code` ở `attention.items`; `--full` in nguyên reply (xem [Output mặc định gọn](../../002-task-to-green-pr/contracts/cli-daemon.md#output-mặc-định-gọn)).
 
 ## `task_content`
 

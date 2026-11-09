@@ -3,13 +3,8 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { v7 as uuidv7 } from 'uuid';
-import {
-  registeredSession,
-  replacedSessions,
-  type AttentionItem,
-  type AttentionPeek,
-  type RegisterReply,
-} from '../application/attention.ts';
+import { registeredSession, replacedSessions } from '../application/assistant-session.ts';
+import type { AttentionItem, AttentionPeek, RegisterReply } from '../application/attention.ts';
 import {
   ASSISTANT_SETTINGS_PATH,
   CODEX_HOOKS_PATH,
@@ -29,9 +24,12 @@ import {
 import { resolveDataDir } from './client.ts';
 import { ExitCode, okEnvelope, type Envelope } from './output.ts';
 import type { CliCommand, CliIo } from './program.ts';
-import { DATA_DIR, badFlag, call, print } from './tasks.ts';
+import { DATA_DIR, badFlag, queryDaemon } from './base.ts';
 
 const POLL_MS = 2_000;
+
+/** The hooks never print an envelope, so they skip the YAML and schema modules `print` brings. */
+const loadTasks = () => import('./tasks.ts');
 
 /** Below the hook `timeout` in the settings, so the hook ends by itself instead of being killed. */
 const DEFAULT_PARK_S = 604_500;
@@ -111,10 +109,11 @@ Examples:
     const first = values['take'] === 'true' ? 'take' : 'attach';
     let mode = values['lease'] === undefined || first === 'take' ? first : 'resume';
     let downSince: number | null = null;
+    const { print } = await loadTasks();
     for (;;) {
       // Its session is gone: stopping lets the lease go stale for the next one.
       if (!ownerAlive()) return ExitCode.ok;
-      const r = await call(values, '/v1/query', { kind: 'attention', lease, mode }, null);
+      const r = await queryDaemon(values, { kind: 'attention', lease, mode });
       if (r.ok) {
         const data = r.data as Attention;
         lease = data.lease;
@@ -172,7 +171,8 @@ Examples:
         io,
       );
     const take = values['take'] === 'true';
-    const r = await call(values, '/v1/query', { kind: 'assistant_register', session, take }, null);
+    const { print } = await loadTasks();
+    const r = await queryDaemon(values, { kind: 'assistant_register', session, take });
     if (!r.ok) return print(r, json, io);
     const data = r.data as RegisterReply;
     // A daemon older than this CLI replies without a lease; its first wake then repeats what waits.
@@ -253,7 +253,8 @@ export const assistantUnregisterCommand: CliCommand = {
       values['session'] ??
       SESSION_ENVS.map((e) => process.env[e]).find((v) => v !== undefined && v !== '');
     const body = { kind: 'assistant_unregister', ...(session === undefined ? {} : { session }) };
-    return print(await call(values, '/v1/query', body, null), json, io);
+    const { print } = await loadTasks();
+    return print(await queryDaemon(values, body), json, io);
   },
 };
 
@@ -562,7 +563,7 @@ export const assistantSessionStartCommand: CliCommand = {
     const dataDir = resolveDataDir(values['dataDir']);
     noteSessionStart(dataDir, session, (owner) => retiresIn(owner, process.ppid));
     if (registeredSession(dataDir) === session) return ExitCode.ok;
-    const r = await call(values, '/v1/query', { kind: 'attention_peek' }, null, PEEK_TIMEOUT_MS);
+    const r = await queryDaemon(values, { kind: 'attention_peek' }, PEEK_TIMEOUT_MS);
     const waiting = r.ok ? askAbout(r.data as AttentionPeek) : 0;
     if (waiting > 0) io.stdout(leaseQuestion(waiting));
     return ExitCode.ok;
@@ -635,12 +636,12 @@ Codex needs "async": true, and the pi extension from cusr init starts this itsel
       alive: hookAlive,
       owner,
       ownerAlive,
-      query: (lease) => call(values, '/v1/query', { kind: 'attention', lease, mode: 'hook' }, null),
+      query: (lease) => queryDaemon(values, { kind: 'attention', lease, mode: 'hook' }),
       now: Date.now,
       sleep,
       ...(values['confirm'] === undefined ? {} : { confirm: values['confirm'] }),
       deliver: deliverer(harness, session, owner, io),
-      ackMoved: () => call(values, '/v1/query', { kind: 'assistant_moved_ack', session }, null),
+      ackMoved: () => queryDaemon(values, { kind: 'assistant_moved_ack', session }),
     });
   },
 };

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import {
   GATE_LOG_DEFAULT_BYTES,
+  GATE_LOG_PASSED_BYTES,
   gateLogCommandWith,
   gatesCommand,
 } from '../../../src/cli/gate-logs.ts';
@@ -57,10 +58,45 @@ describe('cusr task gate-log', () => {
         kind: 'task_gate_log',
         task_id: ID,
         gate: 'unit',
-        limit: GATE_LOG_DEFAULT_BYTES,
         tail: true,
+        limit: GATE_LOG_PASSED_BYTES,
       },
     ]);
+  });
+
+  it('reads the end of a passed gate short, and a failed one again at full size', async () => {
+    const passed = await run(['task', 'gate-log', ID, 'unit'], () =>
+      available({ passed: true, offset: 20_000, size: 24_096 }),
+    );
+    expect(passed.bodies.map((b) => b['limit'])).toEqual([GATE_LOG_PASSED_BYTES]);
+    expect(passed.stderr).toContain('showing the last 4.0 KiB of 23.5 KiB');
+
+    const failed = await run(['task', 'gate-log', ID, 'unit', '--json'], (b) =>
+      available(b['limit'] === GATE_LOG_PASSED_BYTES ? { offset: 90_000 } : { offset: 30_000 }),
+    );
+    expect(failed.bodies).toEqual([
+      {
+        kind: 'task_gate_log',
+        task_id: ID,
+        gate: 'unit',
+        tail: true,
+        limit: GATE_LOG_PASSED_BYTES,
+      },
+      {
+        kind: 'task_gate_log',
+        task_id: ID,
+        gate: 'unit',
+        round: 2,
+        tail: true,
+        limit: GATE_LOG_DEFAULT_BYTES,
+      },
+    ]);
+    expect(JSON.parse(failed.stdout)).toMatchObject({ data: { offset: 30_000 } });
+
+    const asked = await run(['task', 'gate-log', ID, 'unit', '--limit', '2048'], () =>
+      available({ passed: true }),
+    );
+    expect(asked.bodies.map((b) => b['limit'])).toEqual([2048]);
   });
 
   it('says on stderr what the tail left out and that the log was capped', async () => {

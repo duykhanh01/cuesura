@@ -184,13 +184,16 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task explain "$TASK_ID" --full --json
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task history "$TASK_ID" --tail --json
+CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task history "$TASK_ID" --after "$EVENT_CURSOR" --json
 CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
   cusr task logs "$TASK_ID" --after "$LOG_CURSOR" --json
 
 # Finite --json output: {schema_version, ok, data, error}; check ok and task status.
-# history: 50 events per page (seq/type/revision/actor; --full adds payloads).
-# logs: 20 records per page, strings over 1000 characters cut (--full keeps them); --limit up to 200.
+# history: 50 events per page (seq/type/revision/actor/at; --full adds payloads); --tail shows the newest.
+# logs: 20 records per page without harness bookkeeping (IDs, signatures, usage), lists cut at 10 items
+# and strings at 1000 characters (--full keeps records as recorded); --limit up to 200.
 # List: next_cursor -> --cursor; history/logs: next_cursor -> --after.
 # Event and log cursors are different. Surface missing-log gap records.
 # --follow emits JSONL records, not one result envelope; initial errors can still
@@ -358,8 +361,9 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # QUESTION_ID and current task_version come from the inbox item. An item with
 # `decider: true` is being answered by the decider; answer it only if the user wants to.
 # Supply the user's answer or known facts; unresolved decisions go to the user.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr answer "$QUESTION_ID" --file "$ANSWER_FILE" \
+# --file - reads the answer from stdin, so no temporary file is needed.
+printf '%s\n' "$ANSWER" | CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr answer "$QUESTION_ID" --file - \
   --expected-version "$VERSION" --request-id "$ANSWER_REQUEST_ID" --json
 ```
 
@@ -372,8 +376,8 @@ CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
 # the next turn. Every later agent turn of the revision sees every message.
 # Never use it to widen the task or its acceptance criteria: agents are told to ignore that.
 # The interrupted turn counts against the agent-run budget; send messages the user asked for.
-CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
-  cusr task message "$TASK_ID" --file "$MESSAGE_FILE" \
+printf '%s\n' "$MESSAGE" | CUSR_DATA_DIR="${DATA_DIR:?}" CUSR_ACTOR=assistant \
+  cusr task message "$TASK_ID" --file - \
   --expected-version "$VERSION" --request-id "$MESSAGE_REQUEST_ID" --json
 ```
 

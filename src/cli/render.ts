@@ -173,6 +173,7 @@ const HistorySchema = z.object({
       type: z.string(),
       revision: z.number(),
       actor: z.unknown(),
+      at: z.string().optional(),
     }),
   ),
   next_cursor: z.number(),
@@ -188,9 +189,10 @@ export const renderHistory: Render = (data) => {
     events.length === 0
       ? ['No events.']
       : table(
-          ['SEQ', 'REVISION', 'ACTOR', 'TYPE'],
+          ['SEQ', 'AT', 'REVISION', 'ACTOR', 'TYPE'],
           events.map((e) => [
             String(e.seq),
+            sanitize(e.at ?? '-'),
             String(e.revision),
             sanitize(typeof e.actor === 'string' ? e.actor : JSON.stringify(e.actor)),
             sanitize(e.type),

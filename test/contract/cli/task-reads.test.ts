@@ -143,12 +143,32 @@ describe('cusr task board', () => {
     expect(r.out).not.toContain('watermark');
     expect(r.out).not.toContain('\x1b');
     expect(r.out).toContain('␛[2J');
-    expect((await json(sd, 'task', 'board')).envelope).toMatchObject({
-      data: {
-        watermark: expect.any(Number) as unknown,
-        attention: { items: [{}] },
-      },
+    const board = (await json(sd, 'task', 'board')).envelope as {
+      data: { watermark: unknown; attention: { items: unknown[] }; items: { task_id: string }[] };
+    };
+    expect(board.data.watermark).toEqual(expect.any(Number));
+    expect(board.data.items.map((i) => i.task_id)).toEqual([t.id]);
+    // Listed once: attention only names the task that `items` already describes (no wait code here).
+    expect(board.data.attention.items).toEqual([{ task_id: t.id }]);
+    const full = (await json(sd, 'task', 'board', '--full')).envelope as typeof board;
+    expect(full.data.attention.items).toEqual(full.data.items);
+  });
+
+  it('JSON keeps the row of a task that needs a person but is not on this page', async () => {
+    const sd = daemon();
+    const tasks = [1, 2].map((n) => buildTask({ id: uuidOf(n) }));
+    sd.seed((d) => {
+      for (const t of tasks) d.must(t.id, { kind: 'create_task', task: t });
     });
+    await sd.start();
+    const board = (await json(sd, 'task', 'board', '--limit', '1')).envelope as {
+      data: { attention: { items: Record<string, unknown>[] }; items: { task_id: string }[] };
+    };
+    const [onPage] = board.data.items;
+    const off = board.data.attention.items.find((i) => i['task_id'] !== onPage?.task_id);
+    expect(board.data.attention.items).toHaveLength(2);
+    expect(board.data.attention.items).toContainEqual({ task_id: onPage?.task_id });
+    expect(off).toHaveProperty('title');
   });
 
   it('the suggested next page shows the same list, and can be run as it is', async () => {

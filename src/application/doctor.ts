@@ -31,7 +31,7 @@ import { findTerminalBin, terminalArgv, terminalProbeArgs } from '../runner/term
  * with its fix instead of a lost connection.
  */
 export const DOCTOR_PROBE_BUDGET_MS = 30_000;
-export const DOCTOR_CLIENT_TIMEOUT_MS = 45_000;
+export { DOCTOR_CLIENT_TIMEOUT_MS } from './limits.ts';
 const PROBE_MS = 10_000;
 
 /**

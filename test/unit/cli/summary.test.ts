@@ -4,6 +4,7 @@ import {
   explainSummary,
   historySummary,
   listSummary,
+  LOG_LIST_LIMIT,
   LOG_TEXT_LIMIT,
   logsSummary,
   showSummary,
@@ -479,5 +480,62 @@ describe('logsSummary', () => {
     expect(s.records[0]?.cursor).toBe(1);
     expect(s.records[0]?.data.text.startsWith('x'.repeat(LOG_TEXT_LIMIT))).toBe(true);
     expect(s.records[0]?.data.text.length).toBeLessThan(LOG_TEXT_LIMIT + 60);
+  });
+
+  it('drops harness bookkeeping, empty fields and long lists but keeps the record exact', () => {
+    const record = {
+      seq: 2,
+      cursor: 2,
+      operation_id: 'op',
+      attempt_id: 'at',
+      at: '2026-11-07T12:00:27.107Z',
+      kind: 'stdout',
+      gap: { records: 0, reason: 'redacted' },
+      data: {
+        type: 'system',
+        subtype: 'hook_response',
+        hook_id: 'h',
+        uuid: 'u',
+        session_id: 's',
+        stdout: '{}\n',
+        stderr: '',
+        exit_code: 0,
+        message: {
+          content: [
+            { type: 'thinking', thinking: '', signature: 'sig' },
+            {
+              type: 'tool_use',
+              input: { request_id: 'r1', timestamp: 't', signature: 's', note: '' },
+            },
+          ],
+          usage: { input_tokens: 2 },
+        },
+        tool_use_result: { stdout: LONG },
+        tools: Array.from({ length: LOG_LIST_LIMIT + 5 }, (_, i) => `t${i}`),
+      },
+    };
+    const s = logsSummary({ task_id: ID, records: [record], next_cursor: 2, complete: false }) as {
+      records: unknown[];
+    };
+    expect(s.records[0]).toEqual({
+      ...record,
+      data: {
+        type: 'system',
+        subtype: 'hook_response',
+        stdout: '{}\n',
+        exit_code: 0,
+        // A tool's own input keeps every field, even one named like harness bookkeeping.
+        message: {
+          content: [
+            { type: 'thinking' },
+            {
+              type: 'tool_use',
+              input: { request_id: 'r1', timestamp: 't', signature: 's', note: '' },
+            },
+          ],
+        },
+        tools: [...record.data.tools.slice(0, LOG_LIST_LIMIT), '… 5 more; use --full'],
+      },
+    });
   });
 });

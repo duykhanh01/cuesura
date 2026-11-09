@@ -5,7 +5,7 @@
  * received only when the holder comes back with the lease of that reply.
  */
 import { randomUUID } from 'node:crypto';
-import { readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import { TASK_STATUSES, isTerminal, type TaskState } from '../domain/state.ts';
@@ -17,49 +17,17 @@ import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import { INBOX_LIMIT, openQuestions } from './inbox.ts';
 import type { AppError } from './queries.ts';
+import {
+  ASSISTANT_SESSION_FILE,
+  readSessionFile,
+  registeredSession,
+  replacedSessions,
+} from './assistant-session.ts';
 
 /** With no poll for this long the holder has gone, and a new session needs no `take`. */
 export const ATTENTION_STALE_MS = 10_000;
 
-/**
- * Names the session a Stop hook may wake (cusr assistant register). Unlike the lease it survives a restart,
- * because that hook only starts on the session's next Stop and nothing else would claim the lease back.
- */
-export const ASSISTANT_SESSION_FILE = 'assistant-session.json';
-
-/** Only the daemon writes this file, so no other process can lose a change it made. */
-type SessionFile = { readonly session: string | null; readonly replaced: readonly string[] };
-
-function readSessionFile(dataDir: string): SessionFile {
-  try {
-    const raw = JSON.parse(readFileSync(join(dataDir, ASSISTANT_SESSION_FILE), 'utf8')) as Record<
-      string,
-      unknown
-    > | null;
-    const session = raw?.['session'];
-    const replaced = raw?.['replaced'];
-    return {
-      session: typeof session === 'string' ? session : null,
-      replaced: Array.isArray(replaced)
-        ? replaced.filter((r): r is string => typeof r === 'string')
-        : [],
-    };
-  } catch {
-    return { session: null, replaced: [] };
-  }
-}
-
-export function registeredSession(dataDir: string): string | null {
-  return readSessionFile(dataDir).session;
-}
-
-/**
- * Registered sessions another one took the lease from and that were not told yet. Kept on disk because
- * such a session may have no hook parked when it happens: its next Stop must still be able to say so.
- */
-export function replacedSessions(dataDir: string): readonly string[] {
-  return readSessionFile(dataDir).replaced;
-}
+export { ASSISTANT_SESSION_FILE, registeredSession, replacedSessions };
 
 const LIVE = TASK_STATUSES.filter((s) => !isTerminal(s));
 

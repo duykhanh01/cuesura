@@ -199,18 +199,118 @@ export function listSummary(data: unknown): unknown {
   };
 }
 
+/**
+ * `task board --json`: a task that needs a person and is on this page is listed once, in `items`; attention
+ * keeps only its ID and wait. One off the page keeps its row, since nothing else here describes it.
+ */
+export function boardSummary(data: unknown): unknown {
+  if (!isRecord(data) || !Array.isArray(data['items']) || !isRecord(data['attention'])) return data;
+  const onPage = new Set(data['items'].map((t) => record(t)['task_id']));
+  const attention = data['attention'];
+  return {
+    ...data,
+    attention: {
+      ...attention,
+      items: list(attention['items']).map((t) => {
+        const r = record(t);
+        return onPage.has(r['task_id']) ? compact(pick(r, ['task_id', 'wait_code'])) : t;
+      }),
+    },
+  };
+}
+
 /** `task history`: one line per event; payloads come with `--full`. */
 export function historySummary(data: unknown): unknown {
   if (!isRecord(data) || !Array.isArray(data['events'])) return data;
   return {
     ...data,
-    events: data['events'].map((e) => pick(record(e), ['seq', 'type', 'revision', 'actor'])),
+    events: data['events'].map((e) =>
+      compact(pick(record(e), ['seq', 'type', 'revision', 'actor', 'at'])),
+    ),
     details: `cusr task history ${String(data['task_id'])} --full`,
   };
 }
 
-/** One log record with each long string cut; cursors and IDs are short and stay exact. */
-export const logRecordSummary = (r: unknown): unknown => clip(r, LOG_TEXT_LIMIT);
+/**
+ * Harness bookkeeping on a log event that tells a reader nothing: session and event IDs, rate limits and
+ * copies of content the event already carries (`tool_use_result`). Dropped only from the event itself and
+ * its `message`, never from a tool's input or output, where the same names may be real data.
+ */
+const EVENT_NOISE = new Set([
+  'uuid',
+  'session_id',
+  'hook_id',
+  'request_id',
+  'parent_tool_use_id',
+  'timestamp',
+  'rate_limit_info',
+  'tool_use_result',
+  'tool_result_meta',
+  'wire_tool_inputs',
+  'thinking_display',
+]);
+const MESSAGE_NOISE = new Set(['usage', 'stop_details', 'stop_sequence', 'container']);
+/** A thinking block keeps its text; its signature is opaque. */
+const CONTENT_NOISE = new Set(['signature']);
+/** Longest list a log event keeps, such as the tools and commands a session announces when it starts. */
+export const LOG_LIST_LIMIT = 10;
+
+const blank = (v: unknown): boolean =>
+  v === null ||
+  v === undefined ||
+  v === '' ||
+  (Array.isArray(v) && v.length === 0) ||
+  (isRecord(v) && Object.keys(v).length === 0);
+
+/** Cuts long lists at any depth, saying how many were left out; keeps every field. */
+function cutLists(v: unknown): unknown {
+  if (Array.isArray(v)) {
+    const kept = v.map(cutLists);
+    return kept.length <= LOG_LIST_LIMIT
+      ? kept
+      : [...kept.slice(0, LOG_LIST_LIMIT), `… ${kept.length - LOG_LIST_LIMIT} more; use --full`];
+  }
+  if (!isRecord(v)) return v;
+  return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, cutLists(x)]));
+}
+
+/** One level of a record without the named keys and empty fields; deeper values are left as they are. */
+function without(
+  v: Data,
+  noise: ReadonlySet<string>,
+  inner: (k: string, x: unknown) => unknown,
+): Data {
+  return Object.fromEntries(
+    Object.entries(v)
+      .filter(([k, x]) => !noise.has(k) && !blank(x))
+      .map(([k, x]) => [k, inner(k, x)]),
+  );
+}
+
+function quietEvent(data: unknown): unknown {
+  if (!isRecord(data)) return cutLists(data);
+  return without(data, EVENT_NOISE, (k, x) => {
+    if (k !== 'message' || !isRecord(x)) return cutLists(x);
+    return without(x, MESSAGE_NOISE, (mk, mx) =>
+      mk === 'content' && Array.isArray(mx)
+        ? cutLists(
+            (mx as unknown[]).map((c) =>
+              isRecord(c) ? without(c, CONTENT_NOISE, (_, cx) => cx) : c,
+            ),
+          )
+        : cutLists(mx),
+    );
+  });
+}
+
+/**
+ * One log record: the event without harness bookkeeping or empty fields, long lists and strings cut. The
+ * record's own cursor, IDs and gap stay exact.
+ */
+export function logRecordSummary(r: unknown): unknown {
+  if (!isRecord(r) || !('data' in r)) return clip(r, LOG_TEXT_LIMIT);
+  return clip({ ...r, data: quietEvent(r['data']) }, LOG_TEXT_LIMIT);
+}
 
 /** `task logs` snapshot: the page with every record cut. */
 export function logsSummary(data: unknown): unknown {

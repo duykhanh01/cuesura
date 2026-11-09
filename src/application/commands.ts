@@ -2,11 +2,12 @@ import { z } from 'zod';
 import type { AuthzRole } from '../domain/policy.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
 import { AmendPayloadSchema } from './amend-policy.ts';
-import { HashSchema, UuidSchema } from '../shared/brand.ts';
+import { HashSchema, UuidSchema, type Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import type { Admission, LedgerError, Store } from '../store/index.ts';
 import { authorize, type AuthzError, type Caller } from './authz.ts';
+import { UNSUPPORTED_COMMANDS, UNSUPPORTED_GUIDANCE } from './limits.ts';
 
 // Mutation admission (contracts/cli-daemon.md): authz → schema →
 // allowlist → version → dedup, all before any I/O. The ledger row with server-assigned IDs is committed
@@ -68,7 +69,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
 export const GLOBAL_COMMANDS: readonly CommandKind[] = ['queue_pause', 'queue_resume'];
 
 /** Rejected before anything is recorded; the CLI maps them to exit 2. */
-export const UNSUPPORTED_COMMANDS = ['task_retry', 'merge_approve', 'yolo'] as const;
+export { UNSUPPORTED_COMMANDS, UNSUPPORTED_GUIDANCE };
 
 /** IDs the server assigns at admission: a task ID for `task_add` plus an ID pool for the core envelope. */
 const ASSIGNED_IDS = 8;
@@ -91,15 +92,6 @@ export const CommandSchema = z
   .strict();
 export type CommandInput = z.input<typeof CommandSchema>;
 
-/** What to do instead of an unsupported command (FR-021, FR-045.01/02). */
-export const UNSUPPORTED_GUIDANCE: Readonly<Record<(typeof UNSUPPORTED_COMMANDS)[number], string>> =
-  {
-    task_retry: 'task retry is not part of this version; use task add for an independent task',
-    merge_approve:
-      'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
-    yolo: 'yolo has no command: set yolo: true in the user config, or merge the PR on GitHub, then wait for the observation or run task recheck',
-  };
-
 export type AdmitError =
   | AuthzError
   | { code: 'unsupported_feature'; kind: string }
@@ -113,6 +105,27 @@ export type CommandDeps = {
   now: () => number;
   newId: () => string;
 };
+
+/**
+ * A task command that names no project gets its task's, so a caller need not read the task first (#259).
+ * The project check of each handler is unchanged; an unknown task keeps `null` and is not found.
+ */
+export function withTaskProject(store: Store, body: unknown): unknown {
+  if (typeof body !== 'object' || body === null || Array.isArray(body)) return body;
+  const b = body as Record<string, unknown>;
+  const kind = b['kind'];
+  if (
+    (b['project'] !== null && b['project'] !== undefined) ||
+    typeof b['task_id'] !== 'string' ||
+    kind === 'task_add' ||
+    (GLOBAL_COMMANDS as readonly unknown[]).includes(kind)
+  )
+    return body;
+  const project = UuidSchema.safeParse(b['task_id']).success
+    ? (store.readTask(b['task_id'] as Uuid)?.project ?? null)
+    : null;
+  return { ...b, project };
+}
 
 /**
  * Admits one mutation for `caller`. The command hash covers kind, target, expected version, payload and
@@ -174,7 +187,8 @@ export function admitCommand(
     if (cmd.task_id !== null) issues.push('task_id: assigned by the server');
     if (cmd.expected_version !== null) issues.push('expected_version: not used by task_add');
   } else {
-    if (cmd.project === null) issues.push('project: required');
+    // A task ID alone is enough: `withTaskProject` fills the project of a task that exists.
+    if (cmd.project === null && cmd.task_id === null) issues.push('project: required');
     if (cmd.task_id === null) issues.push('task_id: required');
     if (cmd.expected_version === null) issues.push('expected_version: required');
   }

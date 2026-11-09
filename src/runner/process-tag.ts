@@ -21,10 +21,9 @@ import { join } from 'node:path';
 import type { ProcessIdentity } from '../domain/runtime.ts';
 import { isSafeId } from './files.ts';
 import { bootId } from './identity.ts';
+import { ATTEMPT_ENV, OPERATION_ENV } from './process-env.ts';
 
-export const OPERATION_ENV = 'CUSR_OPERATION_ID';
-/** Set in the environment of every harness attempt (worker agent) the runner launches. */
-export const ATTEMPT_ENV = 'CUSR_ATTEMPT_ID';
+export { ATTEMPT_ENV, OPERATION_ENV };
 
 const current = new AsyncLocalStorage<string>();
 

@@ -9,6 +9,8 @@ import { DATA_DIR, badFlag, call, print } from './tasks.ts';
 
 /** What a person reads without asking for more: where failures are reported is the end of a log. */
 export const GATE_LOG_DEFAULT_BYTES = 64 * 1024;
+/** A gate that passed has nothing to find at its end, so it shows less; its failures are elsewhere. */
+export const GATE_LOG_PASSED_BYTES = 4 * 1024;
 const PAGE_BYTES = 1024 * 1024;
 
 type GateRow = {
@@ -31,6 +33,7 @@ type Rounds = {
 type LogPage = {
   readonly gate: string;
   readonly round: number;
+  readonly passed?: boolean;
   readonly state: 'available' | 'expired' | 'missing';
   readonly text?: string;
   readonly offset?: number;
@@ -144,7 +147,7 @@ export function gateLogCommandWith(fetch: Fetch): CliCommand {
     name: 'task gate-log',
     description: "Show one gate's redacted output; bounded unless --full",
     help: `By default prints the end of the log, which is where failures are reported, and says on
-stderr how much came before it. The latest round that ran the gate is read unless --round says
+stderr how much came before it; less of it for a gate that passed. The latest round that ran the gate is read unless --round says
 otherwise; cusr task gates lists them.
 
 Examples:
@@ -161,7 +164,7 @@ Examples:
       },
       {
         flags: '--limit <bytes>',
-        description: `Bytes to read, 1024 to ${String(PAGE_BYTES)} (default: ${String(GATE_LOG_DEFAULT_BYTES)})`,
+        description: `Bytes to read, 1024 to ${String(PAGE_BYTES)} (default: ${String(GATE_LOG_DEFAULT_BYTES)}, ${String(GATE_LOG_PASSED_BYTES)} for a gate that passed)`,
       },
     ],
     async run(values, json, io) {
@@ -200,11 +203,20 @@ Examples:
         return printState(done, io);
       }
 
-      const envelope = await fetch(values, {
-        ...body,
-        limit: limit ?? GATE_LOG_DEFAULT_BYTES,
-        ...(offset === undefined ? { tail: true } : { offset }),
-      });
+      const read = (o: Record<string, unknown>) => fetch(values, { ...body, ...o });
+      let envelope: Envelope;
+      if (limit !== undefined || offset !== undefined)
+        envelope = await read({
+          limit: limit ?? GATE_LOG_DEFAULT_BYTES,
+          ...(offset === undefined ? { tail: true } : { offset }),
+        });
+      else {
+        // Whether the gate passed is known only from the reply: a failed one is read again at full size.
+        envelope = await read({ tail: true, limit: GATE_LOG_PASSED_BYTES });
+        const first = envelope.ok ? (envelope.data as LogPage) : null;
+        if (first?.passed === false && (first.offset ?? 0) > 0)
+          envelope = await read({ round: first.round, tail: true, limit: GATE_LOG_DEFAULT_BYTES });
+      }
       if (json || !envelope.ok) return print(envelope, json, io);
       const page = envelope.data as LogPage;
       if (page.state !== 'available') return printState(page, io);

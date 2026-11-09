@@ -194,6 +194,29 @@ export function readEvents(db: Database, taskId: string, fromSeq = 1): DomainEve
   return rows.map(toEvent);
 }
 
+/** Which events of one task to read: after a `seq`, or the newest with `tail`. */
+export type EventPage = { readonly after: number; readonly limit: number; readonly tail: boolean };
+
+/**
+ * Up to `limit` events in `seq` order, each with the time its trigger carried (`null` when unknown):
+ * events have no time of their own (R-06). Reads no row outside the page.
+ */
+export function readEventPage(
+  db: Database,
+  taskId: string,
+  page: EventPage,
+): { readonly event: DomainEvent; readonly at: number | null }[] {
+  const rows = db
+    .prepare(
+      `SELECT e.*, json_extract(t.envelope_json, '$.now') AS at FROM events e
+       LEFT JOIN accepted_triggers t ON t.dedup_key = e.dedup_key
+       WHERE e.task_id = ? AND e.seq > ? ORDER BY e.seq ${page.tail ? 'DESC' : 'ASC'} LIMIT ?`,
+    )
+    .all(taskId, page.after, page.limit) as (EventRow & { at: unknown })[];
+  if (page.tail) rows.reverse();
+  return rows.map((r) => ({ event: toEvent(r), at: typeof r.at === 'number' ? r.at : null }));
+}
+
 /** The task as it stood right after event `seq`, folded from the log. */
 export function readStateAt(db: Database, taskId: string, seq: number): TaskState | null {
   const rows = db
