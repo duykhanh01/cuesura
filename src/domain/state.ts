@@ -139,7 +139,8 @@ export const DETAIL_CODES = [
 ] as const;
 export type DetailCode = (typeof DETAIL_CODES)[number];
 
-export type TaskPause = { reason: string; by: string; at: number };
+/** `hold` marks the daemon's hold of a goal unit during a scope amendment (007, FR-075). */
+export type TaskPause = { reason: string; by: string; at: number; hold?: 'plan_amendment' };
 
 export type MessageBehavior = 'steer' | 'interrupt' | 'queue';
 

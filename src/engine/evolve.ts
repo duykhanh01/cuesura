@@ -920,7 +920,12 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
     }
     case 'TaskPaused':
-      s.pause = { reason: event.payload.reason, by: event.payload.by, at: event.payload.at };
+      s.pause = {
+        reason: event.payload.reason,
+        by: event.payload.by,
+        at: event.payload.at,
+        ...(event.payload.hold === undefined ? {} : { hold: event.payload.hold }),
+      };
       if (event.payload.stopped !== undefined && event.payload.stopped.length > 0)
         s.pause_stops = [...(s.pause_stops ?? []), ...event.payload.stopped];
       break;

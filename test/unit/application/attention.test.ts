@@ -43,6 +43,7 @@ function bench(tasks: TaskState[] = []) {
     terminalEventsAfter: (after: number) => state.ended.filter((e) => e.global_seq > after),
     readEvents: () => [{ type: 'TaskWaiting', global_seq: state.entered }],
     taskIdsByStatus: () => state.tasks.map((t) => t.id),
+    goals: { list: () => [] },
     readTask: (id: string) => {
       state.reads += 1;
       return state.tasks.find((t) => t.id === id) ?? null;

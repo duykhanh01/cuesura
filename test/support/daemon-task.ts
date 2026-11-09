@@ -90,6 +90,7 @@ export class SeededDaemon {
           store,
           now: () => this.clock.now(),
           dataDir: this.dataDir,
+          newId: this.newId,
           confirm: {
             store,
             ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
@@ -136,12 +137,14 @@ export class SeededDaemon {
     actor: CallerActor,
     body: unknown,
     turn: string | null = null,
+    lease?: string | null,
   ): Promise<Reply> {
     if (this.daemon === null) throw new Error('daemon not running');
     const r = await callDaemon({
       socketPath: this.daemon.socketPath,
       actor,
       turn,
+      ...(lease === undefined ? {} : { lease }),
       method: 'POST',
       path,
       body,
@@ -154,8 +157,13 @@ export class SeededDaemon {
     };
   }
 
-  command(actor: CallerActor, body: unknown, turn: string | null = null): Promise<Reply> {
-    return this.call('/v1/command', actor, body, turn);
+  command(
+    actor: CallerActor,
+    body: unknown,
+    turn: string | null = null,
+    lease?: string | null,
+  ): Promise<Reply> {
+    return this.call('/v1/command', actor, body, turn, lease);
   }
 
   query(actor: CallerActor, body: unknown, turn: string | null = null): Promise<Reply> {

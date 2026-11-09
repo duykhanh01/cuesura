@@ -497,7 +497,13 @@ export type EventPayloads = {
   };
   /** A person paused the task (issue #142): no new step starts until it is unpaused. */
   /** `stopped`: attempts `pause --now` stopped; each starts over in a new session, paused or not. */
-  TaskPaused: { reason: string; by: string; at: number; stopped?: string[] };
+  TaskPaused: {
+    reason: string;
+    by: string;
+    at: number;
+    stopped?: string[];
+    hold?: 'plan_amendment';
+  };
   TaskUnpaused: { by: string; at: number };
   /**
    * Guidance sent to the task's agents (issue #154), shown to every later agent attempt of `revision`.

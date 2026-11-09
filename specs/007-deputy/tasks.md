@@ -247,46 +247,46 @@ kết thúc và mở lại giới hạn.
 
 ### Tests
 
-- [ ] T054 [P] [US3] Property test kế hoạch `test/property/deputy/plan.test.ts`: `validatePlan` theo bảng lỗi của
+- [x] T054 [P] [US3] Property test kế hoạch `test/property/deputy/plan.test.ts`: `validatePlan` theo bảng lỗi của
   [contracts/goal.md](contracts/goal.md#kiểm-tra-validateplan); hash ổn định với thứ tự khóa; `parallelGroups` là tầng
   đúng của DAG; `classifyAmendment` theo bảng; `affectedUnits` bắc cầu.
-- [ ] T055 [P] [US3] Integration test aggregate goal `test/integration/store/goal-aggregate.test.ts`: lệnh goal qua
+- [x] T055 [P] [US3] Integration test aggregate goal `test/integration/store/goal-aggregate.test.ts`: lệnh goal qua
   `accept` với request ID và expected version; projection `goals` và `goal_tasks`; replay ra cùng `GoalState`.
-- [ ] T056 [P] [US3] Scenario `test/scenarios/deputy/us3-plan.test.ts`: kịch bản 1–4, 8, 9 của US3; xác nhận tạo task đã
+- [x] T056 [P] [US3] Scenario `test/scenarios/deputy/us3-plan.test.ts`: kịch bản 1–4, 8, 9 của US3; xác nhận tạo task đã
   xác nhận intake và run config; goal một đơn vị không có nhánh goal; đổi `description` là sửa phạm vi, đổi `instructions`
   là sửa thực thi.
-- [ ] T057 [P] [US5] Scenario `test/scenarios/deputy/us5.test.ts`: đọc không cần lease; ghi goal không lease bị
+- [x] T057 [P] [US5] Scenario `test/scenarios/deputy/us5.test.ts`: đọc không cần lease; ghi goal không lease bị
   `lease_required`; sau khi lấy lease thì ghi được và tin tới phiên đó; không phiên nào mở thì goal vẫn chạy.
-- [ ] T058 [P] [US6] Scenario `test/scenarios/deputy/us6-goal.test.ts`: `goal revise` giữa lượt `plan` làm `goal propose` cũ
+- [x] T058 [P] [US6] Scenario `test/scenarios/deputy/us6-goal.test.ts`: `goal revise` giữa lượt `plan` làm `goal propose` cũ
   bị `plan_version` và mở lượt `plan` mới; hai `goal amend` cùng plan version chỉ một được nhận.
-- [ ] T059 [P] Property test context `test/property/deputy/context.test.ts` (SC-010): vùng 3–5 trong ngân sách với mọi
+- [x] T059 [P] Property test context `test/property/deputy/context.test.ts` (SC-010): vùng 3–5 trong ngân sách với mọi
   lịch sử; vùng 2 đủ; thứ tự vùng cố định; vùng 2 giống hệt giữa hai lượt khi yêu cầu, chỉ thị và kế hoạch không đổi.
 
 ### Implementation
 
-- [ ] T060 [US3] `src/domain/goal.ts`: `GoalState`, `PlanSchema`, event của goal. `src/engine/plan.ts` (thuần). T054 phải
+- [x] T060 [US3] `src/domain/goal.ts`: `GoalState`, `PlanSchema`, event của goal. `src/engine/plan.ts` (thuần). T054 phải
   xanh.
-- [ ] T061 [US3] Aggregate goal: `src/engine/goal/` (decide/evolve), đường `accept` cho `stream = 'goal'`,
+- [x] T061 [US3] Aggregate goal: `src/engine/goal/` (decide/evolve), đường `accept` cho `stream = 'goal'`,
   `src/store/goals.ts` (projection). Lọc `stream = 'task'` ở mọi chỗ T001 liệt kê. T055 phải xanh.
-- [ ] T062 [US3] Lệnh goal (`src/application/commands.ts`, `src/cli/goal.ts`): `add`, `revise`, `note`, `propose`, `amend`,
+- [x] T062 [US3] Lệnh goal (`src/application/commands.ts`, `src/cli/goal.ts`): `add`, `revise`, `note`, `propose`, `amend`,
   `confirm`, `cancel`, `show`, `list` theo [contracts/goal.md](contracts/goal.md); `task add` tạo goal ẩn (FR-070).
-- [ ] T063 [US3] Xác nhận kế hoạch (FR-074): trong một transaction ghi `PlanConfirmed` và trigger `task_add` nội bộ cho mỗi
+- [x] T063 [US3] Xác nhận kế hoạch (FR-074): trong một transaction ghi `PlanConfirmed` và trigger `task_add` nội bộ cho mỗi
   đơn vị với `goal` (gồm `depends_on_units`), run config đã xác nhận theo digest kế hoạch. Lát này dùng `base_branch` là nhánh gốc cho
   mọi đơn vị; lát E đổi sang nhánh goal.
-- [ ] T064 [US3] Sửa kế hoạch (FR-075): thực thi áp ngay và cập nhật `depends_on`, run config của task đơn vị chưa bắt đầu
+- [x] T064 [US3] Sửa kế hoạch (FR-075): thực thi áp ngay và cập nhật `depends_on`, run config của task đơn vị chưa bắt đầu
   hay đang ở ranh giới step; phạm vi vào `amendment_pending`, đơn vị bị chạm vào wait `plan_amendment` ở ranh giới step kế
   tiếp.
-- [ ] T065 [US5] Lease cho lệnh goal của trợ lý (FR-101, R-26): `x-cusr-lease`, kiểm ở `admitCommand`; tin của goal qua
+- [x] T065 [US5] Lease cho lệnh goal của trợ lý (FR-101, R-26): `x-cusr-lease`, kiểm ở `admitCommand`; tin của goal qua
   attention (FR-102).
-- [ ] T066 [US3] `src/application/goal-ledger.ts` và `src/application/deputy-context.ts` theo FR-060–FR-064 và
+- [x] T066 [US3] `src/application/goal-ledger.ts` và `src/application/deputy-context.ts` theo FR-060–FR-064 và
   [contracts/deputy-turn.md](contracts/deputy-turn.md#context-của-lượt); thay context tạm của T029. T059 phải xanh.
-- [ ] T067 [US3] Lượt `plan` trong `deputy.ts` (FR-006): mở khi goal `planning` hay `replan`, tối đa một mỗi goal; không có
+- [x] T067 [US3] Lượt `plan` trong `deputy.ts` (FR-006): mở khi goal `planning` hay `replan`, tối đa một mỗi goal; không có
   role `deputy` thì không mở và tin "goal cần kế hoạch" tới phiên giữ lease.
-- [ ] T068 [US3] Phạm vi lượt mở rộng tới goal (FR-051): lượt của một đơn vị được thao tác trên mọi task và kế hoạch của
+- [x] T068 [US3] Phạm vi lượt mở rộng tới goal (FR-051): lượt của một đơn vị được thao tác trên mọi task và kế hoạch của
   goal đó; goal ẩn chỉ có một task.
-- [ ] T069 [US3] `goal show` (FR-073): kế hoạch đầy đủ, nhóm song song, version, hash, tiến độ từng đơn vị, sự cố đang mở,
+- [x] T069 [US3] `goal show` (FR-073): kế hoạch đầy đủ, nhóm song song, version, hash, tiến độ từng đơn vị, sự cố đang mở,
   lượt đang chạy.
-- [ ] T070 Task có trước nâng cấp là goal ẩn khi đọc (FR-123). Test ở `test/integration/runtime/legacy-task-goal.test.ts`.
+- [x] T070 Task có trước nâng cấp là goal ẩn khi đọc (FR-123). Test ở `test/integration/runtime/legacy-task-goal.test.ts`.
 
 **Checkpoint**: giao goal, duyệt kế hoạch một lần, sửa kế hoạch có phân loại, đọc tiến độ từ mọi phiên; đơn vị vẫn mở PR
 vào nhánh gốc.

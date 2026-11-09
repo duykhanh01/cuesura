@@ -8,7 +8,8 @@ import { chmodSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { SESSION_ENVS } from '../../../src/cli/client.ts';
 import { manifestHash } from '../../../src/application/capabilities.ts';
 import {
   DOCTOR_CLIENT_TIMEOUT_MS,
@@ -480,6 +481,15 @@ describe('task amend-policy (issue #105)', () => {
 });
 
 describe('assistant wait (issue #166)', () => {
+  // Inside a harness session `assistant wait` holds the lease as that session (R-26); these waits stand for
+  // separate sessions.
+  beforeEach(() => {
+    for (const e of SESSION_ENVS) vi.stubEnv(e, '');
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it('tells the holder once, refuses a second session, and moves on --take', async () => {
     const sd = daemon();
     const t = buildTask();

@@ -38,10 +38,13 @@ export function waitPaused(ctx: Ctx, resume: ResumeAction): void {
   const p = ctx.state.pause;
   waitTask(
     ctx,
-    mkWait('policy', 'paused', {
+    mkWait('policy', p?.hold ?? 'paused', {
       resume,
       resume_when: ['unpause'],
-      exit_paths: ['cusr task resume', 'cancel'],
+      exit_paths:
+        p?.hold === undefined
+          ? ['cusr task resume', 'cancel']
+          : ['cusr goal confirm --plan-hash <hash>', 'cancel'],
       detail: { reason: p?.reason ?? null, by: p?.by ?? null, at: p?.at ?? null },
     }),
   );
@@ -66,6 +69,7 @@ export function onPause(ctx: Ctx, t: PauseTrigger): void {
     reason: t.reason,
     by: ctx.actor,
     at: ctx.now,
+    ...(t.hold === undefined ? {} : { hold: t.hold }),
     ...(running.length === 0 ? {} : { stopped: running.map((a) => a.id) }),
   });
   for (const a of running) onStopAttempt(ctx, a.id, `paused: ${t.reason}`);
@@ -96,6 +100,9 @@ export function onUnpause(ctx: Ctx): void {
   }
   ctx.emit('TaskUnpaused', { by: ctx.actor, at: ctx.now });
   const w = ctx.state.wait;
-  if (ctx.state.status === 'WAITING' && w?.detail.code === 'paused')
+  if (
+    ctx.state.status === 'WAITING' &&
+    (w?.detail.code === 'paused' || w?.detail.code === 'plan_amendment')
+  )
     proceed(ctx, w.resume, 'unpaused');
 }

@@ -13,6 +13,7 @@ import { grantNext, lendNext, type GrantOptions, type GrantOutcome } from './gra
 import * as commands from './commands.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
 import { DeputyTurns } from './deputy.ts';
+import { GoalRecords } from './goals.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
 import * as read from './read.ts';
 import { dueTimers, fireDueTimers, type FireError } from './timers.ts';
@@ -32,10 +33,22 @@ export type { QueuedRequest, SlotHolding, SlotLoan } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
 export type { DeputyTurns, TurnError } from './deputy.ts';
+export type {
+  GoalAcceptError,
+  GoalAcceptOutcome,
+  GoalFilter,
+  GoalRecords,
+  GoalTaskRow,
+  GoalTx,
+  GoalWithin,
+} from './goals.ts';
+export { GoalTxAbort } from './goals.ts';
 
 export interface Store {
   /** Deputy turns (007): records outside the event log. */
   readonly deputy: DeputyTurns;
+  /** Goals (007): the second aggregate of the event log. */
+  readonly goals: GoalRecords;
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
   /** Grants a free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
@@ -64,6 +77,8 @@ export interface Store {
     now: EpochMs,
   ): Result<commands.CommandRecord, commands.LedgerError>;
   readCommand(requestId: string): commands.CommandRecord | null;
+  /** Commands on these tasks or goals, oldest first. */
+  commandsFor(targets: readonly string[]): commands.CommandRecord[];
   pendingCommands(limit: number): commands.CommandRecord[];
   dueTimers(now: EpochMs, limit: number): read.Timer[];
   fireDueTimers(
@@ -117,11 +132,13 @@ export interface Store {
 export class SqliteStore implements Store {
   readonly db: Database;
   readonly deputy: DeputyTurns;
+  readonly goals: GoalRecords;
   private readonly crash: CrashHook;
 
   constructor(db: Database, crash: CrashHook) {
     this.db = db;
     this.deputy = new DeputyTurns(db);
+    this.goals = new GoalRecords(db, crash);
     this.crash = crash;
   }
 
@@ -184,6 +201,9 @@ export class SqliteStore implements Store {
   }
   readCommand(requestId: string): commands.CommandRecord | null {
     return commands.readCommand(this.db, requestId);
+  }
+  commandsFor(targets: readonly string[]): commands.CommandRecord[] {
+    return commands.commandsFor(this.db, targets);
   }
   pendingCommands(limit: number): commands.CommandRecord[] {
     return commands.pendingCommands(this.db, limit);

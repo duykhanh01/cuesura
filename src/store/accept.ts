@@ -238,115 +238,14 @@ export function accept(
   input: TriggerEnvelope,
   crash: CrashHook,
 ): Result<AcceptOutcome, AcceptError> {
-  const parsed = TriggerEnvelopeSchema.safeParse(input);
-  if (!parsed.success) {
-    // Malformed envelopes have no trusted deduplication identity; write nothing.
-    const key = (input as { dedup_key?: unknown } | null)?.dedup_key;
-    return ok({
-      dedup_key: typeof key === 'string' ? key : '',
-      duplicate: false,
-      decision: {
-        kind: 'rejected',
-        code: 'invalid_trigger',
-        detail: {
-          reason: 'envelope_schema',
-          issues: parsed.error.issues.map((i) => ({
-            path: i.path.map(String),
-            message: i.message,
-          })),
-        },
-      },
-      task_version: null,
-      global_seq_range: null,
-    });
-  }
-  const env = parsed.data;
-  const requestHash = computeRequestHash(env);
-
-  let outcome: AcceptOutcome;
+  let r: { result: Result<AcceptOutcome, AcceptError>; wrote: boolean };
   try {
     db.exec('BEGIN IMMEDIATE');
-
-    const prior = db
-      .prepare('SELECT request_hash, outcome_json FROM accepted_triggers WHERE dedup_key = ?')
-      .get(env.dedup_key) as { request_hash: string; outcome_json: string } | undefined;
-    if (prior !== undefined) {
+    r = acceptWithin(db, input, crash);
+    if (!r.wrote) {
       rollback(db);
-      if (prior.request_hash !== requestHash)
-        return err({ code: 'conflict', reason: 'request_hash_mismatch' });
-      return ok({
-        ...(JSON.parse(prior.outcome_json) as AcceptOutcome),
-        duplicate: true,
-      });
+      return r.result;
     }
-    crash('after_dedup');
-
-    const state = readTask(db, env.task_id);
-    if (env.expected_version !== undefined && !versionHolds(db, env, state)) {
-      rollback(db);
-      return err({ code: 'conflict', reason: 'stale_version' });
-    }
-
-    let decision: Decision;
-    if (env.request_hash !== requestHash) {
-      decision = {
-        kind: 'rejected',
-        code: 'invalid_trigger',
-        detail: { reason: 'request_hash' },
-      };
-    } else {
-      const ref = state?.policy_ref ?? null;
-      const policy = ref === null ? null : readPolicy(db, env.task_id, ref.revision, ref.version);
-      decision = decide({
-        state,
-        policy,
-        envelope: env,
-        related: relatedFacts(db, env, state),
-      });
-    }
-
-    // ids is outside request_hash. Do not record deduplication on exhaustion so the same request can retry with enough IDs.
-
-    if (decision.kind === 'rejected' && decision.code === 'id_pool_exhausted') {
-      rollback(db);
-      return ok({
-        dedup_key: env.dedup_key,
-        duplicate: false,
-        decision,
-        task_version: state?.version ?? null,
-        global_seq_range: null,
-      });
-    }
-
-    const drafts = decision.kind === 'accepted' ? decision.events : [];
-    const { state: next, events } = appendEvents(db, env.task_id, state, drafts, {
-      dedup_key: env.dedup_key,
-    });
-    crash('after_events');
-    project(db, events, next, crash);
-
-    const first = events[0];
-    const last = events.at(-1);
-    outcome = {
-      dedup_key: env.dedup_key,
-      duplicate: false,
-      decision,
-      task_version: next?.version ?? null,
-      global_seq_range:
-        first !== undefined && last !== undefined ? [first.global_seq, last.global_seq] : null,
-    };
-    db.prepare(
-      `INSERT INTO accepted_triggers (dedup_key, request_hash, task_id, envelope_json, outcome_json, global_seq_from, global_seq_to)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    ).run(
-      env.dedup_key,
-      requestHash,
-      env.task_id,
-      canonicalJson(env),
-      canonicalJson(outcome),
-      first?.global_seq ?? null,
-      last?.global_seq ?? null,
-    );
     crash('before_commit');
     db.exec('COMMIT');
   } catch (e) {
@@ -358,5 +257,123 @@ export function accept(
     throw e;
   }
   crash('after_commit');
-  return ok(outcome);
+  return r.result;
+}
+
+/**
+ * The body of `accept` inside a transaction the caller holds, so a goal confirmation can create its unit
+ * tasks in its own transaction (contracts/goal.md#khi-xác-nhận). `wrote` false means nothing was written.
+ * Projection conflicts throw.
+ */
+export function acceptWithin(
+  db: Database,
+  input: TriggerEnvelope,
+  crash: CrashHook,
+): { result: Result<AcceptOutcome, AcceptError>; wrote: boolean } {
+  const parsed = TriggerEnvelopeSchema.safeParse(input);
+  if (!parsed.success) {
+    // Malformed envelopes have no trusted deduplication identity; write nothing.
+    const key = (input as { dedup_key?: unknown } | null)?.dedup_key;
+    return {
+      wrote: false,
+      result: ok({
+        dedup_key: typeof key === 'string' ? key : '',
+        duplicate: false,
+        decision: {
+          kind: 'rejected',
+          code: 'invalid_trigger',
+          detail: {
+            reason: 'envelope_schema',
+            issues: parsed.error.issues.map((i) => ({
+              path: i.path.map(String),
+              message: i.message,
+            })),
+          },
+        },
+        task_version: null,
+        global_seq_range: null,
+      }),
+    };
+  }
+  const env = parsed.data;
+  const requestHash = computeRequestHash(env);
+
+  const prior = db
+    .prepare('SELECT request_hash, outcome_json FROM accepted_triggers WHERE dedup_key = ?')
+    .get(env.dedup_key) as { request_hash: string; outcome_json: string } | undefined;
+  if (prior !== undefined) {
+    if (prior.request_hash !== requestHash)
+      return { wrote: false, result: err({ code: 'conflict', reason: 'request_hash_mismatch' }) };
+    return {
+      wrote: false,
+      result: ok({ ...(JSON.parse(prior.outcome_json) as AcceptOutcome), duplicate: true }),
+    };
+  }
+  crash('after_dedup');
+
+  const state = readTask(db, env.task_id);
+  if (env.expected_version !== undefined && !versionHolds(db, env, state))
+    return { wrote: false, result: err({ code: 'conflict', reason: 'stale_version' }) };
+
+  let decision: Decision;
+  if (env.request_hash !== requestHash) {
+    decision = {
+      kind: 'rejected',
+      code: 'invalid_trigger',
+      detail: { reason: 'request_hash' },
+    };
+  } else {
+    const ref = state?.policy_ref ?? null;
+    const policy = ref === null ? null : readPolicy(db, env.task_id, ref.revision, ref.version);
+    decision = decide({
+      state,
+      policy,
+      envelope: env,
+      related: relatedFacts(db, env, state),
+    });
+  }
+
+  // ids is outside request_hash. Do not record deduplication on exhaustion so the same request can retry with enough IDs.
+  if (decision.kind === 'rejected' && decision.code === 'id_pool_exhausted')
+    return {
+      wrote: false,
+      result: ok({
+        dedup_key: env.dedup_key,
+        duplicate: false,
+        decision,
+        task_version: state?.version ?? null,
+        global_seq_range: null,
+      }),
+    };
+
+  const drafts = decision.kind === 'accepted' ? decision.events : [];
+  const { state: next, events } = appendEvents(db, env.task_id, state, drafts, {
+    dedup_key: env.dedup_key,
+  });
+  crash('after_events');
+  project(db, events, next, crash);
+
+  const first = events[0];
+  const last = events.at(-1);
+  const outcome: AcceptOutcome = {
+    dedup_key: env.dedup_key,
+    duplicate: false,
+    decision,
+    task_version: next?.version ?? null,
+    global_seq_range:
+      first !== undefined && last !== undefined ? [first.global_seq, last.global_seq] : null,
+  };
+  db.prepare(
+    `INSERT INTO accepted_triggers (dedup_key, request_hash, task_id, envelope_json, outcome_json, global_seq_from, global_seq_to)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    env.dedup_key,
+    requestHash,
+    env.task_id,
+    canonicalJson(env),
+    canonicalJson(outcome),
+    first?.global_seq ?? null,
+    last?.global_seq ?? null,
+  );
+  return { wrote: true, result: ok(outcome) };
 }

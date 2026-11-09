@@ -98,6 +98,24 @@ function mayMatchUnder(dir: string, glob: string): boolean {
 }
 
 /**
+ * Whether every file `entry` can name lies inside `scope` (a goal plan's unit scope, FR-071). A glob is
+ * inside when its static prefix lies under a plain entry, or under the static prefix of a glob ending in
+ * `**`; other glob pairs count only when equal, so a doubtful entry is refused rather than let through.
+ */
+export function scopeWithin(entry: string, scope: readonly string[]): boolean {
+  return scope.some((g) => {
+    if (entry === g || under(entry, g)) return true;
+    if (!isGlob(entry)) return isGlob(g) && matchesGlob(entry, g);
+    const prefix = staticPrefix(entry).join('/');
+    if (prefix === '') return false;
+    if (!isGlob(g)) return under(prefix, g);
+    const parts = g.split('/');
+    if (parts.at(-1) !== '**' || parts.slice(0, -1).some(isGlob)) return false;
+    return under(prefix, parts.slice(0, -1).join('/'));
+  });
+}
+
+/**
  * The entries of `theirs` that share a file with `mine`, plus any concrete path of `mine` such an entry
  * matched; empty when they share none. Either side null (unknown) shares nothing.
  */

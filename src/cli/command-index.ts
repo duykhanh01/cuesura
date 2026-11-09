@@ -27,6 +27,7 @@ const gateLogs = from(() => import('./gate-logs.ts'));
 const requests = from(() => import('./requests.ts'));
 const projects = from(() => import('./projects.ts'));
 const report = from(() => import('./report.ts'));
+const goal = from(() => import('./goal.ts'));
 
 export const LAZY_COMMANDS: readonly LazyCommand[] = [
   init('init', 'initCommand'),
@@ -71,6 +72,15 @@ export const LAZY_COMMANDS: readonly LazyCommand[] = [
   tasks('task content', 'contentCommand'),
   tasks('task progress', 'progressCommand'),
   tasks('task options', 'optionsCommand'),
+  goal('goal add', 'goalAddCommand'),
+  goal('goal revise', 'goalReviseCommand'),
+  goal('goal note', 'goalNoteCommand'),
+  goal('goal propose', 'goalProposeCommand'),
+  goal('goal amend', 'goalAmendCommand'),
+  goal('goal confirm', 'goalConfirmCommand'),
+  goal('goal cancel', 'goalCancelCommand'),
+  goal('goal show', 'goalShowCommand'),
+  goal('goal list', 'goalListCommand'),
 ];
 
 const VALUE_GLOBALS = new Set(['--data-dir']);

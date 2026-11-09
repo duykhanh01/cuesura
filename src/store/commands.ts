@@ -94,6 +94,8 @@ export function admitCommand(
     reason?: string | null;
     turn_id?: string | null;
     trial?: unknown;
+    /** The assistant lease checked for a goal command (R-26). */
+    lease?: string | null;
   },
 ): Result<Admission, LedgerError> {
   try {
@@ -111,8 +113,8 @@ export function admitCommand(
       return ok({ kind: 'existing', record: prior });
     }
     db.prepare(
-      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, project, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json, reason, turn_id, trial_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL, ?, ?, ?)`,
+      `INSERT INTO command_ledger (request_id, actor, kind, command_hash, project, task_id, assigned_ids_json, status, admitted_at, completed_at, result_json, reason, turn_id, trial_json, lease)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'admitted', ?, NULL, NULL, ?, ?, ?, ?)`,
     ).run(
       input.request_id,
       input.actor,
@@ -125,6 +127,7 @@ export function admitCommand(
       input.reason ?? null,
       input.turn_id ?? null,
       input.trial === null || input.trial === undefined ? null : canonicalJson(input.trial),
+      input.lease ?? null,
     );
     db.exec('COMMIT');
   } catch (e) {
@@ -179,5 +182,17 @@ export function pendingCommands(db: Database, limit: number): CommandRecord[] {
       `SELECT * FROM command_ledger WHERE status = 'admitted' ORDER BY admitted_at, request_id LIMIT ?`,
     )
     .all(limit) as CommandRow[];
+  return rows.map(toRecord);
+}
+
+/** Commands on any of `targets` (task or goal IDs), oldest first: the write side of a goal's ledger (FR-060). */
+export function commandsFor(db: Database, targets: readonly string[]): CommandRecord[] {
+  if (targets.length === 0) return [];
+  const rows = db
+    .prepare(
+      `SELECT * FROM command_ledger WHERE task_id IN (${targets.map(() => '?').join(',')})
+       ORDER BY admitted_at, request_id`,
+    )
+    .all(...targets) as CommandRow[];
   return rows.map(toRecord);
 }

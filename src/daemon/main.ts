@@ -132,6 +132,8 @@ export type DaemonOptions = {
     readonly schedule?: () => Promise<unknown>;
     /** `runtime.concurrency` the scheduler grants up to, reported by health (FR-044.01); default 1. */
     readonly concurrency?: number;
+    /** The session holding the assistant lease, for goal commands of the assistant (R-26). */
+    readonly leaseHolder?: () => string | null;
   };
   readonly dispatchIntervalMs?: number;
   readonly log?: (msg: string) => void;
@@ -534,7 +536,16 @@ export async function startDaemon(
           request_id: requestId,
         });
       }
-      const admitted = admitCommand({ store, now: () => clock.now(), newId }, caller, input);
+      const admitted = admitCommand(
+        {
+          store,
+          now: () => clock.now(),
+          newId,
+          ...(extra.leaseHolder === undefined ? {} : { leaseHolder: extra.leaseHolder }),
+        },
+        caller,
+        input,
+      );
       if (!admitted.ok) {
         if (admitted.error.code === 'write_failed')
           dispatcher.latch(`store write failed: ${admitted.error.cause}`);

@@ -765,6 +765,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       reason: z.string().min(1).max(4_096),
       // Also stop the agent attempts already running; they start over in a new session on resume.
       now: z.boolean().optional(),
+      // The daemon holds a goal unit while a scope amendment touching it awaits the owner (007, FR-075).
+      hold: z.literal('plan_amendment').optional(),
     })
     .strict(),
   z.object({ kind: z.literal('unpause') }).strict(),

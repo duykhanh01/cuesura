@@ -313,9 +313,9 @@ export async function taskAdd(
   return ok(taskView(s));
 }
 
-type RunSelectionProposal = Omit<RunSelection, 'task_id' | 'revision'>;
+export type RunSelectionProposal = Omit<RunSelection, 'task_id' | 'revision'>;
 
-async function checkedProposal(
+export async function checkedProposal(
   deps: TaskServiceDeps,
   task: Parameters<typeof computeRunOptions>[1],
   proposal: RunProposal,

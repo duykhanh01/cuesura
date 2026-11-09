@@ -14,6 +14,7 @@ const MISSING = [
   'question_not_found',
   'approval_not_found',
   'request_not_found',
+  'goal_not_found',
 ];
 const USAGE = [
   'invalid_arguments',
@@ -23,6 +24,7 @@ const USAGE = [
   'not_available',
   'body_too_large',
   'actor_invalid',
+  'plan_invalid',
 ];
 /** The request was understood, but the task's current state or version does not allow it. */
 const CONFLICT = [

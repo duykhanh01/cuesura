@@ -22,8 +22,13 @@ import type { WorktreeBaseline } from '../adapters/git/restore.ts';
 import type { Clock, HarnessInput, HarnessOutcome, HarnessPort } from '../adapters/ports.ts';
 import type { DeputyWatch } from '../application/attention.ts';
 import { incidentReader } from '../application/deputy-incident.ts';
-import { openQuestions } from '../application/inbox.ts';
-import { recheckTarget } from '../application/recheck.ts';
+import {
+  DEFAULT_CONTEXT_BYTES,
+  incidentContext,
+  planContext,
+} from '../application/deputy-context.ts';
+import { implicitGoal } from '../application/goals.ts';
+import { isGoalTerminal, type GoalState } from '../domain/goal.ts';
 import { DEFAULT_BACKOFF } from '../config/normalize.ts';
 import {
   HandoffSchema,
@@ -36,7 +41,6 @@ import { DEFAULT_RUNTIME_LIMITS } from '../domain/runtime.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import { backoffDelay } from '../engine/backoff.ts';
 import { routeOf } from '../engine/deputy-routing.ts';
-import { allowedActions } from '../explain/allowed-actions.ts';
 import type { StatusSinceOf } from '../explain/needs-user.ts';
 import { writeAtomicIn } from '../runner/files.ts';
 import { InvocationUnknown } from '../runner/invocation.ts';
@@ -51,7 +55,6 @@ export { DEPUTY_ACTOR } from '../domain/deputy.ts';
 
 /** How often a turn this daemon cannot conclude yet (still running elsewhere, unproven) is looked at again. */
 const ADOPT_RECHECK_MS = 10_000;
-const DEFAULT_CONTEXT_BYTES = 16_384;
 
 export type DeputySetting = {
   readonly harness: string;
@@ -99,10 +102,11 @@ export type DeputyDeps = {
   readonly log?: (line: string) => void;
 };
 
-/** What closing a turn needs. */
+/** What closing a turn needs. A plan turn has no task; records from before plan turns have no goal. */
 type TurnKey = {
   readonly turn_id: string;
-  readonly task_id: string;
+  readonly task_id: string | null;
+  readonly goal_id?: string;
   readonly incident: string;
   readonly baseline: WorktreeBaseline | null;
 };
@@ -111,6 +115,8 @@ type TurnKey = {
 type TurnRecord = TurnKey & { readonly input: HarnessInput };
 
 export type Deputy = Required<DeputyWatch> & {
+  /** A goal whose plan the deputy may still make itself: the assistant is not told it needs one. */
+  holdsGoal(g: GoalState): boolean;
   /** Starts what is due and returns; the turns run on (a round never waits for a harness). */
   round(): Promise<void>;
   /** Settles once no turn this daemon started is running. */
@@ -140,13 +146,39 @@ every transition; you act only through the \`cusr\` CLI, under the same checks a
   [--next <text>]\`. Causes: model, strategy, review_dispute, process, limit, environment, spec, none.
 - Your final structured answer is a short closing message for the owner.`;
 
+const PLAN_ROLE_TEXT = `# Role: deputy (plan)
+
+You act for the project owner, who is away, on the plan of one Cuesura goal. You act only through the
+\`cusr\` CLI, under the same checks as the owner's assistant.
+
+- Read the request and the owner's directives below; they decide. Read the code you need (cwd is the data dir;
+  the project path is in \`cusr project list --json\`). Change no file.
+- Write the plan as JSON (contracts/goal.md): summary, scope, non_goals, units with key, title,
+  description (what it does for the user), instructions (how), acceptance, scope inside the goal scope,
+  depends_on (unit keys, no cycle) and run_config (from \`cusr task options\`). One unit when one is enough.
+- Send it with \`cusr goal propose\` (or \`cusr goal amend\` on a confirmed plan) with --reason and the
+  plan_version given below. A refusal lists every problem: fix them and send again.
+- The owner confirms the plan; you never do. If the goal needs the owner, say so with decision "handover".
+- Always end with \`cusr deputy handoff --cause <cause> --decision planned|handover\`.
+- Your final structured answer is a short closing message for the owner.`;
+
+/** A goal waiting for a plan: one plan turn per goal and plan version (FR-006). */
+export function planIncident(g: GoalState): string | null {
+  if (g.status === 'planning') return `${g.id}:${g.plan_version}:planning`;
+  if (g.status === 'replan') return `${g.id}:${g.plan_version}:${g.replan_reason ?? 'replan'}`;
+  return null;
+}
+
 export function createDeputy(deps: DeputyDeps): Deputy {
   const { store } = deps;
   const incidentOf = incidentReader(store);
-  const active = new Map<string, { taskId: string; controller: AbortController; stop: boolean }>();
+  const active = new Map<
+    string,
+    { taskId: string | null; goalId: string | null; controller: AbortController; stop: boolean }
+  >();
   const nextAdopt = new Map<string, number>();
   const adopting = new Set<string>();
-  /** Tasks whose turn is being set up, before its row exists. */
+  /** Tasks (and goals, for plan turns) whose turn is being set up, before its row exists. */
   const starting = new Set<string>();
   const unknownLogged = new Set<string>();
   /** Turns whose run ended but whose worktree is not back yet: kept live, so the hold stays (FR-017). */
@@ -188,12 +220,31 @@ export function createDeputy(deps: DeputyDeps): Deputy {
   /** Whether the task still stands at the incident the turn was opened for. */
   const stillAt = (s: TaskState | null, incident: string): boolean =>
     s !== null && !isTerminal(s.status) && incidentOf(s) === incident;
+  const goalOf = (record: TurnKey): string | null =>
+    record.goal_id ?? store.deputy.turn(record.turn_id)?.goal_id ?? null;
+  /** A task turn's incident, or a plan turn's goal still waiting on the same plan. */
+  const atIncident = (record: TurnKey): boolean => {
+    if (record.task_id !== null)
+      return stillAt(store.readTask(record.task_id as Uuid), record.incident);
+    const id = goalOf(record);
+    const g = id === null ? null : store.goals.read(id);
+    return g !== null && planIncident(g) === record.incident;
+  };
+  /** The task, or for a plan turn the goal, has ended: the turn stops (FR-018). */
+  const ended = (taskId: string | null, goalId: string | null): boolean => {
+    if (taskId !== null) {
+      const s = store.readTask(taskId as Uuid);
+      return s === null || isTerminal(s.status);
+    }
+    const g = goalId === null ? null : store.goals.read(goalId);
+    return g === null || isGoalTerminal(g.status);
+  };
 
   /** The turn's end: worktree back to its baseline first, then the final state (contracts/deputy-turn.md). */
   const close = async (record: TurnKey, ending: Ending, sessionRef: string | null) => {
     if (record.baseline !== null) {
       const back = await deps.worktree
-        .restore(record.task_id, record.baseline)
+        .restore(record.task_id as string, record.baseline)
         .catch((e: unknown) => ({
           ok: false as const,
           detail: e instanceof Error ? e.message : String(e),
@@ -213,8 +264,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       forget(record.turn_id);
       return;
     }
-    const s = store.readTask(record.task_id as Uuid);
-    const open = stillAt(s, record.incident);
+    const open = atIncident(record);
     let state: FinalTurnState;
     let reason: HandoffReason | null = null;
     let message: string | null = null;
@@ -247,14 +297,14 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     forget(record.turn_id);
     version += 1;
     log(
-      `task ${record.task_id}: turn ${record.turn_id} ${state}${reason === null ? '' : ` (${reason})`}`,
+      `${record.task_id === null ? `goal ${goalOf(record) ?? '?'}` : `task ${record.task_id}`}: turn ${record.turn_id} ${state}${reason === null ? '' : ` (${reason})`}`,
     );
   };
 
   /** A rate limit or an infra failure: the turn waits, then resumes its own session (FR-011, FR-024). */
   const retry = (record: TurnRecord, out: Extract<HarnessOutcome, { kind: 'failure' }>) => {
     const turn = store.deputy.turn(record.turn_id);
-    const s = store.readTask(record.task_id as Uuid);
+    const s = record.task_id === null ? null : store.readTask(record.task_id as Uuid);
     const backoff =
       (s === null ? null : store.readPolicy(s.id as Uuid, s.revision))?.limits.backoff ??
       DEFAULT_BACKOFF;
@@ -321,7 +371,12 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     outcome: (signal: AbortSignal) => Promise<HarnessOutcome> | HarnessOutcome,
   ): Promise<void> => {
     const controller = new AbortController();
-    const entry = { taskId: record.task_id, controller, stop: false };
+    const entry = {
+      taskId: record.task_id,
+      goalId: record.task_id === null ? goalOf(record) : null,
+      controller,
+      stop: false,
+    };
     const onShutdown = (): void => controller.abort();
     shutdown.signal.addEventListener('abort', onShutdown, { once: true });
     if (shutdown.signal.aborted) controller.abort();
@@ -386,7 +441,8 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       await close(
         {
           turn_id: turn.turn_id,
-          task_id: turn.task_id ?? '',
+          task_id: turn.task_id,
+          goal_id: turn.goal_id,
           incident: turn.incident ?? '',
           baseline: null,
         },
@@ -400,15 +456,14 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       await close(record, unfinished.ending, unfinished.sessionRef);
       return;
     }
-    const s = store.readTask(record.task_id as Uuid);
-    const ended = s === null || isTerminal(s.status);
-    const left = !stillAt(s, record.incident);
+    const over = ended(record.task_id, record.task_id === null ? goalOf(record) : null);
+    const left = !atIncident(record);
     const harness = deps.harnesses[record.input.binding.harness];
     if (turn.state === 'retry_wait') {
       if (left)
         await close(
           record,
-          ended ? { kind: 'stopped' } : { kind: 'ended', final_message: null },
+          over ? { kind: 'stopped' } : { kind: 'ended', final_message: null },
           null,
         );
       else if ((turn.retry_at ?? 0) <= deps.clock.now()) await resume(turn, record);
@@ -434,7 +489,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       }
       await close(
         record,
-        ended ? { kind: 'stopped' } : { kind: 'ended', final_message: null },
+        over ? { kind: 'stopped' } : { kind: 'ended', final_message: null },
         null,
       );
       return;
@@ -472,99 +527,19 @@ export function createDeputy(deps: DeputyDeps): Deputy {
   const stopEnded = (): void => {
     for (const [, run] of active) {
       if (run.stop) continue;
-      const s = store.readTask(run.taskId as Uuid);
-      if (s === null || isTerminal(s.status)) {
+      if (ended(run.taskId, run.goalId)) {
         run.stop = true;
         run.controller.abort();
       }
     }
   };
 
-  const context = (
-    s: TaskState,
-    turns: readonly DeputyTurn[],
-    worktree: string | null,
-    budget: number,
-  ) => {
-    // Code-built summary of where the task went: per step, attempts and the bindings they ran on.
-    const steps = new Map<string, { n: number; bindings: Set<string>; last: string }>();
-    for (const a of Object.values(s.attempts)) {
-      const st = steps.get(a.step) ?? { n: 0, bindings: new Set<string>(), last: '' };
-      st.n += 1;
-      st.bindings.add(`${a.binding} rung ${a.rung}`);
-      st.last = a.outcome?.status ?? a.outcome?.class ?? a.status;
-      steps.set(a.step, st);
-    }
-    const history = [...steps].map(
-      ([step, st]) =>
-        `- ${step}: ${st.n} attempt(s) on ${[...st.bindings].join(', ')}; last: ${st.last}`,
-    );
-    const ended = turns.filter((t) => t.state !== 'running' && t.state !== 'retry_wait');
-    const handoffs = ended.slice(-5).map((t, i, all) => {
-      const latest = i === all.length - 1;
-      const h = t.handoff;
-      if (h === null)
-        return `- turn ${t.turn_id} (${t.state}): no handoff; commands: ${
-          store.deputy
-            .commandsOfTurn(t.turn_id)
-            .map((c) => c.kind)
-            .join(', ') || 'none'
-        }${t.final_message === null ? '' : `; last message: ${t.final_message}`}`;
-      const ruled = h.ruled_out.map((r) => `${r.hypothesis} (${r.why})`).join('; ');
-      return latest
-        ? `- turn ${t.turn_id} (${t.state}): cause ${h.cause}; decision ${h.decision}; ruled out: ${ruled || 'none'}; next look: ${h.next_look ?? 'none'}`
-        : `- turn ${t.turn_id}: decision ${h.decision}; ruled out: ${ruled || 'none'}`;
-    });
-    const wait = s.wait;
-    const question = openQuestions(s).find((q) => q.blocking) ?? null;
-    const actions = allowedActions(s, {
-      recheckable: recheckTarget(s) !== null,
-      queuePaused: false,
-    }).map(
-      (a) =>
-        `- ${a.action}${a.command === undefined || a.command === null ? '' : `: ${String(a.command)}`}`,
-    );
-    const task = [
-      '# Task',
-      `id: ${s.id}`,
-      `title: ${s.task.title}`,
-      `project: ${s.project}`,
-      `revision: ${s.revision}`,
-      `worktree (read-only): ${worktree ?? 'none yet'}`,
-      `description: ${s.task.description ?? ''}`,
-      '',
-      '## History',
-      ...(history.length === 0 ? ['- no attempt yet'] : history),
-      '',
-      '## Earlier turns',
-      ...(handoffs.length === 0 ? ['- none'] : handoffs),
-    ].join('\n');
-    const incident = [
-      '# Incident',
-      `wait: ${wait?.detail.code ?? 'none'}`,
-      `detail: ${JSON.stringify(wait?.detail ?? {})}`,
-      ...(question === null ? [] : [`question (${question.question_id}): ${question.body}`]),
-      `expected version: ${s.version}`,
-      '',
-      '## Ways out',
-      ...(actions.length === 0 ? ['- none listed; read `cusr task explain`'] : actions),
-    ].join('\n');
-    const cut = (text: string, max: number): string => {
-      const bytes = Buffer.from(text);
-      return bytes.length <= max ? text : `${bytes.subarray(0, max).toString('utf8')}\n[cut]`;
-    };
-    const text = deps.redactor.text(
-      [
-        ROLE_TEXT,
-        cut(task, Math.floor(budget * 0.6)),
-        cut(incident, Math.floor(budget * 0.4)),
-      ].join('\n\n'),
-    );
-    return {
-      text,
-      digest: hashText(text),
-      bytes: Buffer.byteLength(text) - Buffer.byteLength(ROLE_TEXT),
-    };
+  /** The goal a task's turn reads: its planned goal, or the task as its implicit goal (FR-123). */
+  const goalFor = (s: TaskState): GoalState =>
+    (s.task.goal === undefined ? null : store.goals.read(s.task.goal.id)) ?? implicitGoal(s);
+  const finish = (built: { text: string; bytes: number }) => {
+    const text = deps.redactor.text(built.text);
+    return { text, digest: hashText(text), bytes: built.bytes };
   };
 
   const start = async (
@@ -620,11 +595,16 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     const rt = store.readRuntimeContext(s.id as Uuid, s.revision);
     const limits = rt?.limits ?? DEFAULT_RUNTIME_LIMITS;
     const turns = store.deputy.turnsOf({ task_id: s.id });
-    const built = context(
-      s,
-      turns,
-      baseline === null ? null : deps.worktreePath(s.id),
-      setting.context_bytes ?? DEFAULT_CONTEXT_BYTES,
+    const built = finish(
+      incidentContext({
+        store,
+        role: ROLE_TEXT,
+        task: s,
+        goal: goalFor(s),
+        turns,
+        worktree: baseline === null ? null : deps.worktreePath(s.id),
+        budget: setting.context_bytes ?? DEFAULT_CONTEXT_BYTES,
+      }),
     );
     const kind = s.wait?.detail['question_id'] !== undefined ? 'question' : 'incident';
     const input: HarnessInput = {
@@ -655,7 +635,14 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       view: { project: s.project, title: `deputy: ${s.task.title}` },
       deputy_turn: turnId,
     };
-    const record: TurnRecord = { turn_id: turnId, task_id: s.id, incident, input, baseline };
+    const record: TurnRecord = {
+      turn_id: turnId,
+      task_id: s.id,
+      goal_id: goal,
+      incident,
+      input,
+      baseline,
+    };
     // The record before the row, so a live row always has what concludes it.
     writeRecord(record);
     const started = store.deputy.startTurn({
@@ -700,6 +687,130 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       return taken ? [] : [{ s, incident }];
     });
 
+  /** A goal's plan turn (FR-006): no task, no worktree; it ends once the plan is sent or handed over. */
+  const startPlan = async (
+    setting: DeputySetting,
+    g: GoalState,
+    incident: string,
+  ): Promise<void> => {
+    const turnId = deps.newId();
+    const attemptId = deps.newId();
+    const now = deps.clock.now();
+    const harness = deps.harnesses[setting.harness];
+    const row = {
+      turn_id: turnId,
+      goal_id: g.id,
+      task_id: null,
+      kind: 'plan' as const,
+      incident,
+      signature: null,
+      harness: setting.harness,
+      attempt_id: attemptId,
+      mode: 'headless' as const,
+      now,
+    };
+    if (harness === undefined) {
+      const started = store.deputy.startTurn({ ...row, context_bytes: 0 });
+      if (started.ok)
+        store.deputy.finishTurn(turnId, {
+          state: 'handed_off',
+          handoff_reason: 'no_harness',
+          final_message: `no harness ${setting.harness}`,
+          now,
+        });
+      version += 1;
+      log(`goal ${g.id}: no harness ${setting.harness}`);
+      return;
+    }
+    const built = finish(
+      planContext({
+        store,
+        role: PLAN_ROLE_TEXT,
+        goal: g,
+        turns: store.deputy.turnsOf({ goal_id: g.id }),
+        budget: setting.context_bytes ?? DEFAULT_CONTEXT_BYTES,
+      }),
+    );
+    const input: HarnessInput = {
+      role: 'deputy',
+      operation_id: deps.newId(),
+      attempt_id: attemptId,
+      revision: 1,
+      binding: {
+        harness: setting.harness,
+        vendor: harness.manifest.vendor,
+        model: setting.model_id,
+        effort: setting.effort,
+        permission_policy_hash: harness.manifest.permission_policy_hash ?? hashCanonical('none'),
+      },
+      context: { text: built.text, digest: built.digest },
+      schema: wireRoleSchema('deputy', { omit_meta_schema: false }),
+      wall_ms: setting.wall_ms,
+      deadline_at: (setting.wall_ms === null ? null : now + setting.wall_ms) as EpochMs | null,
+      session: null,
+      max_turns: setting.max_turns,
+      limits: {
+        term_grace_ms: DEFAULT_RUNTIME_LIMITS.term_grace_ms,
+        kill_verify_ms: DEFAULT_RUNTIME_LIMITS.kill_verify_ms,
+        stall_ms: setting.stall_ms,
+      },
+      workspace: { worktree: deps.cwd, git_dirs: [] },
+      view: {
+        project: g.project,
+        title: `deputy: plan ${g.plan?.summary ?? g.request.split('\n')[0] ?? g.id}`,
+      },
+      deputy_turn: turnId,
+    };
+    const record: TurnRecord = {
+      turn_id: turnId,
+      task_id: null,
+      goal_id: g.id,
+      incident,
+      input,
+      baseline: null,
+    };
+    writeRecord(record);
+    const started = store.deputy.startTurn({ ...row, context_bytes: built.bytes });
+    if (!started.ok) {
+      forget(turnId);
+      log(`goal ${g.id}: plan turn not started: ${started.error.code}`);
+      return;
+    }
+    version += 1;
+    await execute(record, (signal) => harness.run(input, signal));
+  };
+
+  const endedPlanTurn = (g: GoalState): DeputyTurn | null => {
+    const incident = planIncident(g);
+    if (incident === null) return null;
+    return (
+      store.deputy
+        .turnsOf({ goal_id: g.id })
+        .findLast(
+          (t) =>
+            t.kind === 'plan' &&
+            t.incident === incident &&
+            t.state !== 'running' &&
+            t.state !== 'retry_wait',
+        ) ?? null
+    );
+  };
+
+  /** Goals waiting for a plan that no turn has taken yet (FR-006: at most one plan turn per goal). */
+  const duePlans = (): { g: GoalState; incident: string }[] =>
+    store.goals.list({ statuses: ['planning', 'replan'], limit: 200 }).flatMap((g) => {
+      const incident = planIncident(g);
+      if (
+        incident === null ||
+        handedBack.has(incident) ||
+        starting.has(g.id) ||
+        store.deputy.runningPlanTurn(g.id) !== null ||
+        endedPlanTurn(g) !== null
+      )
+        return [];
+      return [{ g, incident }];
+    });
+
   const endedTurnFor = (s: TaskState): DeputyTurn | null => {
     const incident = incidentOf(s);
     if (incident === null) return null;
@@ -738,6 +849,18 @@ export function createDeputy(deps: DeputyDeps): Deputy {
             .finally(() => starting.delete(s.id)),
         );
       }
+      for (const { g, incident } of duePlans()) {
+        starting.add(g.id);
+        track(
+          startPlan(setting, g, incident)
+            .catch((e: unknown) => {
+              handedBack.add(incident);
+              version += 1;
+              log(`goal ${g.id}: no plan turn: ${e instanceof Error ? e.message : String(e)}`);
+            })
+            .finally(() => starting.delete(g.id)),
+        );
+      }
     },
     async idle() {
       while (pending.size > 0) await Promise.allSettled([...pending]);
@@ -749,6 +872,12 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       // A turn that ended at this incident, or could not start, gave it to the owner.
       const incident = incidentOf(s);
       return incident !== null && !handedBack.has(incident) && endedTurnFor(s) === null;
+    },
+    holdsGoal(g) {
+      if (configured === false) return false;
+      const incident = planIncident(g);
+      if (incident === null || handedBack.has(incident)) return false;
+      return store.deputy.runningPlanTurn(g.id) !== null || endedPlanTurn(g) === null;
     },
     version() {
       return version;

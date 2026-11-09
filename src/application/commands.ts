@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { HandoffSchema } from '../domain/deputy.ts';
+import { GoalHintsSchema } from '../domain/goal.ts';
 import { TrialSchema, type AuthzRole, type Trial } from '../domain/policy.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
 import { AmendPayloadSchema } from './amend-policy.ts';
@@ -47,6 +48,24 @@ export const COMMAND_PAYLOADS = {
     .strict(),
   approve_adopt: z.object({ head_sha: z.string().regex(/^[0-9a-f]{40}$/) }).strict(),
   deputy_handoff: HandoffSchema,
+  goal_add: z
+    .object({
+      request: z.string().min(1).max(65_536),
+      base_branch: z.string().min(1).max(255),
+      hints: GoalHintsSchema.optional(),
+    })
+    .strict(),
+  goal_revise: z.object({ request: z.string().min(1).max(65_536) }).strict(),
+  goal_note: z.object({ text: z.string().min(1).max(16_384) }).strict(),
+  // The plan is checked by the handler, which reports every problem at once (contracts/goal.md).
+  goal_propose: z
+    .object({ plan: z.unknown(), plan_version: z.number().int().nonnegative() })
+    .strict(),
+  goal_amend: z
+    .object({ plan: z.unknown(), plan_version: z.number().int().nonnegative() })
+    .strict(),
+  goal_confirm: z.object({ plan_hash: HashSchema }).strict(),
+  goal_cancel: z.object({ reason: Reason.optional() }).strict(),
 } as const;
 export type CommandKind = keyof typeof COMMAND_PAYLOADS;
 
@@ -68,7 +87,25 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   approve_escalation: 'operate',
   approve_adopt: 'admin',
   deputy_handoff: 'operate',
+  goal_add: 'operate',
+  goal_revise: 'operate',
+  goal_note: 'operate',
+  goal_propose: 'operate',
+  goal_amend: 'operate',
+  goal_confirm: 'operate',
+  goal_cancel: 'operate',
 };
+
+/** Commands on a goal (R-21): they name `goal_id`, and `expected_version` is the goal's. */
+export const GOAL_COMMANDS: readonly CommandKind[] = [
+  'goal_add',
+  'goal_revise',
+  'goal_note',
+  'goal_propose',
+  'goal_amend',
+  'goal_confirm',
+  'goal_cancel',
+];
 
 /** What the deputy may send (FR-034); anything else from it is `forbidden` `deputy_kind`. */
 const DEPUTY_KINDS: ReadonlySet<CommandKind> = new Set([
@@ -82,6 +119,9 @@ const DEPUTY_KINDS: ReadonlySet<CommandKind> = new Set([
   'task_resume',
   'task_fail',
   'deputy_handoff',
+  'goal_note',
+  'goal_propose',
+  'goal_amend',
 ]);
 
 /** Commands that buy a task more time or another try; from the deputy they carry a trial (FR-042). */
@@ -117,6 +157,8 @@ export const CommandSchema = z
     kind: z.string().min(1).max(64),
     project: z.string().min(1).nullable(),
     task_id: UuidSchema.nullable(),
+    // 007: the goal a goal command acts on; absent on every other command.
+    goal_id: UuidSchema.nullable().optional(),
     expected_version: z.number().int().nonnegative().nullable(),
     payload: z.unknown(),
     // 007 (FR-052, FR-042): why the caller sends it, and the deputy's hypothesis for an extension.
@@ -142,6 +184,8 @@ export type CommandDeps = {
   store: Store;
   now: () => number;
   newId: () => string;
+  /** The session holding the assistant lease now; without it no assistant may write to a goal (R-26). */
+  leaseHolder?: () => string | null;
 };
 
 /**
@@ -152,6 +196,14 @@ export function withTaskProject(store: Store, body: unknown): unknown {
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return body;
   const b = body as Record<string, unknown>;
   const kind = b['kind'];
+  if (
+    (GOAL_COMMANDS as readonly unknown[]).includes(kind) &&
+    (b['project'] === null || b['project'] === undefined) &&
+    typeof b['goal_id'] === 'string'
+  ) {
+    const goal = UuidSchema.safeParse(b['goal_id']).success ? store.goals.read(b['goal_id']) : null;
+    return { ...b, project: goal?.project ?? null };
+  }
   if (
     (b['project'] !== null && b['project'] !== undefined) ||
     typeof b['task_id'] !== 'string' ||
@@ -216,7 +268,19 @@ export function admitCommand(
       issues: payload.error.issues.map((i) => `payload.${i.path.join('.')}: ${i.message}`),
     });
   const issues: string[] = [];
-  if (GLOBAL_COMMANDS.includes(kind)) {
+  const goalId = cmd.goal_id ?? null;
+  if (!GOAL_COMMANDS.includes(kind) && goalId !== null) issues.push(`goal_id: not used by ${kind}`);
+  if (kind === 'goal_add') {
+    if (cmd.project === null) issues.push('project: required');
+    if (goalId !== null) issues.push('goal_id: assigned by the server');
+    if (cmd.task_id !== null) issues.push('task_id: not used by goal_add');
+    if (cmd.expected_version !== null) issues.push('expected_version: not used by goal_add');
+  } else if (GOAL_COMMANDS.includes(kind)) {
+    if (goalId === null) issues.push('goal_id: required');
+    if (cmd.project === null && goalId === null) issues.push('project: required');
+    if (cmd.task_id !== null) issues.push(`task_id: not used by ${kind}`);
+    if (cmd.expected_version === null) issues.push('expected_version: required');
+  } else if (GLOBAL_COMMANDS.includes(kind)) {
     if (cmd.project !== null) issues.push(`project: not used by ${kind}`);
     if (cmd.task_id !== null) issues.push(`task_id: not used by ${kind}`);
     if (cmd.expected_version !== null) issues.push(`expected_version: not used by ${kind}`);
@@ -240,6 +304,7 @@ export function admitCommand(
     kind,
     project: cmd.project,
     task_id: cmd.task_id,
+    ...(goalId === null ? {} : { goal_id: goalId }),
     expected_version: cmd.expected_version,
     payload: payload.data,
     actor,
@@ -252,10 +317,12 @@ export function admitCommand(
   if (deps.store.readCommand(cmd.request_id) === null) {
     const refused =
       actor === 'deputy'
-        ? deputyRefusal(deps.store, turnId, kind, cmd.task_id, reason, trial)
+        ? deputyRefusal(deps.store, turnId, kind, cmd.task_id ?? goalId, reason, trial)
         : kind === 'deputy_handoff'
           ? ({ code: 'forbidden', reason: 'turn', required: 'a running deputy turn' } as const)
-          : null;
+          : actor === 'assistant' && GOAL_COMMANDS.includes(kind)
+            ? leaseRefusal(deps, (caller as Caller).lease ?? null)
+            : null;
     if (refused !== null) return err(refused);
   }
   // IDs are drawn even for a replay; only the first admission's IDs are ever stored and returned.
@@ -266,12 +333,20 @@ export function admitCommand(
     kind,
     command_hash,
     project: cmd.project,
-    task_id: kind === 'task_add' ? (assigned[0] as string) : cmd.task_id,
-    assigned_ids: kind === 'task_add' ? assigned.slice(1) : assigned,
+    // The ledger's target column holds a goal's ID for a goal command.
+    task_id:
+      kind === 'task_add' || kind === 'goal_add'
+        ? (assigned[0] as string)
+        : (cmd.task_id ?? goalId),
+    assigned_ids: kind === 'task_add' || kind === 'goal_add' ? assigned.slice(1) : assigned,
     now: deps.now(),
     reason,
     turn_id: turnId,
     trial,
+    lease:
+      actor === 'assistant' && GOAL_COMMANDS.includes(kind)
+        ? ((caller as Caller).lease ?? null)
+        : null,
   });
   if (!r.ok) return r;
   return ok({ ...r.value, command_hash, reason, trial });
@@ -290,9 +365,9 @@ function deputyRefusal(
     return { code: 'forbidden', reason: 'turn', required: 'a running deputy turn' };
   if (!DEPUTY_KINDS.has(kind))
     return { code: 'forbidden', reason: 'deputy_kind', required: 'a command of the deputy table' };
-  // A task outside any planned goal is its own implicit goal (FR-123).
+  // A task outside any planned goal is its own implicit goal (FR-123); a goal command names its goal.
   if (taskId !== null) {
-    const task = store.readTask(taskId as Uuid);
+    const task = GOAL_COMMANDS.includes(kind) ? null : store.readTask(taskId as Uuid);
     const goal = task === null ? taskId : (task.task.goal?.id ?? taskId);
     if (store.deputy.turnGoal(turnId) !== goal)
       return { code: 'forbidden', reason: 'turn_scope', required: "a task of the turn's goal" };
@@ -304,4 +379,16 @@ function deputyRefusal(
   if (trial === null && EXTENSION_KINDS.has(kind))
     issues.push(`trial: required for ${kind} from the deputy (--hypothesis and --expect)`);
   return issues.length === 0 ? null : { code: 'invalid_command', issues };
+}
+
+/** FR-101: an assistant writes to a goal only from the session holding the lease (`<holder>[.<batch>]`). */
+function leaseRefusal(deps: CommandDeps, lease: string | null): AdmitError | null {
+  const holder = deps.leaseHolder?.() ?? null;
+  const id = lease === null ? null : (lease.split('.')[0] ?? null);
+  if (holder !== null && id === holder) return null;
+  return {
+    code: 'forbidden',
+    reason: 'lease_required',
+    required: 'cusr assistant register --take',
+  };
 }

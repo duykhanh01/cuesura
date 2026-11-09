@@ -21,7 +21,7 @@ import {
   queueToCodex,
   type Harness,
 } from './assistant-harness.ts';
-import { resolveDataDir } from './client.ts';
+import { assistantSession, resolveDataDir, SESSION_ENVS } from './client.ts';
 import { ExitCode, okEnvelope, type Envelope } from './output.ts';
 import type { CliCommand, CliIo } from './program.ts';
 import { DATA_DIR, badFlag, queryDaemon } from './base.ts';
@@ -109,7 +109,8 @@ Examples:
     const owner = ownerPid ?? findHarness(process.ppid);
     const ownerAlive = owner === null ? () => true : (ownerWatch(owner) ?? (() => false));
     // Named here, not by the daemon: a retry after a lost first reply must count as this same session.
-    let lease = values['lease'] ?? uuidv7();
+    // Inside a session the holder is the session ID, which goal writes of this session send (R-26).
+    let lease = values['lease'] ?? assistantSession() ?? uuidv7();
     const first = values['take'] === 'true' ? 'take' : 'attach';
     let mode = values['lease'] === undefined || first === 'take' ? first : 'resume';
     let downSince: number | null = null;
@@ -142,8 +143,6 @@ Examples:
   },
 };
 
-/** A harness started from another inherits that one's variable; Claude Code's stays last for that. */
-const SESSION_ENVS = ['PI_SESSION_ID', 'CODEX_THREAD_ID', 'CLAUDE_CODE_SESSION_ID'] as const;
 /** Claude Code waits for this hook while the session opens. */
 const PEEK_TIMEOUT_MS = 2_000;
 

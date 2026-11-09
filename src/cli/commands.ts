@@ -43,6 +43,17 @@ import {
   showCommand,
   yoloCommand,
 } from './tasks.ts';
+import {
+  goalAddCommand,
+  goalAmendCommand,
+  goalCancelCommand,
+  goalConfirmCommand,
+  goalListCommand,
+  goalNoteCommand,
+  goalProposeCommand,
+  goalReviseCommand,
+  goalShowCommand,
+} from './goal.ts';
 import type { CliCommand } from './program.ts';
 
 export const CUSR_COMMANDS: readonly CliCommand[] = [
@@ -88,4 +99,13 @@ export const CUSR_COMMANDS: readonly CliCommand[] = [
   contentCommand,
   progressCommand,
   optionsCommand,
+  goalAddCommand,
+  goalReviseCommand,
+  goalNoteCommand,
+  goalProposeCommand,
+  goalAmendCommand,
+  goalConfirmCommand,
+  goalCancelCommand,
+  goalShowCommand,
+  goalListCommand,
 ];

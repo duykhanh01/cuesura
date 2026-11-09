@@ -27,6 +27,10 @@ export function forbiddenGuidance(reason: unknown, required: unknown): string {
     return 'This command needs the admin role, which only the user has. Do not retry it: give the command to the user to run.';
   if (reason === 'turn')
     return 'This deputy turn is not running any more, so nothing was changed. End the turn; a later turn sees the task as it is.';
+  if (reason === 'lease_required')
+    return 'A goal write from the assistant needs the session holding the assistant lease. Ask the user whether to take it, then run cusr assistant register --take and send the command again from this session.';
+  if (reason === 'turn_scope')
+    return "This deputy turn may act only on its own goal's tasks and plan. Do not retry it.";
   if (reason === 'deputy_kind')
     return 'The deputy may not run this command. Do not retry it: hand the incident over with cusr deputy handoff --decision handover.';
   return 'This caller may not run this command. Do not retry it: give the command to the user to run.';

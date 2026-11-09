@@ -118,7 +118,7 @@ function fail(
   return errorEnvelope({ code, message, details, request_id: requestId });
 }
 
-function usage(message: string, json: boolean, io: CliIo): number {
+export function usage(message: string, json: boolean, io: CliIo): number {
   return print(fail('invalid_arguments', message, {}, null), json, io);
 }
 
@@ -213,7 +213,7 @@ function runProposal(values: Values): Record<string, unknown> | string | undefin
 }
 
 /** Every write command records why it was sent (FR-052); a command with its own --reason reuses it. */
-const REASON = {
+export const REASON = {
   flags: '--reason <text>',
   description: 'Why this command is sent, recorded with it (required inside a deputy turn)',
 };
@@ -224,7 +224,7 @@ const TRIAL = [
 ];
 
 /** The command-level fields of a write; sent only when given, so an older daemon still takes it. */
-function commandMeta(values: Values): Record<string, unknown> | string {
+export function commandMeta(values: Values): Record<string, unknown> | string {
   const h = values['hypothesis'];
   const x = values['expect'];
   if ((h === undefined) !== (x === undefined))
@@ -235,7 +235,7 @@ function commandMeta(values: Values): Record<string, unknown> | string {
   };
 }
 
-const REQUEST_ID = {
+export const REQUEST_ID = {
   flags: '--request-id <uuid>',
   description: 'Request ID for safe retries (default: a new UUIDv7, included in the result)',
 };
@@ -325,7 +325,7 @@ function needsProject(reply: Envelope): boolean {
   return Array.isArray(issues) && issues.includes('project: required');
 }
 
-function readText(path: string): string {
+export function readText(path: string): string {
   return readFileSync(path === '-' ? 0 : path, 'utf8').trimEnd();
 }
 
@@ -360,7 +360,7 @@ const unlessFull = (
 ): ((data: unknown) => unknown) | undefined => (values['full'] === undefined ? summary : undefined);
 
 /** The JSON task input of `task add --file` (contracts/cli-daemon.md); the daemon validates its fields. */
-function readJsonFile(path: string): Record<string, unknown> | string {
+export function readJsonFile(path: string): Record<string, unknown> | string {
   try {
     const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
     return typeof raw === 'object' && raw !== null && !Array.isArray(raw)

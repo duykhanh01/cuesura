@@ -508,3 +508,63 @@ nhân đôi task tổng).
 - **Mục giả định trong PR (R-14)** được thêm vào `pr_body` lúc nhận content của worker, từ câu trả lời của actor `deputy`
   trong revision hiện tại, nên content đã lưu và probe thấy cùng một thân.
 - **Dời sang lát C:** fake reviewer trả finding có `key` (T002) và bước 4 loop guard của hợp đồng sau lượt.
+
+### Quyết định khi làm lát D
+
+Đối chiếu tại `origin/main` `1cda972` ngày 2026-11-09.
+
+- **Goal ẩn là view, không lưu.** Mọi task không có `task.goal` (task của `task add` sau nâng cấp lẫn task có trước) được
+  đọc là goal một đơn vị có id bằng id task (`implicitGoal`, FR-070, FR-123); không có `GoalAdded` cho `task add`, cột
+  `goals.implicit` luôn 0. Lưu goal ẩn sẽ là bản sao trạng thái của task (FR-060), và id trùng id task làm event của hai
+  stream đụng `UNIQUE (task_id, seq)`. `goal show <id task>` trả goal ẩn; `goal list` chỉ liệt kê goal đã lưu.
+- **Envelope lệnh goal** có `goal_id` (task_id `null`); cột `task_id` của `command_ledger` giữ id goal. `goal add`
+  thêm `base_branch` bắt buộc (hợp đồng chỉ nêu `project, request, hints`): đơn vị cần nhánh gốc, và đoán nhánh mặc định
+  là thêm một nguồn sự thật. `goal cancel` nhận `reason` tùy chọn.
+- **Hash kế hoạch** theo định dạng của repo `sha256:<hex>` (`hashCanonical`), không phải hex trần.
+- **`run_config` của đơn vị** dùng đúng `RunProposalSchema` của `task propose`; kiểm bằng menu của task mà đơn vị sẽ thành
+  (`checkedProposal`) khi `propose`, khi `amend` (đơn vị được viết lại) và khi `confirm` (đơn vị mới). Scope của goal và
+  đơn vị chuẩn hóa bằng `DeclaredScopeSchema` trước khi hash; "nằm trong scope goal" là `scopeWithin` (`scope-match.ts`),
+  engine nhận hàm này làm tham số vì core thuần không import `node:path`. `protected_goal_branch` và
+  `no_required_checks` sang lát E cùng nhánh goal.
+- **Xác nhận trong một transaction.** `accept` tách ra `acceptWithin` để `acceptGoal` chạy trigger của task trong cùng
+  transaction với `PlanConfirmed`: mỗi đơn vị `create_task` (`intake_auto_confirm`), `propose_run_config`,
+  `confirm_run_config` với authz của người xác nhận, tạo theo thứ tự tầng của DAG. `depends_on` của task là id task của
+  các đơn vị phụ thuộc (cơ chế hiện có); `depends_on_units` được ghi. Giải phụ thuộc theo khóa và không hủy dây chuyền
+  thuộc lát F. Task id của đơn vị không vào request hash, như ID của envelope, để chạy lại cùng request sau crash vẫn
+  khớp. Kiểm config sớm (`recordConfigCheck`) chạy sau commit như `task confirm`.
+- **Sửa thực thi** áp ngay trong transaction cho đơn vị chưa bắt đầu: `source_updated` thành revision mới (mô tả cộng
+  chỉ dẫn, scope, phụ thuộc) rồi đề xuất và xác nhận lại run config cho revision đó. Đơn vị đã bắt đầu giữ policy đã đóng
+  băng; kế hoạch mới áp cho task thay thế (lát F). Đây là chỗ hẹp hơn T064 ("hay đang ở ranh giới step"): đổi policy giữa
+  chừng đi qua `amend-policy` với luật riêng, nên để lát F quyết khi có thay task.
+- **Sửa phạm vi** giữ đơn vị bị chạm bằng trigger `pause` có `hold: 'plan_amendment'`: engine dừng ở ranh giới step kế
+  tiếp với wait `plan_amendment` (tới người), dùng lại cơ chế pause thay vì thêm đường dừng mới. `goal confirm` bản sửa
+  chỉ `unpause` các giữ loại này, không gỡ pause của người. Trong cùng transaction, đơn vị bị chạm nhận nội dung đã duyệt
+  bằng `source_updated`: chưa bắt đầu thì thành revision mới, run config đề xuất và xác nhận lại; đã bắt đầu thì thành
+  source drift và đi theo luật drift sẵn có. Run config của mọi đơn vị bị chạm được kiểm theo menu ngay lúc `amend`, bất kể
+  loại sửa. Đơn vị bị bỏ khỏi kế hoạch giữ task của nó tới lát F.
+- **Chạy lại lệnh goal sau crash (FR-055).** Request hash của transaction goal là `command_hash` lúc admit, chỉ từ input
+  của lệnh, không từ thứ handler suy ra (tập đơn vị bị chạm, phân loại, task id, thời điểm). Handler tra
+  `accepted_triggers` theo dedup key trước mọi kiểm tra trạng thái; lệnh đã commit trả lời lại từ outcome đã ghi (event
+  của nó) cộng goal hiện tại, nên lần chạy lại cho cùng kết quả. `goal cancel` chạy lại vẫn hủy nốt task chưa hủy. Fact của
+  daemon (`goalProgress`) hash envelope trừ `now`.
+- **Đổi riêng run config** của đơn vị chưa bắt đầu không đổi nội dung task (không lên revision) nhưng vẫn đề xuất và xác
+  nhận lại run config.
+- **Khóa đơn vị** được tra bằng `Map`/`Object.hasOwn`: khóa hợp lệ như `constructor` không được đọc nhầm thuộc tính kế thừa.
+- **`goal revise`** tăng `plan_version`; goal chưa xác nhận về `planning`, goal đã xác nhận vào `replan`
+  (`request_revised`). Đơn vị đang chạy tiếp tục; "đơn vị chưa bắt đầu chờ kế hoạch mới" (FR-077) sang lát F.
+- **Tiến độ goal** (`goalProgress`, một vòng của daemon, actor `system:goal`): mọi đơn vị của kế hoạch DONE thì goal
+  `done` (lát E đổi sang task tổng); đơn vị FAILED khi goal `running` thì `replan` (`unit_failed:<key>`).
+- **Lease (R-26, R-30).** Client gửi `x-cusr-lease` là session id (`PI_SESSION_ID`, `CODEX_THREAD_ID`,
+  `CLAUDE_CODE_SESSION_ID`) cho actor `assistant`; `assistant wait` không `--lease` dùng session id làm holder khi có, UUID
+  khi không. `admitCommand` so phần holder với holder hiện tại của `AttentionDesk`, sau bước tra ledger (FR-055), cho mọi
+  lệnh goal của trợ lý (cả `propose`, `amend`); lease đã kiểm ghi vào `command_ledger.lease`. Chủ dự án không cần lease.
+- **Lượt `plan`** dùng cùng cỗ máy lượt: `task_id` null, không worktree, không mốc, không credential của task, cwd là data
+  dir. Khóa sự cố `<goal>:<plan_version>:planning|<replan_reason>`; goal rời khóa đó (đã `propose`, bị `revise`) thì lượt
+  kết thúc `done`, `handover` thì goal chờ người. Không có role `deputy` thì không mở lượt.
+- **Tin của goal (FR-102)** đi qua attention như mục có `goal: true`, `task_id` là id goal: `goal_needs_plan` (không
+  deputy nào còn giữ), `goal_plan_awaiting_confirm`, `goal_amendment_pending`. Tin goal xong và PR sẵn sàng thuộc lát E
+  (task tổng).
+- **Context (`deputy-context.ts`)** thay context tạm của lát B; vùng 4 lấy thao tác ghi của actor khác từ lượt trước
+  theo `admitted_at` của command ledger; `branch_conflicts` còn trống tới lát F. Vùng 2 vượt ngân sách không có cột để
+  ghi cảnh báo, chỉ có `context_bytes`.
+- **`TaskInput.goal.start_sha`** chưa thêm: lát D không đụng tới task tổng, để lát E thêm cùng nơi dùng.

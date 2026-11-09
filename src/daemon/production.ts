@@ -63,6 +63,7 @@ import type { DaemonRuntime } from './main.ts';
 import { ObservationCoordinator, observationRound } from './observation.ts';
 import { statusSinceReader } from '../application/board.ts';
 import { retireDecider } from './decider-upgrade.ts';
+import { goalProgress } from '../application/goals.ts';
 import { createDeputy, deputyHandoffHandler } from './deputy.ts';
 import { createDeputyAbsent } from './deputy-absent.ts';
 import { advanceTaskPr, type YoloDeps } from './yolo.ts';
@@ -549,6 +550,7 @@ export async function productionControl(opts: {
         false,
       confirm: { store, ports, configInputs, now },
       logs: { dataDir: opts.dataDir, redactor: opts.redactor },
+      redact: (text) => opts.redactor.text(text),
       doctor: {
         dataDir: opts.dataDir,
         host,
@@ -562,6 +564,7 @@ export async function productionControl(opts: {
     });
     return {
       queries: control.queries,
+      leaseHolder: control.leaseHolder,
       commands: {
         ...control.commands,
         ...queueCommands({ dataDir: opts.dataDir, now }),
@@ -592,6 +595,7 @@ export async function productionControl(opts: {
           await deputy.round();
         },
         () => deputyAbsent.round(),
+        () => Promise.resolve(goalProgress(store, opts.clock.now())),
         retentionRound({
           store,
           dataDir: opts.dataDir,

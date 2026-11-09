@@ -9,6 +9,7 @@ import { renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { z } from 'zod';
 import type { HandedOffView } from '../domain/deputy.ts';
+import type { GoalState } from '../domain/goal.ts';
 import { TASK_STATUSES, isTerminal, type TaskState } from '../domain/state.ts';
 import { effectUnknownDueAt, needsUser } from '../explain/needs-user.ts';
 import { statusSinceReader, type StatusSince } from './board.ts';
@@ -79,6 +80,8 @@ export type AttentionItem = {
   readonly task_version: number;
   /** The deputy's handoff when a turn gave this incident to the owner (FR-023). */
   readonly deputy?: HandedOffView;
+  /** A goal's news (FR-102): `task_id` holds the goal ID and `task_version` its version. */
+  readonly goal?: true;
 };
 
 export type AttentionReply = {
@@ -130,7 +133,35 @@ export type DeputyWatch = {
   readonly version: () => number;
   /** The turn that gave the task's current incident to the owner (FR-023). */
   readonly handedOff?: (s: TaskState) => HandedOffView | null;
+  /** A goal whose plan the deputy may still make (FR-006). */
+  readonly holdsGoal?: (g: GoalState) => boolean;
 };
+
+/** What a goal needs from a person now (FR-102), by status; null when nothing. */
+const GOAL_CODES: Partial<Record<GoalState['status'], string>> = {
+  planning: 'goal_needs_plan',
+  replan: 'goal_needs_plan',
+  awaiting_confirm: 'goal_plan_awaiting_confirm',
+  amendment_pending: 'goal_amendment_pending',
+};
+
+function goalKeyed(g: GoalState): Keyed | null {
+  const code = GOAL_CODES[g.status];
+  if (code === undefined) return null;
+  return {
+    key: `${g.id}:goal:${code}:${g.plan_version}`,
+    item: {
+      task_id: g.id,
+      project: g.project,
+      title: g.plan?.summary ?? g.request.split('\n')[0] ?? g.id,
+      code,
+      question_id: null,
+      question: null,
+      task_version: g.version,
+      goal: true,
+    },
+  };
+}
 
 function keyed(s: TaskState, enteredAt: number, handedOff: HandedOffView | null = null): Keyed {
   const code = s.wait?.detail.code ?? 'run_config_unconfirmed';
@@ -218,6 +249,11 @@ export class AttentionDesk {
         restored: true,
         due: null,
       };
+  }
+
+  /** The session the lease routes to now, or null; goal commands of the assistant need it (R-26). */
+  holder(): string | null {
+    return this.#holder?.id ?? null;
   }
 
   register(
@@ -432,6 +468,19 @@ export class AttentionDesk {
       waiting.push(keyed(s, seq, this.#deputy?.handedOff?.(s) ?? null));
     }
     this.#entered = entered;
+    for (const g of this.#store.goals.list({
+      statuses: ['planning', 'replan', 'awaiting_confirm', 'amendment_pending'],
+      limit: INBOX_LIMIT,
+    })) {
+      // A plan the deputy may still make is not the person's yet.
+      if (
+        (g.status === 'planning' || g.status === 'replan') &&
+        this.#deputy?.holdsGoal?.(g) === true
+      )
+        continue;
+      const k = goalKeyed(g);
+      if (k !== null) waiting.push(k);
+    }
     return { waiting, due };
   }
 

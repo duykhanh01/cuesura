@@ -15,6 +15,22 @@ import { messageTask, pauseTask, resumeTask } from '../application/pause.ts';
 import { runDoctor, type DoctorDeps, type DoctorProbeCache } from '../application/doctor.ts';
 import { AttentionDesk, type DeputyWatch } from '../application/attention.ts';
 import { inbox } from '../application/inbox.ts';
+import {
+  goalAdd,
+  goalAmend,
+  goalCancel,
+  goalConfirm,
+  goalList,
+  goalNote,
+  goalPropose,
+  goalRevise,
+  goalShow,
+  type GoalServiceDeps,
+} from '../application/goals.ts';
+import { authzContext } from '../application/authz.ts';
+import { submit } from '../application/triage.ts';
+import { isTerminal } from '../domain/state.ts';
+import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import { taskGateLog, taskGates } from '../application/gate-logs.ts';
 import { lastOutputAt, LogRecordCache, taskLogs, type LogsDeps } from '../application/logs.ts';
 import { taskProgress } from '../application/progress.ts';
@@ -74,6 +90,8 @@ export type TaskControlDeps = TaskServiceDeps & {
   readonly deputy?: DeputyWatch;
   /** Other waits the daemon ends or hands on by itself; the assistant is not woken for them (007). */
   readonly held?: DeputyWatch;
+  /** Masks secrets in what a goal keeps verbatim. */
+  readonly redact?: (text: string) => string;
 };
 
 /** One watch for the attention desk: held by either. */
@@ -86,6 +104,7 @@ function heldByEither(
     holds: (s) => a.holds(s) || b.holds(s),
     version: () => a.version() + b.version(),
     ...(a.handedOff === undefined ? {} : { handedOff: a.handedOff }),
+    ...(a.holdsGoal === undefined ? {} : { holdsGoal: a.holdsGoal }),
   };
 }
 
@@ -164,8 +183,17 @@ export function taskControl(deps: TaskControlDeps): {
     task_resume: CommandHandler;
     task_message: CommandHandler;
     task_recheck?: CommandHandler;
+    goal_add?: CommandHandler;
+    goal_revise?: CommandHandler;
+    goal_note?: CommandHandler;
+    goal_propose?: CommandHandler;
+    goal_amend?: CommandHandler;
+    goal_confirm?: CommandHandler;
+    goal_cancel?: CommandHandler;
   };
   queries: Record<string, QueryHandler>;
+  /** The session holding the assistant lease (R-26). */
+  leaseHolder: () => string | null;
 } {
   const { store, logs, doctor, deputy } = deps;
   const statusSince = statusSinceReader(store);
@@ -187,6 +215,28 @@ export function taskControl(deps: TaskControlDeps): {
   });
   const queuePause = (): QueuePause | null =>
     deps.dataDir === undefined ? null : readQueuePause(deps.dataDir);
+  const newId = deps.newId;
+  const goals: GoalServiceDeps | null =
+    newId === undefined
+      ? null
+      : { ...deps, newId, ...(deps.redact === undefined ? {} : { redact: deps.redact }) };
+  // A goal's tasks are cancelled as `task cancel` asks; the PR read that may follow is the daemon's.
+  const cancelUnit =
+    (caller: Parameters<CommandHandler>[2], rid: string) =>
+    (taskId: string, reason: string): Promise<void> => {
+      const s = store.readTask(taskId as Uuid);
+      if (s === null || isTerminal(s.status)) return Promise.resolve();
+      submit(store, {
+        task_id: taskId,
+        dedup_key: `cmd:${rid}:cancel:${taskId}`,
+        trigger: { kind: 'cancel', reason },
+        now: deps.now(),
+        ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => newId?.() ?? ''),
+        expected_version: s.version,
+        authz: authzContext(caller, deps.now()),
+      });
+      return Promise.resolve();
+    };
   const configuredProjects = async (): Promise<readonly string[] | null> => {
     const validated = validateConfig({ user: (await deps.confirm.configInputs()).user, packs: {} });
     return validated.ok ? Object.keys(validated.value.locations) : null;
@@ -216,7 +266,26 @@ export function taskControl(deps: TaskControlDeps): {
         : {
             task_recheck: (admitted, input, caller) => taskRecheck(deps, admitted, input, caller),
           }),
+      ...(goals === null
+        ? {}
+        : {
+            goal_add: (admitted, input, caller) => goalAdd(goals, admitted, input, caller),
+            goal_revise: (admitted, input, caller) => goalRevise(goals, admitted, input, caller),
+            goal_note: (admitted, input, caller) => goalNote(goals, admitted, input, caller),
+            goal_propose: (admitted, input, caller) => goalPropose(goals, admitted, input, caller),
+            goal_amend: (admitted, input, caller) => goalAmend(goals, admitted, input, caller),
+            goal_confirm: (admitted, input, caller) => goalConfirm(goals, admitted, input, caller),
+            goal_cancel: (admitted, input, caller) =>
+              goalCancel(
+                goals,
+                admitted,
+                input,
+                caller,
+                cancelUnit(caller, admitted.record.request_id),
+              ),
+          }),
     },
+    leaseHolder: () => attention.holder(),
     queries: {
       inbox: async (caller, body) =>
         reply(
@@ -254,6 +323,8 @@ export function taskControl(deps: TaskControlDeps): {
           ),
         ),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
+      goal_show: (caller, body) => reply(goalShow(store, caller, body)),
+      goal_list: (caller, body) => reply(goalList(store, caller, body)),
       task_board: (caller, body) =>
         reply(taskBoard({ store, statusSince, now: deps.now, queuePause }, caller, body)),
       report: (caller, body) =>

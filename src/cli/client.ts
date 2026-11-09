@@ -13,6 +13,7 @@ import {
   ACTOR_HEADER,
   CALLER_ACTORS,
   isCallerActor,
+  LEASE_HEADER,
   TURN_HEADER,
   type CallerActor,
 } from '../application/authz.ts';
@@ -161,11 +162,21 @@ export function readClientActor(
       });
 }
 
+/** A harness started from another inherits that one's variable; Claude Code's stays last for that. */
+export const SESSION_ENVS = ['PI_SESSION_ID', 'CODEX_THREAD_ID', 'CLAUDE_CODE_SESSION_ID'] as const;
+
+/** This process's assistant session, which is also its lease holder ID (R-26); null outside a session. */
+export function assistantSession(env: NodeJS.ProcessEnv = process.env): string | null {
+  return SESSION_ENVS.map((e) => env[e]).find((v) => v !== undefined && v !== '') ?? null;
+}
+
 export type CallOptions = {
   readonly socketPath: string;
   readonly actor: CallerActor;
   /** The deputy turn to send for actor `deputy`; default: this process's `CUSR_DEPUTY_TURN`. */
   readonly turn?: string | null;
+  /** The lease to send for actor `assistant`; default: this process's session (`assistantSession`). */
+  readonly lease?: string | null;
   readonly method: 'GET' | 'POST';
   readonly path: string;
   readonly body?: unknown;
@@ -196,6 +207,7 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
       opts.timeoutMs ?? DEFAULT_CLIENT_TIMEOUT_MS,
     );
     const payload = opts.body === undefined ? null : JSON.stringify(opts.body);
+    const lease = opts.lease === undefined ? assistantSession() : opts.lease;
     const req = request(
       {
         socketPath: opts.socketPath,
@@ -208,6 +220,8 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
           ...(opts.actor === 'deputy' && (opts.turn ?? deputyTurn()) !== null
             ? { [TURN_HEADER]: (opts.turn ?? deputyTurn()) as string }
             : {}),
+          // A session's lease holder is its session ID, so a goal write needs no extra flag (R-26).
+          ...(opts.actor === 'assistant' && lease !== null ? { [LEASE_HEADER]: lease } : {}),
           ...(payload === null
             ? {}
             : {
