@@ -887,6 +887,93 @@ describe('agent launch through a terminal (ADR-0006)', () => {
   });
 });
 
+describe('a native deputy session in the terminal (007 T092, US8 scenario 2)', () => {
+  const deputySpec = (): OperationLaunch =>
+    agentSpec({
+      interactive: true,
+      stdin: null,
+      view: { project: 'metronome', title: 'deputy: Fix login' },
+    });
+
+  it('opens a window named after the role and the task, on the unit pty', async () => {
+    const dir = dataDir();
+    const host = terminal();
+    const exec = systemd(1);
+    const s = new SystemdSupervisor({
+      dataDir: dir,
+      runnerCommand: ['/runner'],
+      exec,
+      terminal: host,
+    });
+    expect((await s.launch(deputySpec())).ok).toBe(true);
+    expect(host.requests[0]).toMatchObject({ label: 'deputy: Fix login', project: 'metronome' });
+    expect(host.requests[0]?.command).toContain("'--pty'");
+    expect(exec.direct).toEqual([]);
+    const spec = RunDir.open({
+      dataDir: dir,
+      kind: 'runs',
+      id: 'at-1',
+      redactor: new Redactor(),
+      create: false,
+    }).readFinal('invocation.json');
+    expect(spec.state === 'valid' && (spec.value as { interactive?: boolean }).interactive).toBe(
+      true,
+    );
+  });
+
+  it('never runs it in the background, where nobody could answer it', async () => {
+    const exec = systemd(1);
+    const failing = new SystemdSupervisor({
+      dataDir: dataDir(),
+      runnerCommand: ['/runner'],
+      exec,
+      terminal: terminal(() => Promise.resolve(err('no server'))),
+    });
+    expect(await failing.launch(deputySpec())).toMatchObject({
+      ok: false,
+      error: { code: 'spawn_failed' },
+    });
+    const bare = systemd(1_000_000);
+    const none = new SystemdSupervisor({
+      dataDir: dataDir(),
+      runnerCommand: ['/runner'],
+      exec: bare,
+    });
+    expect(await none.launch(deputySpec())).toMatchObject({
+      ok: false,
+      error: { code: 'spawn_failed' },
+    });
+    expect([...exec.direct, ...bare.direct]).toEqual([]);
+  });
+
+  it('fences a run the terminal did not start in time', async () => {
+    const dir = dataDir();
+    const exec = systemd(1_000_000);
+    const s = new SystemdSupervisor({
+      dataDir: dir,
+      runnerCommand: ['/runner'],
+      exec,
+      terminalWaitMs: 0,
+      terminal: terminal(),
+    });
+    expect(await s.launch(deputySpec())).toMatchObject({
+      ok: false,
+      error: { code: 'spawn_failed' },
+    });
+    expect(exec.direct).toEqual([]);
+    const run = RunDir.open({
+      dataDir: dir,
+      kind: 'runs',
+      id: 'at-1',
+      redactor: new Redactor(),
+      create: false,
+    });
+    expect(await execOperation(run, { onStop: () => () => undefined })).toEqual({
+      state: 'marker_exists',
+    });
+  });
+});
+
 describe('terminal echo (ADR-0006)', () => {
   it('shows what Claude and Codex say and do', () => {
     expect(

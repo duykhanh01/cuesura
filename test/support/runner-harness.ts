@@ -136,6 +136,7 @@ export class InlineProcessPort implements ProcessPort {
         stdin: spec.stdin ?? null,
         stall_ms: spec.stall_ms ?? null,
         watch: [...(spec.watch ?? [])],
+        ...(spec.interactive === true ? { interactive: true } : {}),
       }),
     );
     const run = RunDir.open({

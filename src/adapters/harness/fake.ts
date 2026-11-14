@@ -39,6 +39,7 @@ export type FakeStep =
       readonly reset_at?: EpochMs | null;
       readonly invoked?: boolean;
       readonly usage?: Usage;
+      readonly session_ref?: string | null;
     }
   /**
    * A deputy turn (007, T002): `act` stands for the `cusr` commands the deputy runs during the turn,
@@ -113,15 +114,20 @@ export class FakeHarness implements HarnessPort {
   readonly harness: string;
   readonly manifest: CapabilityManifest;
   readonly calls: HarnessInput[] = [];
+  readonly interactive: boolean;
   readonly #queues: Map<Role, FakeStep[]>;
 
-  /** `resume: 'proven'` is a fake session port for tests of the resume decision, never vendor evidence. */
+  /**
+   * `resume: 'proven'` is a fake session port for tests of the resume decision, never vendor evidence.
+   * `interactive` claims a terminal for native sessions; the steps are the same either way.
+   */
   constructor(
     script: FakeScript,
     harness = 'fake',
-    o: { resume?: 'proven' | 'unknown' | 'unsupported' } = {},
+    o: { resume?: 'proven' | 'unknown' | 'unsupported'; interactive?: boolean } = {},
   ) {
     this.harness = harness;
+    this.interactive = o.interactive ?? false;
     this.manifest = fakeCapabilityManifest(o);
     this.#queues = new Map(
       Object.entries(script).map(([role, steps]) => [role as Role, [...steps]]),
@@ -196,6 +202,7 @@ export class FakeHarness implements HarnessPort {
           reset_at: step.reset_at ?? null,
           invoked: step.invoked ?? true,
           usage: step.usage ?? UNAVAILABLE,
+          session_ref: step.session_ref ?? null,
         };
       case 'result': {
         const facts = {

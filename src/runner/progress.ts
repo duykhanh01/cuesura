@@ -112,7 +112,20 @@ export function parseStat(pid: number, text: string): ProcStat | null {
 export type ProcReader = {
   readonly pids: () => number[] | null;
   readonly stat: (pid: number) => string | null;
+  /** The process's arguments; null when unreadable. */
+  readonly cmdline?: (pid: number) => string[] | null;
 };
+
+/**
+ * Whether a descendant of the spawned harness is the harness too rather than something it runs: its
+ * arguments end with the arguments the harness was spawned with (the first message included), as for
+ * the binary a wrapper (`codex.js`) hands them on to. A tool never carries them.
+ */
+export function isHarnessProcess(args: readonly string[], harnessArgs: readonly string[]): boolean {
+  if (harnessArgs.length === 0 || args.length < harnessArgs.length) return false;
+  const tail = args.slice(args.length - harnessArgs.length);
+  return tail.every((a, i) => a === harnessArgs[i]);
+}
 
 export const PROC: ProcReader = {
   pids: () => {
@@ -127,6 +140,14 @@ export const PROC: ProcReader = {
   stat: (pid) => {
     try {
       return readFileSync(`/proc/${pid}/stat`, 'utf8');
+    } catch {
+      return null;
+    }
+  },
+  cmdline: (pid) => {
+    try {
+      const text = readFileSync(`/proc/${pid}/cmdline`, 'utf8');
+      return text.endsWith('\0') ? text.slice(0, -1).split('\0') : text.split('\0');
     } catch {
       return null;
     }

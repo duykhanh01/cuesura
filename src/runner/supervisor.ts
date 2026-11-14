@@ -131,6 +131,8 @@ export const InvocationSpecSchema = z
     stdin: RelativePathSchema.nullable().optional(),
     stall_ms: z.number().int().positive().nullable().optional(),
     watch: z.array(z.string().startsWith('/')).optional(),
+    // Additive: a native session on the unit's terminal (see OperationLaunch.interactive).
+    interactive: z.literal(true).optional(),
   })
   .strict();
 export type InvocationSpec = z.infer<typeof InvocationSpecSchema>;
@@ -371,6 +373,7 @@ export class SystemdSupervisor implements ProcessPort {
       ...(spec.stdin === undefined ? {} : { stdin: spec.stdin }),
       ...(spec.stall_ms === undefined ? {} : { stall_ms: spec.stall_ms }),
       ...(spec.watch === undefined ? {} : { watch: [...spec.watch] }),
+      ...(spec.interactive === true ? { interactive: true as const } : {}),
     };
     if (hasSecret) run.writeSecretEnv(secret);
     run.writeJson(RUN_FILES.invocation, InvocationSpecSchema.parse(invocation));
@@ -386,9 +389,31 @@ export class SystemdSupervisor implements ProcessPort {
       spec.run_id,
     ];
     const viaTerminal = this.#terminal !== null && spec.kind === 'agent';
+    if (spec.interactive === true && this.#terminal === null) {
+      run.removeSecretEnv();
+      return err({ code: 'spawn_failed', message: 'an interactive run needs a terminal' });
+    }
     if (this.#terminal !== null && viaTerminal) {
       const shown = await this.#launchInTerminal(this.#terminal, spec, lock, command, run);
       if (shown !== null) return ok(shown);
+      // A native session without its terminal would wait on input nobody can give.
+      if (spec.interactive === true) {
+        const fenced = fenceLaunch(run, {
+          operation_id: spec.operation_id,
+          attempt_id: spec.run_dir_kind === 'runs' ? spec.run_id : null,
+          at: new Date(this.#clock.now()).toISOString(),
+        });
+        if (fenced.state === 'marker_exists')
+          return err({
+            code: 'unknown',
+            message: `${unit} was started from the terminal after all`,
+          });
+        run.removeSecretEnv();
+        return err({
+          code: 'spawn_failed',
+          message: 'the terminal did not start the interactive run',
+        });
+      }
     }
     const argv = systemdRunArgv(spec, lock, command);
     const r = await this.#exec(argv[0] as string, argv.slice(1), {

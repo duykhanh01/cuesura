@@ -128,7 +128,42 @@ export type VendorPlanInput = {
   /** Only passed when the manifest proved resume for this binary; see `resume_supported`. */
   readonly session: { readonly ref: string } | null;
   readonly max_turns?: number | null;
+  /** Directories the harness's file tools must not edit, where the harness has path rules (FR-053). */
+  readonly deny_edit?: readonly string[];
 };
+
+/**
+ * A JSON document merged into the file of the same path in the private home, over the owner's linked one
+ * (objects merge, arrays append): the owner's settings and hooks stay in force beside Cuesura's.
+ */
+export type HomePatch = { readonly to: string; readonly merge: Readonly<Record<string, unknown>> };
+
+export type InteractiveInput = {
+  /** The first message of the session. */
+  readonly prompt: string;
+  /** Shell command the harness runs at the end of each model turn, with the hook's JSON on stdin. */
+  readonly turn_end_command: string;
+  /** The private home as the binary sees it. */
+  readonly home: string;
+  /** The id a new session takes, where the binary lets the caller choose it. */
+  readonly new_session: string;
+};
+
+/** A native session in a terminal instead of the headless run (007 R-03). */
+export type InteractivePlan = {
+  readonly argv: readonly string[];
+  readonly home_patches: readonly HomePatch[];
+  /** Variables the session needs on top of the pin's. */
+  readonly env: Readonly<Record<string, string>>;
+  /** The session the run works in when it is known before launch; otherwise the hook reports it. */
+  readonly session_ref: string | null;
+  /** Home directories the session writes as it works: with its processes, the only sign of progress. */
+  readonly progress_dirs: readonly string[];
+};
+
+export type InteractiveResult =
+  | { readonly ok: true; readonly value: InteractivePlan }
+  | { readonly ok: false; readonly error: VendorPlanError };
 
 /** Where the final structured answer comes from; the source is fixed per vendor, never a fallback. */
 export type ResultSource =
@@ -151,6 +186,8 @@ export type VendorPlan = {
   readonly result: ResultSource;
   /** Digest of the effective settings (Claude settings document, Codex argv config). */
   readonly settings_hash: Hash;
+  /** Merged into the private home; not part of the proven settings. */
+  readonly home_patches?: readonly HomePatch[];
 };
 
 export type VendorPlanError = {
@@ -218,6 +255,8 @@ export interface VendorAdapter {
    */
   readonly git_dir_state: readonly string[];
   plan(pin: VendorPin, input: VendorPlanInput): PlanResult;
+  /** The native session for the same input, ended by a Stop hook; absent: the binary only runs headless. */
+  interactive?(pin: VendorPin, input: VendorPlanInput, extra: InteractiveInput): InteractiveResult;
   read(input: VendorRead): VendorFacts;
   /** What this binary shows when its native sandbox refused the probe; never the model's own words. */
   nativeWriteDenied(check: NativeWriteCheck): boolean;

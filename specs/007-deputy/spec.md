@@ -381,9 +381,10 @@ tiết task và mô tả PR.
   phiên harness của lượt đó cho cùng sự cố.
 - **FR-012**: Giữa các lượt MUST NOT có process deputy nào chạy hay lượt gọi model nào.
 - **FR-013**: Lượt MUST chạy phiên tương tác của harness trong terminal backend khi có và adapter hỗ trợ, cùng vòng đời
-  với worker; không thì headless. Cuesura MUST thêm hook báo hết lượt vào cấu hình phiên, gộp với hook của chủ dự án;
-  nhận tín hiệu thì daemon dừng process sau một khoảng ngắn. Hết `stall_ms` không có tín hiệu thì theo FR-011 ở chế độ
-  headless.
+  với worker; không thì headless. Cuesura MUST thêm hook báo hết lượt vào cấu hình phiên. Với Claude, hook này gộp với
+  hook của chủ dự án. Hook Codex của chủ dự án không được mang vào private home, giống mọi worker Codex hiện nay: Codex
+  khóa trust của hook theo đường dẫn file, nên mang hook sang cần một cơ chế trust riêng. Nhận tín hiệu thì daemon dừng
+  process sau một khoảng ngắn. Hết `stall_ms` không có tín hiệu thì theo FR-011 ở chế độ headless.
 - **FR-014**: Mỗi task MUST có tối đa một lượt chạy cùng lúc; mỗi goal tối đa một lượt `plan` cùng lúc. Lượt của các
   task khác nhau, cùng goal hay khác goal, MUST chạy song song được.
 - **FR-015**: Binding MUST được đọc lại mỗi lượt từ role `deputy`. Model của lượt MUST nằm trong `allow_models`.

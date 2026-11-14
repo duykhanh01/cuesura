@@ -365,6 +365,8 @@ export async function productionControl(opts: {
           user_home: homedir(),
           redactor: opts.redactor,
           clock: opts.clock,
+          // A deputy turn opens as a native session where a terminal shows agent runs (FR-013).
+          interactive: terminal.backend !== 'background' && terminalBin !== null,
           // Fallback for an input without bounds; the handlers always pass the frozen ones.
           limits: {
             term_grace_ms: limits.term_grace_ms,

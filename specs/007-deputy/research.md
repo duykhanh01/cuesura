@@ -34,8 +34,8 @@ ngưỡng (`effectUnknownOverdue`) trả `deputy`; `effect_failed` đọc `detai
 - Lượt đầu mở phiên mới (không `--resume`); chạy lại trong cùng lượt (FR-011) resume `session_ref` của lượt.
 - Runner chạy tương tác dưới `systemd-run --pty` trong terminal backend khi có (`src/runner/terminal-host.ts`), không thì
   headless.
-- Hết lượt: Cuesura thêm hook Stop (Claude) hoặc `notify` (Codex) vào settings của private home, gộp với hook của chủ dự
-  án; hook ghi `turn-ended.json` vào run dir. Runner thấy file thì dừng process sau `term_grace_ms`, trả outcome
+- Hết lượt: Cuesura thêm hook Stop vào settings (Claude) hay `hooks.json` (Codex) của private home, gộp với hook của chủ
+  dự án; hook ghi `turn-ended.json` vào run dir. Spike T088 bỏ `notify` của Codex (lát G). Runner thấy file thì dừng process sau `term_grace_ms`, trả outcome
   `turn_ended { final_message, session_ref }`.
 - Stall: không có `turn-ended.json` và không hoạt động trong `stall_ms` thì dừng và resume cùng phiên ở headless.
 
@@ -43,6 +43,8 @@ ngưỡng (`effectUnknownOverdue`) trả `deputy`; `effect_failed` đọc `detai
 
 **Cần spike trước lát G:** trường tin nhắn cuối trong input hook của Claude và Codex trên phiên bản đang pin; mở phiên
 tương tác mới và resume tương tác có prompt đầu tiên.
+
+**Kết quả spike (T088, 2026-11-14):** cả hai harness đáp ứng; chi tiết ở "Quyết định khi làm lát G".
 
 ## R-04 — Sự cố, chuyển cho người và không làm đổi version
 
@@ -722,6 +724,76 @@ Dựng trên nhánh lát B (`007/slice-b`, PR #291).
   Một người merge tay PR đơn vị trên GitHub, trong lúc observation chưa ghi, cũng bị coi là drift.
 - **Chưa kiểm:** CI thật trên PR vào nhánh `goal/*`. Workflow GitHub Actions lọc `pull_request.branches` có thể không
   chạy, khi đó đơn vị đứng ở bước CI.
+
+### Quyết định khi làm lát G
+
+Đối chiếu tại `origin/main` `834e99d` ngày 2026-11-14.
+
+- **Spike T088.** Chạy trong home tạm (`HOME`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME` trỏ vào thư mục tạm, chỉ chép auth vào),
+  phiên trong tmux với socket riêng, model rẻ, mỗi bước một prompt trả lời một từ. Bản Claude đang pin (2.1.317) đã bị
+  auto-update xóa khỏi đĩa nên spike chạy 2.1.323; Codex chạy 0.169.0 (wrapper `codex.js` khớp sha256 của pin 0.167.0,
+  gói thật là 0.169.0). Smoke trên binary thật của pin là T103.
+
+  | | Claude 2.1.323 | Codex 0.169.0 |
+  | --- | --- | --- |
+  | Hook hết lượt | `Stop` trong settings; hook trong `--settings` và trong `settings.json` của config dir cùng chạy | `Stop` trong `hooks.json` của `CODEX_HOME` (cùng định dạng Claude); `notify` có nhưng cũng chạy cho thread sinh tiêu đề nội bộ (thread id khác), nên không dùng |
+  | Input của hook | stdin JSON có `session_id`, `last_assistant_message`, `transcript_path`, `stop_hook_active` | stdin JSON có `session_id` (thread id), `turn_id`, `last_assistant_message`, `transcript_path` |
+  | Phiên mới có prompt đầu | `claude [opts] "<prompt>"`; `--session-id <uuid>` chọn trước id phiên | `codex [opts] "<prompt>"` |
+  | Resume tương tác có prompt | `claude --resume <id> [opts] "<prompt>"` | `codex resume [opts] <id> "<prompt>"` |
+  | Hook chạy khi người gõ tiếp | có, mỗi lượt model một lần | có |
+  | Resume headless từ phiên tương tác (stall) | `claude -p --resume <id>` tiếp đúng phiên | `codex exec resume <id> -` tiếp đúng thread |
+  | Chặn ở lần chạy đầu | màn chọn theme (onboarding) và hỏi tin thư mục khi home mới | "Hooks need review": hook mới không chạy tới khi người duyệt |
+  | Tác dụng phụ | TUI tự cài bản mới vào `HOME` (spike: vào home tạm, bản cài thật không đổi) | TUI để lại app server chạy nền giữ khóa thread; phiên sau báo "conversation is open in another app" |
+  | CPU khi TUI rảnh | 1–3 tick mỗi 5 giây | 0–3 tick mỗi 5 giây |
+
+  Luật cấm `Edit(//<abs>/worktrees/**)`, `Write(...)` trong `settings.json` của config dir chặn đúng tool Write của Claude
+  (`permission_denials`), file ngoài thư mục đó vẫn ghi được.
+- **Claude:** phiên tương tác chạy `--session-id` do runner sinh (biết phiên trước khi spawn, nên stall vẫn resume được),
+  cùng `--model`, `--effort`, `--disallowedTools`, `--settings` như headless, prompt là đối số cuối; `--disallowedTools`
+  nhận nhiều giá trị nên luôn có một option khác đứng giữa nó và prompt. `DISABLE_AUTOUPDATER=1` vì `HOME` là của chủ dự án.
+  Hook `Stop` và luật FR-053 vào `settings.json` của private home: file liên kết tới settings của chủ dự án được thay bằng
+  bản sao đã gộp (object gộp theo khóa, mảng nối thêm), nên hook của chủ dự án vẫn chạy và file gốc không bị ghi; settings
+  trong `--settings` (đã băm vào manifest) không đổi. `.claude/.claude.json` thêm `hasCompletedOnboarding`, `theme` và tin
+  cwd (data dir).
+- **Codex:** hook `Stop` trong `hooks.json` của private home. Hook Codex của chủ dự án vốn không được liên kết vào private
+  home, và FR-013 ghi đúng như vậy (review #297, P3, phương án C): Codex khóa trust theo đường dẫn file, nên hook chép
+  sang private home thành "chưa trust" và TUI dừng ở hộp duyệt; mang chúng sang cần cơ chế trust riêng. Runner tự tin hook của chính nó bằng `-c hooks.state={"<hooks.json>:stop:0:0"={trusted_hash=…}}`;
+  hash là sha256 của JSON chuẩn hóa `{event_name:"stop", hooks:[handler đã chuẩn hóa]}` theo `version_for_toml` của
+  Codex 0.169 (`codex-rs/hooks/src/engine/discovery.rs`), tái tạo khớp giá trị TUI ghi khi người bấm trust. Không dùng
+  `--dangerously-bypass-hook-trust`: nó bỏ duyệt mọi hook và bị chặn bởi luật token bypass của adapter. Thêm `--no-daemon`
+  và `check_for_update_on_startup=false`. Codex không có luật đường dẫn cho tool sửa file, nên FR-053 chỉ áp cho Claude.
+  Đổi phiên bản Codex có thể đổi cách băm: khi đó TUI dừng ở hộp duyệt và lượt stall rồi chạy tiếp headless.
+- **`turn-ended.json`** ghi thêm `session_ref` từ input của hook (hợp đồng chỉ nêu `turn_id`, `final_message`). Hook là
+  script Node do runner ghi vào `context/`, ghi file tạm rồi rename. Runner chỉ nhận file khớp `turn_id`.
+- **Runner:** `RunnerHarness.interactive` đúng khi production có terminal backend và adapter có `interactive`. Lượt
+  tương tác chạy `--pty` trong terminal (`OperationLaunch.interactive`), harness kế thừa stdio của terminal và ở cùng
+  session với runner để terminal là terminal điều khiển của nó. Supervisor không bao giờ chạy phiên tương tác ở nền: không có
+  terminal hay terminal không khởi động unit kịp thì fence và trả `spawn_failed`. Thấy `turn-ended.json` thì sau
+  `term_grace_ms` runner dừng unit và trả `turn_ended`; daemon khởi động lại giữa chừng cũng chờ tiếp và dừng phiên thay vì
+  để nó treo. `recover` đọc lại outcome đã lưu hay `turn-ended.json`, không spawn.
+- **Stall ở chế độ tương tác:** TUI rảnh vẫn tốn CPU và output của nó không phải record. Process gốc đã spawn (pid và start
+  ticks runner nắm) luôn là harness, dù nó tự viết lại argv (binary Claude đặt `process.title`). Descendant có argv kết
+  thúc bằng đúng argv đã spawn (gồm prompt đầu) cũng là harness: binary native mà wrapper `codex.js` spawn với
+  `process.argv.slice(2)`. Mọi process khác là tool, CPU của nó là tiến triển như execution contract §4, dù khởi động
+  sớm hay muộn (review #297 vòng 2 bỏ cách đoán theo cửa sổ thời gian). Argv của descendant được đọc lại ở mỗi mẫu, không
+  cache, nên process fork mang argv harness rồi exec, kể cả vào cùng executable, thành tool (review #297 vòng 3). Không
+  đọc được argv thì coi là harness. Số process và file trong thư mục transcript của private home
+  (`.claude/projects`, `.codex/sessions`) cùng scratch vẫn là tiến triển. Giới hạn: helper nền do TUI sinh mà không mang
+  argv của harness (ví dụ MCP server) bị coi là tool, nên CPU của nó có thể giữ một phiên rảnh khỏi stall.
+  Hết `stall_ms` thì outcome là `timeout` (`interactive turn stalled`) kèm phiên: Claude là `--session-id`; Codex lấy root
+  thread trong private home theo `session_meta` của rollout (thread con của `spawn_agent` hay guardian có
+  `parent_thread_id`, `source.subagent`), khi hook chưa báo.
+- **Dọn auth (review #297):** chuẩn bị private home lỗi sau khi auth đã cài (ví dụ settings của chủ dự án không phải JSON)
+  thì auth và TMPDIR được xóa ngay, không spawn.
+- **Daemon:** chỉ lần chạy đầu của lượt là tương tác (`deputy_turns.mode = interactive`); mọi lần chạy lại trong lượt
+  (stall, hạn mức, lỗi hạ tầng) đều headless và resume phiên của lượt. Lần chạy tương tác `timeout` được resume ngay, không
+  tính vào `infra_failures` (SC-003). Lỗi khác của lần chạy tương tác (không mở được terminal) đi theo FR-024 như headless.
+- **Cửa sổ (T092):** nhãn là `view.title` daemon đặt sẵn từ lát B (`deputy: <tiêu đề task>`, lượt plan
+  `deputy: plan <tóm tắt>`), cắt ở 40 ký tự như mọi nhãn terminal.
+- **Việc sau:** mang hook Codex của chủ dự án vào private home bằng cách đổi khóa trust của họ sang đường dẫn private
+  home (phương án A, issue #298).
+- **Chưa kiểm:** phiên thật dưới `systemd-run --pty` trong terminal backend (T103), và hành vi khi người gõ tiếp sau khi
+  hook đã chạy: runner vẫn dừng phiên sau `term_grace_ms` (FR-013).
 
 ### Quyết định khi làm lát F
 

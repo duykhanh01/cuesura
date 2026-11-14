@@ -31,6 +31,8 @@ import {
   osDeniedWrite,
   str,
   validCounters,
+  type InteractiveInput,
+  type InteractiveResult,
   type NativeWriteCheck,
   type PinnedRun,
   type PlanResult,
@@ -142,6 +144,74 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       schema_files: [{ name: input.schema.file_name, content: input.schema.file_content }],
       result: { kind: 'file', scratch_name: CODEX_OUTPUT_FILE },
       settings_hash: hashCanonical(effective),
+    },
+  };
+}
+
+/** How long Codex lets the turn-end hook run. */
+const STOP_HOOK_TIMEOUT_S = 30;
+
+/**
+ * The native session (007 R-03, spike T088 on 0.169.0): the TUI with the same model, approvals and sandbox
+ * as `exec`, the prompt as the first message, `resume <id> <prompt>` for a resumed run. The TUI refuses to
+ * run a new hook until a person reviews it, so the run trusts its own Stop hook on the command line with
+ * the hash Codex stores for it: sha256 of the normalized handler under `event_name`, keyed
+ * `<hooks.json>:stop:<group>:<handler>`. The home's hooks.json holds only this hook (the owner's Codex
+ * hooks are not linked into a private home), so it is group 0. `--no-daemon` keeps the TUI from leaving
+ * a shared app server behind that holds the thread after the session ends.
+ */
+function interactive(
+  pin: VendorPin,
+  input: VendorPlanInput,
+  extra: InteractiveInput,
+): InteractiveResult {
+  const planned = plan(pin, input);
+  if (!planned.ok) return planned;
+  const fail = (message: string): InteractiveResult => ({
+    ok: false,
+    error: { code: 'policy_violation', message },
+  });
+  if (extra.prompt.startsWith('-')) return fail('prompt reads as an option');
+  const hooksFile = `${extra.home}/.codex/hooks.json`;
+  const handler = {
+    type: 'command',
+    command: extra.turn_end_command,
+    timeout: STOP_HOOK_TIMEOUT_S,
+  };
+  const trusted = hashCanonical({ event_name: 'stop', hooks: [{ ...handler, async: false }] });
+  const auto =
+    input.host_execution && pin.permission_mode !== 'full-access' && input.role !== 'reviewer';
+  const argv = [
+    pin.binary.realpath,
+    ...(input.session === null ? [] : ['resume']),
+    '-c',
+    auto ? 'approval_policy="on-request"' : 'approval_policy="never"',
+    ...(auto ? ['-c', 'approvals_reviewer="auto_review"'] : []),
+    '-c',
+    'check_for_update_on_startup=false',
+    '--model',
+    input.model,
+    ...(input.effort === null ? [] : ['-c', `model_reasoning_effort="${input.effort}"`]),
+    '-C',
+    input.cwd,
+    ...sandboxArgs(input),
+    '--no-daemon',
+    '-c',
+    `hooks.state={${JSON.stringify(`${hooksFile}:stop:0:0`)}={trusted_hash="${trusted}"}}`,
+    ...(input.session === null ? [] : [input.session.ref]),
+  ];
+  const bypass = bypassToken([argv]);
+  if (bypass !== null) return fail(`permission bypass token rejected: ${bypass}`);
+  return {
+    ok: true,
+    value: {
+      argv: [...argv, extra.prompt],
+      home_patches: [
+        { to: '.codex/hooks.json', merge: { hooks: { Stop: [{ hooks: [handler] }] } } },
+      ],
+      env: {},
+      session_ref: input.session?.ref ?? null,
+      progress_dirs: ['.codex/sessions'],
     },
   };
 }
@@ -269,5 +339,6 @@ export const codexAdapter: VendorAdapter = {
   git_dir_state: [],
   nativeWriteDenied,
   plan,
+  interactive,
   read,
 };

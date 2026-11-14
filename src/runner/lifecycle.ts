@@ -31,6 +31,7 @@ import {
   PROC,
   processTree,
   remainingMs,
+  isHarnessProcess,
   type ProcReader,
   type ProgressState,
 } from './progress.ts';
@@ -321,16 +322,19 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
   if (spec.secret_env === true && secretEnv === null)
     return finish('spawn_failed', { spawned: false, error: 'secret environment missing' });
 
+  // A native session owns the unit's terminal; it stays in the runner's session so the terminal is its
+  // controlling one (window size, /dev/tty), and the tree is still tracked by (pid, start ticks).
+  const interactive = spec.interactive === true;
   let stdinFd: number | null = null;
   let child: ChildProcess;
   try {
-    if (spec.stdin !== null && spec.stdin !== undefined)
+    if (!interactive && spec.stdin !== null && spec.stdin !== undefined)
       stdinFd = openSync(run.resolve(spec.stdin), 'r');
     child = spawn(spec.argv[0] as string, spec.argv.slice(1), {
       cwd: spec.cwd,
       env: { ...spec.env, ...secretEnv },
-      stdio: [stdinFd ?? 'ignore', 'pipe', 'pipe'],
-      detached: true,
+      stdio: interactive ? 'inherit' : [stdinFd ?? 'ignore', 'pipe', 'pipe'],
+      detached: !interactive,
     });
   } catch (e) {
     if (stdinFd !== null) closeSync(stdinFd);
@@ -466,14 +470,27 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
   }
 
   const watch = spec.watch ?? [];
+  const harnessArgs = spec.argv.slice(1);
+  // The spawned root is the harness whatever it does to its own arguments (a process title rewrites
+  // them). A descendant is read again at every sample: a child forked with the harness's arguments
+  // becomes a tool once it execs, even into the same executable.
+  const isHarness = (x: { pid: number; start_ticks: number }): boolean => {
+    if (x.pid === pid && x.start_ticks === known.get(pid)) return true;
+    const args = proc.cmdline?.(x.pid) ?? null;
+    // Unreadable arguments count as the harness, so its CPU never hides a stall.
+    return args === null || isHarnessProcess(args, harnessArgs);
+  };
   const sample = (): void => {
     const t = processTree(pid, proc);
     for (const s of t ?? []) if (!known.has(s.pid)) known.set(s.pid, s.start_ticks);
     const now = clock.monotonic();
+    // An idle TUI still redraws, so the CPU of the harness itself does not count; the CPU of what it
+    // runs, its tools, does (execution contract §4).
+    const counted = interactive ? (t ?? []).filter((x) => !isHarness(x)) : t;
     const s = {
-      cpu_ticks: t === null ? null : t.reduce((a, x) => a + x.cpu_ticks, 0),
+      cpu_ticks: counted === null ? null : counted.reduce((a, x) => a + x.cpu_ticks, 0),
       processes: t?.length ?? 0,
-      output_seq: log.seq + outputChunks,
+      output_seq: interactive ? 0 : log.seq + outputChunks,
       files: fileFingerprint(watch),
     };
     samples++;

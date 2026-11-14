@@ -1,7 +1,7 @@
 /**
  * Deputy turns (007, R-01, contracts/deputy-turn.md). Each incident the routing table gives the deputy
- * opens one short headless turn: a new harness session that acts only through `cusr` as actor `deputy`
- * and ends with `cusr deputy handoff`. Nothing of the deputy lives between turns (FR-010, FR-012).
+ * opens one short turn: a new harness session, native in a terminal when the harness can show one, that
+ * acts only through `cusr` as actor `deputy` and ends with `cusr deputy handoff`. Nothing of the deputy lives between turns (FR-010, FR-012).
  *
  * A turn is recorded in `deputy_turns` and its input and worktree baseline on disk before the spawn, so a
  * restarted daemon concludes the same turn instead of opening a second one (FR-056). While a turn is
@@ -458,6 +458,16 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       refusal: 'refused',
       capability_missing: 'capability',
     };
+    // A native session that stalled goes on headless in its own session at once, uncounted (FR-013, SC-003).
+    if (record.input.interactive === true && out.failure === 'timeout') {
+      const r = store.deputy.scheduleRetry(record.turn_id, {
+        retry_at: deps.clock.now(),
+        infra: false,
+        session_ref: out.session_ref,
+      });
+      if (!r.ok) log(`turn ${record.turn_id}: headless resume not scheduled: ${r.error.code}`);
+      return;
+    }
     const reason = handOver[out.failure];
     if (reason !== undefined) {
       await close(
@@ -518,8 +528,10 @@ export function createDeputy(deps: DeputyDeps): Deputy {
   /** The next run of a turn waiting on a retry: a new runner attempt in the turn's own session. */
   const resume = async (turn: DeputyTurn, record: TurnRecord): Promise<void> => {
     const attempt = deps.newId();
+    // Only a turn's first run is native; whatever made it run again, the rest of the turn is headless.
+    const { interactive: _native, ...headless } = record.input;
     const input: HarnessInput = {
-      ...record.input,
+      ...headless,
       attempt_id: attempt,
       operation_id: deps.newId(),
       session:
@@ -760,6 +772,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       workspace: { worktree: deps.cwd, git_dirs: [] },
       view: { project: s.project, title: `deputy: ${s.task.title}` },
       deputy_turn: turnId,
+      ...(harness.interactive === true ? { interactive: true } : {}),
     };
     const record: TurnRecord = {
       turn_id: turnId,
@@ -780,7 +793,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       signature: facts.signature.signature,
       harness: setting.harness,
       attempt_id: attemptId,
-      mode: 'headless',
+      mode: harness.interactive === true ? 'interactive' : 'headless',
       context_bytes: built.bytes,
       now,
     });
@@ -832,7 +845,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       signature: null,
       harness: setting.harness,
       attempt_id: attemptId,
-      mode: 'headless' as const,
+      mode: harness?.interactive === true ? ('interactive' as const) : ('headless' as const),
       now,
     };
     if (harness === undefined) {
@@ -886,6 +899,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         title: `deputy: plan ${g.plan?.summary ?? g.request.split('\n')[0] ?? g.id}`,
       },
       deputy_turn: turnId,
+      ...(harness.interactive === true ? { interactive: true } : {}),
     };
     const record: TurnRecord = {
       turn_id: turnId,

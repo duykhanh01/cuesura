@@ -359,16 +359,16 @@ vào nhánh gốc.
 
 ## Phase 8: Lát G — lượt tương tác (US8)
 
-- [ ] T088 Spike hook hết lượt trên phiên bản Claude Code và Codex đang pin: trong private home tạm, cài hook Stop hay
+- [x] T088 Spike hook hết lượt trên phiên bản Claude Code và Codex đang pin: trong private home tạm, cài hook Stop hay
   `notify` ghi stdin ra file; chạy phiên tương tác mới có prompt đầu và resume tương tác; ghi lại input của hook có tin nhắn
   cuối không, hook có chạy khi người gõ tiếp không. Kết luận vào R-03; harness không đáp ứng thì chỉ chạy headless.
-- [ ] T089 [P] Contract test hook hết lượt `test/contract/deputy/turn-end.test.ts`: `turn-ended.json` được ghi, runner dừng
+- [x] T089 [P] Contract test hook hết lượt `test/contract/deputy/turn-end.test.ts`: `turn-ended.json` được ghi, runner dừng
   process, `recover` không spawn lại; stall chuyển sang headless cùng phiên trong cùng lượt.
-- [ ] T090 Adapter `interactiveArgv` (`src/adapters/harness/claude.ts`, `codex.ts`); hook gộp vào settings của private home
+- [x] T090 Adapter `interactiveArgv` (`src/adapters/harness/claude.ts`, `codex.ts`); hook gộp vào settings của private home
   (`src/runner/private-home.ts`); luật cấm sửa `<data dir>/worktrees/**` (FR-053).
-- [ ] T091 Runner chế độ tương tác (`src/runner/invocation.ts`): `--pty` trong terminal backend, theo dõi `turn-ended.json`,
+- [x] T091 Runner chế độ tương tác (`src/runner/invocation.ts`): `--pty` trong terminal backend, theo dõi `turn-ended.json`,
   outcome `turn_ended`, stall (FR-013).
-- [ ] T092 [US8] Cửa sổ mang tên `deputy: <tiêu đề>` trong terminal backend khi lượt chạy (US8 kịch bản 2).
+- [x] T092 [US8] Cửa sổ mang tên `deputy: <tiêu đề>` trong terminal backend khi lượt chạy (US8 kịch bản 2).
 
 ---
 

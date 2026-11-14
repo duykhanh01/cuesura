@@ -22,6 +22,7 @@
  * the adapter knows its resume form; otherwise the attempt runs in a new session and the reason is
  * reported. Either way the context is the full repair packet the handler built.
  */
+import { randomUUID } from 'node:crypto';
 import {
   closeSync,
   constants,
@@ -60,7 +61,14 @@ import {
   validateRoleResult,
   wireRoleSchema,
 } from '../adapters/harness/result-schema.ts';
-import type { VendorAdapter, VendorPin, VendorPlan } from '../adapters/harness/vendor.ts';
+import type {
+  HomePatch,
+  InteractivePlan,
+  VendorAdapter,
+  VendorPin,
+  VendorPlan,
+  VendorPlanInput,
+} from '../adapters/harness/vendor.ts';
 import {
   DaemonStopping,
   SANDBOX_ROLES,
@@ -81,7 +89,9 @@ import { RUN_FILES, RunDir, RunnerFileError, readRecords, type FileLimits } from
 import { newLaunchNonce } from './identity.ts';
 import { RunnerExitSchema, type RunnerExit } from './lifecycle.ts';
 import {
+  applyHomePatches,
   assertFreshHome,
+  codexThreadIn,
   homeSecretValues,
   LAUNCH_STATE_FILE,
   installAuth,
@@ -93,6 +103,7 @@ import {
 import { ATTEMPT_ENV, DEPUTY_TURN_ENV } from './process-tag.ts';
 import { DATA_DIR_ENV } from './process-env.ts';
 import { Redactor } from './redact.ts';
+import { shellJoin } from './terminal-host.ts';
 import {
   ensurePrivateTmpDir,
   IN_SANDBOX,
@@ -103,6 +114,36 @@ import {
 } from './sandbox.ts';
 
 export const PROMPT_FILE = 'context/prompt.md';
+/** Written by the Stop hook of an interactive deputy session (contracts/deputy-turn.md). */
+export const TURN_ENDED_FILE = 'turn-ended.json';
+const TURN_END_HOOK = 'context/turn-end-hook.cjs';
+export const INTERACTIVE_STALLED = 'interactive turn stalled';
+
+/**
+ * Runs as the harness's Stop hook, with the hook's JSON on stdin. Claude and Codex both send
+ * `session_id` and `last_assistant_message` (spike T088). Written whole, then renamed into place.
+ */
+const TURN_END_HOOK_SCRIPT = `'use strict';
+const fs = require('node:fs');
+const [out, turn] = process.argv.slice(2);
+const chunks = [];
+process.stdin.on('data', (c) => chunks.push(c));
+process.stdin.on('end', () => {
+  let v = {};
+  try { v = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch {}
+  const text = (x) => (typeof x === 'string' ? x : null);
+  const tmp = out + '.' + process.pid + '.tmp';
+  const body = { turn_id: turn, final_message: text(v && v.last_assistant_message), session_ref: text(v && v.session_id) };
+  fs.writeFileSync(tmp, JSON.stringify(body) + '\\n', { mode: 0o600 });
+  fs.renameSync(tmp, out);
+});
+`;
+
+const TurnEndedSchema = z.object({
+  turn_id: z.string().min(1),
+  final_message: z.string().nullable(),
+  session_ref: z.string().nullable().optional(),
+});
 const SCRATCH = 'scratch';
 /** stderr kept for parsing denials: the tail, bounded. */
 const STDERR_READ_MAX = 1024 * 1024;
@@ -170,6 +211,8 @@ const LaunchStateSchema = z.strictObject({
   }),
   preexisted: z.boolean(),
   collect_before: z.array(z.string()),
+  /** A native session: it ends at its Stop hook, not with a result. */
+  interactive: z.strictObject({ session_ref: z.string().nullable() }).optional(),
   auth: z.strictObject({
     home: z.string().min(1),
     files: z.array(z.string()),
@@ -195,7 +238,7 @@ const StoredOutcomeSchema = z.strictObject({
   input_digest: HashSchema,
   launch_nonce: z.string().min(1),
   outcome: z.looseObject({
-    kind: z.enum(['result', 'invalid_output', 'failure']),
+    kind: z.enum(['result', 'turn_ended', 'invalid_output', 'failure']),
     role: z.string(),
   }),
 });
@@ -274,6 +317,8 @@ export type RunnerHarnessOptions = {
     readonly stall_ms: number | null;
   };
   readonly file_limits?: FileLimits;
+  /** The process port shows agent runs in a terminal a person can type into (ADR-0006). */
+  readonly interactive?: boolean;
   readonly poll_ms?: number;
   readonly digest?: (path: string) => Hash;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -312,6 +357,11 @@ export class RunnerHarness implements HarnessPort {
     this.#o = o;
   }
 
+  /** Whether an `interactive` input runs as the binary's native session (FR-013). */
+  get interactive(): boolean {
+    return this.#o.interactive === true && this.#o.adapter.interactive !== undefined;
+  }
+
   async run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome> {
     return asTurn(input, await this.#run(input, signal));
   }
@@ -341,7 +391,18 @@ export class RunnerHarness implements HarnessPort {
       ...(o.file_limits === undefined ? {} : { limits: o.file_limits }),
     });
     // A repeated call for a launched operation concludes what is on disk; it never launches again.
-    if (run.readFinal(RUN_FILES.launch).state !== 'missing') return this.#recover(input);
+    if (run.readFinal(RUN_FILES.launch).state !== 'missing') {
+      // A native session waits for a person after its turn: it must be seen to end and stopped here.
+      const st = run.readFinal(LAUNCH_STATE_FILE, LaunchStateSchema);
+      if (
+        st.state === 'valid' &&
+        st.value.interactive !== undefined &&
+        st.value.input_digest === inputDigest(input) &&
+        run.readFinal(RUN_FILES.exit).state === 'missing'
+      )
+        await this.#wait(run, input, input.wall_ms ?? Infinity, signal, true);
+      return this.#recover(input);
+    }
 
     if (signal.aborted) return never('cancelled', 'aborted before start');
     // A decider always runs in its own new session; a reviewer resumes only its own (#213).
@@ -408,7 +469,7 @@ export class RunnerHarness implements HarnessPort {
       throw e;
     }
     const shortTmp = this.#tmpDir(run);
-    const planned = o.adapter.plan(o.pin, {
+    const planInput: VendorPlanInput = {
       role: boundaryRole(input.role),
       model: input.binding.model,
       effort: input.binding.effort,
@@ -428,9 +489,29 @@ export class RunnerHarness implements HarnessPort {
       inner_mode: inner,
       session,
       ...(input.max_turns === undefined ? {} : { max_turns: input.max_turns }),
-    });
+      // The deputy runs in the data dir with full tools; other tasks' worktrees are off limits (FR-053).
+      ...(input.role === 'deputy' ? { deny_edit: [join(o.data_dir, 'worktrees')] } : {}),
+    };
+    const planned = o.adapter.plan(o.pin, planInput);
     if (!planned.ok) return never('capability_missing', planned.error.message);
     const plan = planned.value;
+    let native: InteractivePlan | null = null;
+    if (input.interactive === true && this.interactive && o.adapter.interactive !== undefined) {
+      const home = join(run.dir, 'private-home');
+      const ia = o.adapter.interactive(o.pin, planInput, {
+        prompt: input.context.text,
+        turn_end_command: shellJoin([
+          process.execPath,
+          join(run.dir, TURN_END_HOOK),
+          join(run.dir, TURN_ENDED_FILE),
+          input.deputy_turn ?? input.attempt_id,
+        ]),
+        home,
+        new_session: randomUUID(),
+      });
+      if (!ia.ok) return never('capability_missing', ia.error.message);
+      native = ia.value;
+    }
 
     const observed = observeHarness(o.pin, plan.settings_hash, o.host_policy_hash, o.digest);
     if (!observed.ok) return never('capability_missing', problemText([observed.error]));
@@ -449,7 +530,7 @@ export class RunnerHarness implements HarnessPort {
 
     let installed: InstalledAuth | null = null;
     try {
-      const layout = this.#prepare(run, input, plan, ws, session);
+      const layout = this.#prepare(run, input, plan, ws, session, native);
       if (!layout.ok) return never('capability_missing', layout.error);
       installed = layout.installed;
       // Auth values are known only once installed; content copied out never carries them.
@@ -467,7 +548,7 @@ export class RunnerHarness implements HarnessPort {
         o.adapter.git_dir_state,
       );
 
-      const sandboxed = o.sandbox.plan(layout.layout, plan.argv);
+      const sandboxed = o.sandbox.plan(layout.layout, native?.argv ?? plan.argv);
       // No unsandboxed or weaker fallback: a boundary that cannot be planned blocks the attempt.
       if (!sandboxed.ok)
         return never(
@@ -499,6 +580,7 @@ export class RunnerHarness implements HarnessPort {
         before,
         preexisted,
         collect_before: [...collectBefore],
+        ...(native === null ? {} : { interactive: { session_ref: native.session_ref } }),
         auth: {
           home: installed.home,
           files: [...installed.files],
@@ -526,13 +608,16 @@ export class RunnerHarness implements HarnessPort {
         term_grace_ms: limits.term_grace_ms,
         kill_verify_ms: limits.kill_verify_ms,
         launch_nonce: nonce,
-        stdin: PROMPT_FILE,
+        stdin: native === null ? PROMPT_FILE : null,
         stall_ms: limits.stall_ms,
         watch:
-          boundaryRole(input.role) === 'reviewer'
-            ? [layout.scratch, ...tmpWatch]
-            : [ws.worktree, layout.scratch, ...tmpWatch],
+          native !== null
+            ? [layout.scratch, ...native.progress_dirs.map((d) => join(layout.installed.home, d))]
+            : boundaryRole(input.role) === 'reviewer'
+              ? [layout.scratch, ...tmpWatch]
+              : [ws.worktree, layout.scratch, ...tmpWatch],
         ...(input.view === undefined ? {} : { view: input.view }),
+        ...(native === null ? {} : { interactive: true as const }),
       });
       if (!launched.ok) {
         if (launched.error.code === 'spawn_failed')
@@ -540,7 +625,7 @@ export class RunnerHarness implements HarnessPort {
         throw new InvocationUnknown(`launch ${launched.error.code}: ${launched.error.message}`);
       }
 
-      const exit = await this.#wait(run, input, wall ?? Infinity, signal);
+      const exit = await this.#wait(run, input, wall ?? Infinity, signal, native !== null);
       return this.#conclude(run, input, state, exit, authRedactor, false);
     } catch (e) {
       // A run whose end is not proven may still be using its home: recovery removes the auth.
@@ -683,6 +768,8 @@ export class RunnerHarness implements HarnessPort {
     const o = this.#o;
     if (exit.launch_nonce !== st.launch_nonce)
       throw new InvocationUnknown('exit record belongs to another launch');
+    if (st.interactive !== undefined)
+      return this.#concludeTurn(run, input, st, exit, authRedactor, recovering);
     const schema = wireRoleSchema(input.role, {
       omit_meta_schema: o.adapter.vendor === 'claude',
     });
@@ -781,6 +868,73 @@ export class RunnerHarness implements HarnessPort {
     );
     const ingest = ingestOf(run, input.operation_id, records.value);
     return this.#store(run, st, ingest === null ? outcome : { ...outcome, ingest }, redactAuth);
+  }
+
+  /**
+   * A native session ends at its Stop hook (the runner then stopped it); without that signal it stalled,
+   * ran out of time or was left, and the session it worked in is reported for a headless resume (FR-011).
+   */
+  #concludeTurn(
+    run: RunDir,
+    input: HarnessInput,
+    st: LaunchState,
+    exit: RunnerExit,
+    authRedactor: Redactor,
+    recovering: boolean,
+  ): HarnessOutcome {
+    const o = this.#o;
+    const records = readRecords(run, input.operation_id, null, { final: true });
+    if (!records.ok) throw new InvocationUnknown(`event log unreadable: ${records.error.code}`);
+    const ingest = ingestOf(run, input.operation_id, records.value);
+    const redactAuth = <T>(x: T): T => authRedactor.value(o.redactor.value(x)) as T;
+    const read = run.readFinal(TURN_ENDED_FILE, TurnEndedSchema);
+    const ended =
+      read.state === 'valid' && read.value.turn_id === (input.deputy_turn ?? input.attempt_id)
+        ? read.value
+        : null;
+    const sessionRef =
+      ended?.session_ref ??
+      st.interactive?.session_ref ??
+      (o.pin.vendor === 'codex' ? codexThreadIn(st.auth.home) : null);
+    const facts = {
+      role: input.role,
+      usage: { basis: 'unavailable' as const },
+      session_ref: sessionRef,
+      permission_denials: [],
+      ...(ingest === null ? {} : { ingest }),
+    };
+    const violations = writeZoneViolations(
+      st.before,
+      snapshotWriteZone(st.zone, o.adapter.worktree_state, o.adapter.git_dir_state),
+    );
+    if (violations.length > 0 && recovering)
+      throw new InvocationUnknown(
+        `write zone changed since the launch (${violations.join('; ')}); not attributable after a restart`,
+      );
+    const failure = (f: HarnessFailure, detail: string, invoked = true): HarnessOutcome => ({
+      ...facts,
+      kind: 'failure',
+      failure: f,
+      detail,
+      reset_at: null,
+      invoked,
+    });
+    const outcome: HarnessOutcome =
+      violations.length > 0
+        ? failure('boundary_violation', violations.join('; '))
+        : ended !== null
+          ? { ...facts, kind: 'turn_ended', final_message: ended.final_message }
+          : exit.outcome === 'spawn_failed' || !exit.spawned
+            ? failure('process_failed', `harness did not start (${exit.outcome})`, false)
+            : exit.outcome === 'stalled'
+              ? failure('timeout', INTERACTIVE_STALLED)
+              : exit.outcome === 'timeout' || exit.outcome === 'cancelled'
+                ? failure(exit.outcome, `runner outcome ${exit.outcome}`)
+                : failure(
+                    'process_failed',
+                    `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})`,
+                  );
+    return this.#store(run, st, outcome, redactAuth);
   }
 
   /**
@@ -932,6 +1086,7 @@ export class RunnerHarness implements HarnessPort {
     plan: VendorPlan,
     ws: Workspace,
     session: HarnessInput['session'],
+    native: InteractivePlan | null,
   ):
     | {
         ok: true;
@@ -955,7 +1110,8 @@ export class RunnerHarness implements HarnessPort {
     run.writeText(PROMPT_FILE, input.context.text);
     for (const f of plan.context_files) run.writeText(`context/${f.name}`, f.content);
     for (const f of plan.schema_files) run.writeText(`schema/${f.name}`, f.content);
-    let installed: InstalledAuth;
+    // Owned here until the layout is returned: any failure before that removes the auth again.
+    let installed: InstalledAuth | null = null;
     try {
       const frozen = input.credentials ?? [];
       const files = o.pin.home_files.map((h) => {
@@ -973,48 +1129,58 @@ export class RunnerHarness implements HarnessPort {
       });
       installed = installAuth(run, files);
       if (o.user_home !== undefined) linkUserConfig(installed.home, o.user_home);
+      const patches: HomePatch[] = [...(plan.home_patches ?? []), ...(native?.home_patches ?? [])];
+      applyHomePatches(installed.home, patches);
+      if (native !== null) run.writeText(TURN_END_HOOK, TURN_END_HOOK_SCRIPT);
+      run.writeJson('invocation-plan.json', {
+        schema_version: 1,
+        operation_id: input.operation_id,
+        attempt_id: input.attempt_id,
+        revision: input.revision,
+        role: input.role,
+        binding: input.binding,
+        context_digest: input.context.digest,
+        schema_digest: input.schema.digest,
+        argv_digest: hashCanonical(plan.argv),
+        settings_hash: plan.settings_hash,
+        manifest_hash: o.manifest.manifest_hash,
+        session: session === null ? null : 'resumed',
+        deadline_at: input.deadline_at,
+      });
+      return {
+        ok: true,
+        installed,
+        scratch,
+        layout: {
+          role: boundaryRole(input.role),
+          worktree: ws.worktree,
+          git_dirs: ws.git_dirs,
+          scratch,
+          ...(tmpDir === undefined ? {} : { tmp_dir: tmpDir }),
+          private_home: installed.home,
+          context,
+          schema: schemaDir,
+          ...withEnv(
+            attemptLayoutInputs(
+              o.pin,
+              input.attempt_id,
+              input.deputy_turn === undefined
+                ? undefined
+                : { turn: input.deputy_turn, data_dir: o.data_dir },
+            ),
+            native?.env ?? {},
+          ),
+          network: 'internet_outbound',
+        },
+      };
     } catch (e) {
+      if (installed !== null) {
+        removeAuth(installed);
+        removeTmpDir(tmpDir);
+      }
       if (e instanceof SandboxPolicyError) return { ok: false, error: e.message };
       throw e;
     }
-    run.writeJson('invocation-plan.json', {
-      schema_version: 1,
-      operation_id: input.operation_id,
-      attempt_id: input.attempt_id,
-      revision: input.revision,
-      role: input.role,
-      binding: input.binding,
-      context_digest: input.context.digest,
-      schema_digest: input.schema.digest,
-      argv_digest: hashCanonical(plan.argv),
-      settings_hash: plan.settings_hash,
-      manifest_hash: o.manifest.manifest_hash,
-      session: session === null ? null : 'resumed',
-      deadline_at: input.deadline_at,
-    });
-    return {
-      ok: true,
-      installed,
-      scratch,
-      layout: {
-        role: boundaryRole(input.role),
-        worktree: ws.worktree,
-        git_dirs: ws.git_dirs,
-        scratch,
-        ...(tmpDir === undefined ? {} : { tmp_dir: tmpDir }),
-        private_home: installed.home,
-        context,
-        schema: schemaDir,
-        ...attemptLayoutInputs(
-          o.pin,
-          input.attempt_id,
-          input.deputy_turn === undefined
-            ? undefined
-            : { turn: input.deputy_turn, data_dir: o.data_dir },
-        ),
-        network: 'internet_outbound',
-      },
-    };
   }
 
   /** The run's own TMPDIR, when this binary needs one other than scratch. */
@@ -1025,12 +1191,16 @@ export class RunnerHarness implements HarnessPort {
       : undefined;
   }
 
-  /** Waits for exit.json; on abort stops the unit and keeps waiting for the runner's record. */
+  /**
+   * Waits for exit.json; on abort stops the unit and keeps waiting for the runner's record. `turnEnd`: a
+   * native session that wrote its turn end is stopped `term_grace_ms` later.
+   */
   async #wait(
     run: RunDir,
     input: HarnessInput,
     wall: number,
     signal: AbortSignal,
+    turnEnd = false,
   ): Promise<RunnerExit> {
     const o = this.#o;
     const sleep = o.sleep ?? delay;
@@ -1040,6 +1210,7 @@ export class RunnerHarness implements HarnessPort {
     const start = o.clock.monotonic();
     let stoppedAt: number | null = null;
     let goneSince: number | null = null;
+    let endedAt: number | null = null;
     for (;;) {
       const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
       if (exit.state === 'valid') return exit.value;
@@ -1049,7 +1220,10 @@ export class RunnerHarness implements HarnessPort {
       // daemon adopts the run. Stopping it here would spend the attempt and call a replacement.
       if (signal.reason instanceof DaemonStopping) throw signal.reason;
       const elapsed = o.clock.monotonic() - start;
-      if ((signal.aborted || elapsed > wall + grace + 30_000) && stoppedAt === null) {
+      if (turnEnd && endedAt === null && run.readFinal(TURN_ENDED_FILE).state === 'valid')
+        endedAt = o.clock.monotonic();
+      const turnOver = endedAt !== null && o.clock.monotonic() - endedAt >= limits.term_grace_ms;
+      if ((signal.aborted || turnOver || elapsed > wall + grace + 30_000) && stoppedAt === null) {
         stoppedAt = o.clock.monotonic();
         const r = await o.process.stop(input.operation_id, limits);
         if (r === 'unknown') throw new InvocationUnknown('stop outcome unknown');
@@ -1070,6 +1244,13 @@ export class RunnerHarness implements HarnessPort {
       await sleep(poll);
     }
   }
+}
+
+function withEnv<T extends { env: Record<string, string> }>(
+  inputs: T,
+  env: Readonly<Record<string, string>>,
+): T {
+  return { ...inputs, env: { ...inputs.env, ...env } };
 }
 
 /** The records read and the run's artifacts, for the store to commit; null when nothing was read. */

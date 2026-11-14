@@ -26,6 +26,9 @@ import {
   osDeniedWrite,
   str,
   validCounters,
+  type HomePatch,
+  type InteractiveInput,
+  type InteractiveResult,
   type NativeWriteCheck,
   type PlanResult,
   type Rec,
@@ -219,6 +222,75 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
       schema_files: [],
       result: { kind: 'stdout_json', pointer: CLAUDE_RESULT_POINTER },
       settings_hash: hashCanonical(stableSettings.value),
+      home_patches: denyPatches(input.deny_edit ?? []),
+    },
+  };
+}
+
+/** `//` anchors a Claude permission rule at the filesystem root. */
+function denyPatches(dirs: readonly string[]): HomePatch[] {
+  if (dirs.length === 0) return [];
+  const deny = dirs.flatMap((d) => [`Edit(/${d}/**)`, `Write(/${d}/**)`]);
+  return [{ to: '.claude/settings.json', merge: { permissions: { deny } } }];
+}
+
+/**
+ * The native session (007 R-03, spike T088 on 2.1.323): no print mode, the prompt as the first message,
+ * the same model, settings and tool limits. The Stop hook goes into the home's settings so the owner's
+ * hooks still run; the global config skips the onboarding and trust dialogs a fresh home stops at.
+ */
+function interactive(
+  pin: VendorPin,
+  input: VendorPlanInput,
+  extra: InteractiveInput,
+): InteractiveResult {
+  const planned = plan(pin, input);
+  if (!planned.ok) return planned;
+  if (extra.prompt.startsWith('-'))
+    return { ok: false, error: { code: 'policy_violation', message: 'prompt reads as an option' } };
+  const session = input.session?.ref ?? extra.new_session;
+  const argv = [
+    pin.binary.realpath,
+    '--model',
+    input.model,
+    ...(input.effort === null ? [] : ['--effort', input.effort]),
+    // Variadic: an option must follow it, or the prompt is read as a tool name.
+    '--disallowedTools',
+    input.role === 'reviewer' ? REVIEWER_DISALLOWED : WORKER_DISALLOWED,
+    ...(input.session === null ? ['--session-id', session] : ['--resume', session]),
+    '--settings',
+    `${input.paths.context}/${CLAUDE_SETTINGS_FILE}`,
+  ];
+  const bypass = bypassToken([argv]);
+  if (bypass !== null)
+    return {
+      ok: false,
+      error: { code: 'policy_violation', message: `permission bypass token rejected: ${bypass}` },
+    };
+  return {
+    ok: true,
+    value: {
+      argv: [...argv, extra.prompt],
+      home_patches: [
+        {
+          to: '.claude/settings.json',
+          merge: {
+            hooks: { Stop: [{ hooks: [{ type: 'command', command: extra.turn_end_command }] }] },
+          },
+        },
+        {
+          to: '.claude/.claude.json',
+          merge: {
+            hasCompletedOnboarding: true,
+            theme: 'dark',
+            projects: { [input.cwd]: { hasTrustDialogAccepted: true } },
+          },
+        },
+      ],
+      // HOME is the owner's: an update would land in the owner's installation.
+      env: { DISABLE_AUTOUPDATER: '1' },
+      session_ref: session,
+      progress_dirs: ['.claude/projects'],
     },
   };
 }
@@ -434,5 +506,6 @@ export const claudeAdapter: VendorAdapter = {
   git_dir_state: ['branches', 'remotes', 'config.worktree', 'info/.claude-sandbox-noreplace'],
   nativeWriteDenied,
   plan,
+  interactive,
   read,
 };

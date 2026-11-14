@@ -62,8 +62,10 @@ Lệnh đọc gợi ý trong context: `cusr task explain <id> --json`, `cusr tas
 
 ## Kết thúc lượt
 
-- Hook do Cuesura cài trong private home (Stop của Claude, `notify` của Codex) ghi `<run dir>/turn-ended.json`:
-  `{ "turn_id": "...", "final_message": "...|null" }`. Hook của chủ dự án vẫn chạy.
+- Hook Stop do Cuesura cài trong private home (settings của Claude, `hooks.json` của Codex) ghi
+  `<run dir>/turn-ended.json`: `{ "turn_id": "...", "final_message": "...|null", "session_ref": "...|null" }`. Hook Claude
+  của chủ dự án vẫn chạy (gộp vào settings của private home); hook Codex của chủ dự án không được mang vào private home,
+  như với mọi worker Codex (FR-013).
 - Runner thấy file thì gửi TERM sau `term_grace_ms`, finalize run dir, trả
   `{ kind: 'turn_ended', final_message, session_ref, usage }`.
 - Headless: process tự thoát; runner trả `turn_ended` với tin nhắn cuối từ stream.

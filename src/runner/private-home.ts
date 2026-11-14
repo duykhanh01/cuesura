@@ -24,6 +24,7 @@ import {
   mkdirSync,
   openSync,
   readdirSync,
+  readSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -119,6 +120,61 @@ export function linkUserConfig(home: string, userHome: string): string[] {
   return linked;
 }
 
+type Json = Record<string, unknown>;
+const isObject = (v: unknown): v is Json =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Objects merge key by key, arrays append, anything else takes the patch's value. */
+export function mergeJson(base: Json, patch: Readonly<Json>): Json {
+  const out: Json = { ...base };
+  for (const [k, v] of Object.entries(patch)) {
+    const b = out[k];
+    out[k] =
+      isObject(b) && isObject(v)
+        ? mergeJson(b, v)
+        : Array.isArray(b) && Array.isArray(v)
+          ? [...(b as unknown[]), ...(v as unknown[])]
+          : v;
+  }
+  return out;
+}
+
+/**
+ * Merges each patch into its file in the home, after {@link linkUserConfig}: a link to the owner's file
+ * becomes a private copy with the patch merged in, so the owner's file is never written.
+ */
+export function applyHomePatches(
+  home: string,
+  patches: readonly { readonly to: string; readonly merge: Readonly<Json> }[],
+): void {
+  for (const p of patches) {
+    if (!RelativePathSchema.safeParse(p.to).success)
+      throw new SandboxPolicyError('policy_violation', `home patch path ${p.to} is not relative`);
+    const target = join(home, p.to);
+    let base: Json = {};
+    if (lstatSync(target, { throwIfNoEntry: false }) !== undefined) {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(readFileSync(target, 'utf8'));
+      } catch (e) {
+        throw new SandboxPolicyError(
+          'policy_violation',
+          `${p.to} in the home is not JSON: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+      if (!isObject(parsed))
+        throw new SandboxPolicyError('policy_violation', `${p.to} in the home is not an object`);
+      base = parsed;
+      rmSync(target, { force: true });
+    }
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    writeFileSync(target, `${JSON.stringify(mergeJson(base, p.merge), null, 2)}\n`, {
+      mode: 0o600,
+      flag: 'wx',
+    });
+  }
+}
+
 function mcpServers(path: string): Record<string, unknown> | null {
   try {
     const v = JSON.parse(readFileSync(path, 'utf8')) as { mcpServers?: unknown };
@@ -171,6 +227,67 @@ export function copySession(
       return;
     }
   throw new SandboxPolicyError('source_missing', `Claude session ${session} is missing`);
+}
+
+/**
+ * The root Codex thread a run's home holds, for a session that never reported it (no turn end) to resume.
+ * Sub-agent threads (`spawn_agent`, guardian reviews) are persisted beside it; their `session_meta`
+ * names a `parent_thread_id`. Null unless exactly one root is found.
+ */
+export function codexThreadIn(home: string): string | null {
+  const roots: string[] = [];
+  const walk = (dir: string): void => {
+    let names: string[];
+    try {
+      names = readdirSync(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const path = join(dir, name);
+      const entry = lstatSync(path, { throwIfNoEntry: false });
+      if (entry?.isDirectory()) walk(path);
+      const m =
+        /^rollout-.*-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(
+          name,
+        );
+      if (entry?.isFile() !== true || m?.[1] === undefined) continue;
+      const meta = sessionMeta(path);
+      if (meta === null || meta['parent_thread_id'] !== undefined) continue;
+      const source = meta['source'];
+      if (typeof source === 'object' && source !== null && 'subagent' in source) continue;
+      roots.push(m[1].toLowerCase());
+    }
+  };
+  walk(join(home, '.codex', 'sessions'));
+  return roots.length === 1 ? (roots[0] as string) : null;
+}
+
+/** The payload of a rollout's first record when it is `session_meta`; it can hold long instructions. */
+function sessionMeta(path: string): Record<string, unknown> | null {
+  let fd: number;
+  try {
+    fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch {
+    return null;
+  }
+  try {
+    const buf = Buffer.alloc(4 * 1024 * 1024);
+    const n = readSync(fd, buf, 0, buf.length, 0);
+    const text = buf.subarray(0, n).toString('utf8');
+    const nl = text.indexOf('\n');
+    const v = JSON.parse(nl < 0 ? text : text.slice(0, nl)) as {
+      type?: unknown;
+      payload?: unknown;
+    };
+    return v.type === 'session_meta' && typeof v.payload === 'object' && v.payload !== null
+      ? (v.payload as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /**

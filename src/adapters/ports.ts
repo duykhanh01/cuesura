@@ -127,6 +127,11 @@ export type OperationLaunch = {
   /** Directories whose file changes count as progress (the worktree, scratch). */
   readonly watch?: readonly string[];
   readonly view?: TerminalView;
+  /**
+   * A native session a person can watch and type into: needs the terminal's pty, so it never runs in the
+   * background, and gets no prompt on stdin (FR-013).
+   */
+  readonly interactive?: true;
 };
 
 export type LaunchError = {
@@ -208,6 +213,8 @@ export type HarnessInput = {
   readonly view?: TerminalView;
   /** A deputy turn: set as `CUSR_DEPUTY_TURN` in place of `CUSR_ATTEMPT_ID` (007, FR-050). */
   readonly deputy_turn?: string;
+  /** Run as the harness's native session when the harness can show one (deputy, FR-013). */
+  readonly interactive?: boolean;
 };
 
 export type PermissionDenial = {
@@ -309,6 +316,8 @@ export interface HarnessPort {
   started?(attemptId: string): boolean;
   /** Stops a launched run of this operation that this process no longer waits on, e.g. after a restart. */
   stop?(input: HarnessInput): Promise<StopOutcome>;
+  /** Whether an `interactive` input runs as a native session in a terminal; otherwise it runs headless. */
+  readonly interactive?: boolean;
 }
 
 // ---- Git (orchestrator-side argv only; repo config/hooks/executables are not trusted) ----

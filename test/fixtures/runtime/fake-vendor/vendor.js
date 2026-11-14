@@ -27,6 +27,66 @@ if (argv[0] === 'sandbox') {
     : spawnSync(command[0], command.slice(1), { stdio: 'inherit' });
   process.exit(r.status ?? 1);
 }
+// A native session (no `-p`, no `exec`): the prompt is the last argument and nothing comes on stdin. Each
+// answered turn runs the Stop hooks of the home with the hook's JSON, then the session waits for a person.
+// FAKE_VENDOR_MODE turn_end answers one turn; hang never answers, so the runner sees it stall.
+if (!argv.includes('-p') && argv[0] !== 'exec') {
+  const modes = (process.env.FAKE_VENDOR_MODE ?? '').split(',');
+  const isCodex = argv[0] === 'resume' || argv.includes('--no-daemon');
+  const after = (flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined);
+  const session = isCodex
+    ? argv[0] === 'resume'
+      ? argv.at(-2)
+      : '0192cccc-0000-7000-8000-000000000001'
+    : (after('--session-id') ?? after('--resume'));
+  const home = isCodex
+    ? (process.env.CODEX_HOME ?? join(process.env.HOME, '.codex'))
+    : (process.env.CLAUDE_CONFIG_DIR ?? join(process.env.HOME, '.claude'));
+  const transcript = isCodex
+    ? join(home, 'sessions', '2026', '11', '14', `rollout-2026-11-14T00-00-00-${session}.jsonl`)
+    : join(home, 'projects', 'cusr-data', `${session}.jsonl`);
+  mkdirSync(dirname(transcript), { recursive: true });
+  const meta = (id, extra = {}) => `${JSON.stringify({ type: 'session_meta', payload: { id, source: 'vscode', ...extra } })}\n`;
+  writeFileSync(transcript, isCodex ? meta(session) : `${JSON.stringify({ prompt: argv.at(-1) })}\n`);
+  // spawn_agent: a sub-agent thread of the root, persisted beside it as Codex does.
+  if (isCodex && modes.includes('spawn_agent')) {
+    const child = '0192cccc-0000-7000-8000-0000000000c1';
+    writeFileSync(
+      join(dirname(transcript), `rollout-2026-11-14T00-00-01-${child}.jsonl`),
+      meta(child, { parent_thread_id: session, source: { subagent: { thread_spawn: { parent_thread_id: session } } } }),
+    );
+  }
+  // tool_early / tool_late: a tool computes for 2 s, silent and writing nothing, before the turn ends; the
+  // late one starts after the session wrote its transcript again.
+  const tool = () =>
+    spawnSync(process.execPath, ['-e', 'const end = Date.now() + 2000; while (Date.now() < end);']);
+  if (modes.includes('tool_early')) tool();
+  if (modes.includes('tool_late')) {
+    await new Promise((r) => setTimeout(r, 300));
+    writeFileSync(transcript, `${JSON.stringify({ turn: 1 })}\n`, { flag: 'a' });
+    await new Promise((r) => setTimeout(r, 300));
+    tool();
+  }
+  // redraw: the session itself keeps using CPU, as an idle TUI does, and never ends its turn.
+  if (modes.includes('redraw'))
+    setInterval(() => {
+      const end = Date.now() + 30;
+      while (Date.now() < end);
+    }, 100);
+  if (modes.includes('turn_end')) {
+    const settings = JSON.parse(readFileSync(join(home, isCodex ? 'hooks.json' : 'settings.json'), 'utf8'));
+    const hooks = settings.hooks?.Stop ?? [];
+    const payload = JSON.stringify({
+      session_id: session,
+      hook_event_name: 'Stop',
+      last_assistant_message: 'handed off by the fake',
+    });
+    // The owner's hook in the fixture names a path that does not exist; it fails like a broken hook would.
+    for (const group of hooks) for (const h of group.hooks) spawnSync('/bin/sh', ['-c', h.command], { input: payload });
+  }
+  setInterval(() => undefined, 60_000);
+  await new Promise(() => undefined);
+}
 const codex = argv[0] === 'exec';
 const modes = (process.env.FAKE_VENDOR_MODE ?? '').split(',');
 const has = (m) => modes.includes(m);
