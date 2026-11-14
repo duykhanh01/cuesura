@@ -66,7 +66,7 @@ describe('renderReport', () => {
     );
   });
 
-  it('shows each project with its finished tasks, waits, decider answers and usage', () => {
+  it('shows each project with its finished tasks, waits, deputy decisions, waivers, goals and usage', () => {
     const out = renderReport({
       since: NOW - 1,
       until: NOW,
@@ -119,17 +119,79 @@ describe('renderReport', () => {
             truncated: false,
           },
           running: empty,
-          decisions: {
+          deputy_decisions: {
             items: [
               {
                 task_id: TASK,
                 title: 'Ask',
+                actor: 'agent:decider',
+                goal_id: TASK,
+                unit_key: null,
+                turn_id: null,
+                incident: null,
+                action: 'answer',
+                detail: 'The old one.',
                 question: 'Which helper?',
-                answer: 'The old one.',
                 reason: 'Spec.',
+                hypothesis: null,
+                expect: null,
                 applied: false,
                 failure: 'answered_by_user',
+                result: null,
                 at: NOW,
+              },
+              {
+                task_id: TASK2,
+                title: 'Paused',
+                actor: 'deputy',
+                goal_id: 'goal-1',
+                unit_key: 'a',
+                turn_id: 'turn-1',
+                incident: 'i:1:backoff_exhausted:3',
+                action: 'task_continue',
+                detail: null,
+                question: null,
+                reason: 'transient network error',
+                hypothesis: 'the mirror is back',
+                expect: 'prepare passes',
+                applied: true,
+                failure: null,
+                result: {
+                  signature_changed: false,
+                  errors_delta: 0,
+                  tree_changed: false,
+                  progressed: false,
+                },
+                at: NOW,
+              },
+            ],
+            truncated: false,
+          },
+          waivers: {
+            items: [
+              {
+                task_id: TASK2,
+                title: 'Paused',
+                status: 'waived',
+                target: { kind: 'gate', key: 'unit' },
+                by: 'deputy',
+                turn_id: 'turn-1',
+                reason: 'flaky timer',
+                evidence: 'timer flake #12',
+                at: NOW,
+              },
+            ],
+            truncated: false,
+          },
+          goals: {
+            items: [
+              {
+                goal_id: 'goal-1',
+                status: 'running',
+                summary: 'Search page',
+                units: 2,
+                done: 1,
+                ended_at: null,
               },
             ],
             truncated: false,
@@ -157,6 +219,16 @@ describe('renderReport', () => {
     expect(out).toContain('  A: The old one.');
     expect(out).toContain('  Why: Spec.');
     expect(out).toContain('  Not applied: answered_by_user.');
+    expect(out).toContain('Deputy decisions (2)');
+    expect(out).toContain(`- ${TASK2} Paused: task_continue (goal goal-1, unit a)`);
+    expect(out).toContain('  Incident: i:1:backoff_exhausted:3 (turn turn-1)');
+    expect(out).toContain('  Why: transient network error');
+    expect(out).toContain('  Hypothesis: the mirror is back; expect: prepare passes');
+    expect(out).toContain('  Result: no progress (signature unchanged, errors +0, tree unchanged)');
+    expect(out).toContain('Waivers (1)');
+    expect(out).toContain(`- ${TASK2} waived gate unit by deputy: flaky timer`);
+    expect(out).toContain('Goals (1)');
+    expect(out).toContain('goal-1');
     expect(out).toContain(
       'Usage of finished tasks: 120 tokens (1 of 3 runs not included), cost unavailable; 3 agent runs (2 reported, 1 unavailable).',
     );

@@ -64,6 +64,7 @@ import {
 import { ensureWorktree, markerPath, taskBranch } from '../adapters/git/worktree.ts';
 import { ROLES, wireRoleSchema, type Role } from '../adapters/harness/result-schema.ts';
 import { manifestShortfalls } from '../application/capabilities.ts';
+import { contentDecisions, taskDecisions } from '../application/deputy-decisions.ts';
 import { toMergeProof } from '../adapters/github/merge-proof.ts';
 import { observePull } from '../adapters/github/observe.ts';
 import {
@@ -74,6 +75,7 @@ import {
   updatePrDescription,
   goalPrContent,
   withDeputyAssumptions,
+  withDeputyDecisions,
   type GoalPrInput,
   type DescriptionUpdate,
   type PrFact,
@@ -1059,7 +1061,12 @@ function acceptContent(
       ? [{ question: q.body, answer: q.answer }]
       : [],
   );
-  const content = { ...v.value, pr_body: withDeputyAssumptions(v.value.pr_body, assumptions) };
+  // FR-111: what the deputy decided up to this publish; later decisions show in the views only.
+  const decided = withDeputyDecisions(
+    v.value.pr_body,
+    contentDecisions(taskDecisions(deps.store, l.s)),
+  );
+  const content = { ...v.value, pr_body: withDeputyAssumptions(decided, assumptions) };
   return {
     outcome: 'succeeded',
     data: { ...data, content: contentStore(deps).put(content) },

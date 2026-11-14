@@ -311,6 +311,76 @@ describe('explainSummary', () => {
     expect(failed).not.toHaveProperty('unverified');
   });
 
+  it('keeps the loop signals, the failure signature, waivers as waived and the deputy decisions (007, T053)', () => {
+    const waiver = {
+      id: 'w1',
+      target: { kind: 'gate', key: 'unit' },
+      scope: 'sha256:s',
+      evidence: LONG,
+      reason: 'flaky timer',
+      by: 'deputy',
+      turn_id: 't1',
+      revision: 1,
+      signature: 'sha256:x',
+      at: 5,
+      status: 'waived',
+    };
+    const decision = {
+      at: 4,
+      actor: 'deputy',
+      goal_id: 'g1',
+      task_id: ID,
+      unit_key: 'a',
+      turn_id: 't1',
+      incident: 'i1',
+      action: 'task_continue',
+      detail: null,
+      reason: 'transient',
+      hypothesis: 'mirror back',
+      expect: 'prepare passes',
+      applied: true,
+      failure: null,
+      result: null,
+      events: ['TaskResumed'],
+    };
+    const out = explainSummary({
+      ...full,
+      loop_signals: [{ kind: 'environment', detail: 'backoff_exhausted' }],
+      signature: 'sha256:x',
+      waivers: [waiver],
+      deputy: { turn_id: 't2', kind: 'incident', state: 'running' },
+      deputy_decisions: [decision],
+      branch_conflicts: [],
+    }) as Record<string, unknown>;
+    expect(out).toMatchObject({
+      loop_signals: [{ kind: 'environment', detail: 'backoff_exhausted' }],
+      signature: 'sha256:x',
+      waivers: [
+        {
+          status: 'waived',
+          target: { kind: 'gate', key: 'unit' },
+          by: 'deputy',
+          reason: 'flaky timer',
+        },
+      ],
+      deputy: { turn_id: 't2', kind: 'incident', state: 'running' },
+      deputy_decisions: [
+        {
+          at: 4,
+          action: 'task_continue',
+          turn_id: 't1',
+          reason: 'transient',
+          hypothesis: 'mirror back',
+          expect: 'prepare passes',
+          applied: true,
+        },
+      ],
+    });
+    // Evidence text stays behind --full; nothing empty is shown.
+    expect(JSON.stringify(out)).not.toContain(LONG);
+    expect(out).not.toHaveProperty('branch_conflicts');
+  });
+
   it('passes a reply it does not recognize through unchanged', () => {
     expect(explainSummary({ unexpected: true })).toEqual({ unexpected: true });
     expect(explainSummary(null)).toBeNull();
@@ -494,6 +564,42 @@ describe('historySummary', () => {
       next_cursor: 1,
       more: false,
       details: `cusr task history ${ID} --full`,
+    });
+  });
+
+  it("keeps a command's reason, turn and trial on its events (007, T096)", () => {
+    const trial = { hypothesis: 'mirror back', expect: 'prepare passes' };
+    expect(
+      historySummary({
+        task_id: ID,
+        events: [
+          {
+            seq: 2,
+            type: 'TaskResumed',
+            revision: 1,
+            actor: 'deputy',
+            dedup_key: 'cmd:r1:continue',
+            payload: {},
+            request_id: 'r1',
+            reason: 'transient',
+            turn_id: 't1',
+            trial,
+          },
+        ],
+        next_cursor: 2,
+        more: false,
+      }),
+    ).toMatchObject({
+      events: [
+        {
+          seq: 2,
+          actor: 'deputy',
+          request_id: 'r1',
+          reason: 'transient',
+          turn_id: 't1',
+          trial,
+        },
+      ],
     });
   });
 });

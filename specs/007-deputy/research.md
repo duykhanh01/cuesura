@@ -766,3 +766,36 @@ Dựng trên nhánh lát B (`007/slice-b`, PR #291).
   chiều của task kiểm sau cùng; cặp không xung đột hay không còn chồng file thì xóa dòng. Đọc lỗi thì không ghi gì và
   lần sau kiểm lại. Dòng của task đã kết thúc bị xóa đầu mỗi round. Hiện ở vùng 4 của context (phần đầu, không bị gập
   trước), `task explain` (`branch_conflicts`) và `goal show` (các cặp chạm đơn vị hay task tổng).
+
+### Quyết định khi làm lát H
+
+Đối chiếu tại `origin/main` `80847dd` ngày 2026-11-14.
+
+- **Một bộ dựng cho mọi chỗ (FR-110).** `taskDecisions` (`src/application/deputy-decisions.ts`) dựng quyết định của một
+  task từ command ledger (lệnh `completed` của actor `deputy`, kể cả lệnh bị từ chối, ghi `applied: false` và lỗi),
+  event của task nối theo `dedup_key` dạng `cmd:<request_id>:…`, bản ghi lượt (sự cố qua `turn_id`, bàn giao thành mục
+  `handoff`) và bảng thử của đơn vị (`unitFacts`, kết quả đo theo `request_id`). Câu trả lời cũ của decider
+  (`decider_runs`) thành mục `answer` với actor `agent:decider` (FR-122). `report`, `goal show`, `task show`,
+  `task explain`, `decisions.md` và mô tả PR đơn vị đều đọc từ đây; không có bảng mới, không có event mới.
+- **`report`.** Mục `decisions` đổi thành `deputy_decisions` (hợp đồng cli-daemon), thêm `waivers` (mỗi bản miễn có
+  `status: 'waived'`) và `goals` (goal còn mở hay kết thúc trong cửa sổ, kèm số đơn vị DONE). Quyết định và bản miễn
+  tính theo thời điểm của chính chúng, như câu trả lời decider trước đây. `addToReport` nhận danh sách quyết định;
+  không truyền thì dùng `decider_runs` của state, nên test thuần cũ vẫn chạy.
+- **`decisions.md` dựng lại bằng round của daemon** (`src/daemon/decisions-note.ts`), không do lượt deputy ghi. Tập
+  task cần quét: ledger của deputy, lượt có bàn giao, và event `DeciderRan`/`Waived` đọc theo khoảng `global_seq` (khóa
+  chính) với con trỏ giữ trong tiến trình, nên không quét cả bảng `events` mỗi vòng. Round chỉ dựng lại khi
+  `lastGlobalSeq` hay dấu của ledger và lượt đổi; ghi nguyên tử, chỉ khi nội dung khác, qua `Redactor`. Bản miễn ghi
+  là "waived, not a pass".
+- **Mục quyết định trong PR đơn vị (FR-111, R-14).** Dựng lúc nhận content của worker, cùng chỗ với mục giả định của
+  lát B, nên là một phần của content đã lưu và probe so toàn thân vẫn đúng. Liệt kê lệnh đã áp của deputy trên task,
+  trừ `answer` (đã là giả định), `task_waive` (đã ở mục "Waivers") và bàn giao. Quyết định sau lần nhận content cuối
+  chỉ hiện ở các chỗ của FR-110. Không lọc theo revision như mục giả định: lệnh của revision trước vẫn đã định hướng
+  công việc.
+- **Lịch sử task (T096).** `task_history` gắn vào mỗi event sinh từ lệnh: `request_id`, `reason`, `turn_id`, `trial`
+  (giả thuyết, tiêu chí) đọc từ ledger theo `dedup_key`; actor vẫn là actor của event. Event không phải từ lệnh giữ
+  nguyên. Bản tóm tắt CLI giữ các trường này và in thêm dòng `turn`/`why`/`trial` dưới bảng.
+- **T053 (còn từ lát C).** JSON của `task explain` đã có `loop_signals`, `signature`, `waivers` từ lát C, nhưng bản tóm
+  tắt mặc định của CLI bỏ chúng. Lát H giữ chúng (cùng lượt sống `deputy`, `deputy_decisions` và `branch_conflicts`) trong
+  `explainSummary`, cắt chuỗi dài như mọi trường khác; bằng chứng của bản miễn để `--full`.
+- **Chạm vùng của lát G:** thêm một round vào danh sách `rounds` trong `src/daemon/production.ts` (một import, một
+  mục); không sửa gì khác ở đó.

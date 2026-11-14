@@ -36,6 +36,12 @@ import type { Admitted, CommandInput } from './commands.ts';
 import { recordConfigCheck } from './confirm.ts';
 import { goalLedger, noteKindOf } from './goal-ledger.ts';
 import {
+  taskDecisions,
+  waiverView,
+  type DeputyDecision,
+  type WaiverView,
+} from './deputy-decisions.ts';
+import {
   checkedProposal,
   type AppError,
   type RunSelectionProposal,
@@ -1191,12 +1197,37 @@ export function goalShow(
         started_at: t.started_at,
       })),
     ledger: goalLedger(store, g).slice(-LEDGER_SHOWN),
+    // FR-110, FR-046: every decision on the goal's tasks, and their waivers as waived.
+    ...goalDecisions(store, g),
     branch_conflicts: store.conflicts.among([
       ...units.map((u) => u.task_id),
       ...(g.final_task_id === null ? [] : [g.final_task_id]),
     ]),
     ...(extras?.(g) ?? {}),
   });
+}
+
+function goalDecisions(
+  store: Store,
+  g: GoalState,
+): { deputy_decisions: DeputyDecision[]; waivers: (WaiverView & { task_id: string })[] } {
+  const ids = [
+    ...Object.values(g.units).flatMap((u) => [...u.previous, u.task_id]),
+    ...(g.final_task_id === null ? [] : [g.final_task_id]),
+  ];
+  const tasks = [...new Set(ids)].flatMap((id) => {
+    const s = store.readTask(id as Uuid);
+    return s === null ? [] : [s];
+  });
+  return {
+    deputy_decisions: tasks
+      .flatMap((s) => taskDecisions(store, s))
+      .sort((a, b) => a.at - b.at)
+      .slice(-LEDGER_SHOWN),
+    waivers: tasks.flatMap((s) =>
+      (s.run.waivers ?? []).map((w) => ({ task_id: s.id, ...waiverView(w) })),
+    ),
+  };
 }
 
 /** `goal list` (FR-100): readable from any session, no lease needed. */
