@@ -57,9 +57,15 @@ export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing
       detail: { pr_ref: s.task.pr_ref, ...(typeof seen === 'string' ? { head_sha: seen } : {}) },
     });
   }
-  const status = s.task.depends_on.map((d) => [d, deps[d] ?? 'missing'] as const);
+  // A task of a planned goal waits on the current task of each unit key (R-29); a unit FAILED while
+  // the goal replans is waited on, not a failed dependency.
+  const goalDeps = ctx.related.goal_deps;
+  const replan = goalDeps?.replan ?? [];
+  const status = (goalDeps?.ids ?? s.task.depends_on).map(
+    (d) => [d, deps[d] ?? 'missing'] as const,
+  );
   const failed = status.filter(
-    ([, st]) => st === 'FAILED' || st === 'CANCELLED' || st === 'missing',
+    ([d, st]) => !replan.includes(d) && (st === 'FAILED' || st === 'CANCELLED' || st === 'missing'),
   );
   if (failed.length > 0) {
     return mkWait('dependency', 'dependency_failed', {
@@ -69,6 +75,7 @@ export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing
     });
   }
   const waiting = status.filter(([, st]) => st !== 'DONE');
+  const replanning = waiting.filter(([d]) => replan.includes(d)).map(([d]) => d);
   // A unit dispatches only once its goal branch exists (contracts/goal.md, "Khi xác nhận").
   const branch = ctx.related.goal_branch;
   const noBranch = branch !== undefined && !branch.created;
@@ -77,10 +84,12 @@ export function pendingWait(ctx: Ctx, deps: Record<string, TaskStatus | 'missing
       resume: { kind: 'triage' },
       resume_when: [
         ...waiting.map(([d]) => `dependency_status(${d}=DONE)`),
+        ...(replanning.length > 0 ? ['goal_amend(replace unit)'] : []),
         ...(noBranch ? ['goal_branch_ready'] : []),
       ],
       detail: {
         deps: Object.fromEntries(waiting),
+        ...(replanning.length > 0 ? { replan: replanning } : {}),
         ...(noBranch ? { goal_branch: branch.name } : {}),
       },
     });

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { HandoffSchema } from '../domain/deputy.ts';
+import { HandoffSchema, type SpentFail } from '../domain/deputy.ts';
 import { GoalHintsSchema } from '../domain/goal.ts';
 import { TrialSchema, type AuthzRole, type Trial } from '../domain/policy.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
@@ -11,6 +11,7 @@ import type { Admission, LedgerError, Store } from '../store/index.ts';
 import { isTerminal, WAIVER_KINDS, type TaskState } from '../domain/state.ts';
 import { bindingModel } from '../engine/loop-signals.ts';
 import {
+  exhaustion,
   loopGuard,
   trialAction,
   type GuardReason,
@@ -455,10 +456,16 @@ function guardDeputy(
   kind: CommandKind,
   payload: unknown,
   trial: Trial | null,
-): Result<TrialFact | null, AdmitError> {
+): Result<TrialFact | SpentFail | null, AdmitError> {
   const action = trialAction(kind, payload);
   const ran = Object.values(s.attempts).map((a) => bindingModel(a.binding));
   const facts = unitFacts(deps.store, s, deps.models ?? [...new Set(ran)]);
+  if (kind === 'task_fail')
+    return ok(
+      s.status === 'WAITING' && exhaustion(facts.guard).all
+        ? { exhausted_signature: facts.signature.signature }
+        : null,
+    );
   const refused = loopGuard(facts.guard, kind, action);
   if (refused !== null)
     return err({

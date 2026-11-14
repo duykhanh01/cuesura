@@ -335,23 +335,23 @@ vào nhánh gốc.
 
 ### Tests
 
-- [ ] T082 [P] [US4] Scheduler test `test/integration/runtime/goal-scheduler.test.ts` (SC-011): hai goal, scope rời chạy
+- [x] T082 [P] [US4] Scheduler test `test/integration/runtime/goal-scheduler.test.ts` (SC-011): hai goal, scope rời chạy
   song song tới hết slot; scope chồng thì chờ theo guard; một lượt deputy đang chạy không đổi kết quả dispatch.
-- [ ] T083 [P] [US4] Contract test `test/contract/deputy/branch-conflicts.test.ts`: hai nhánh xung đột thật thì có dòng
+- [x] T083 [P] [US4] Contract test `test/contract/deputy/branch-conflicts.test.ts`: hai nhánh xung đột thật thì có dòng
   `branch_conflicts`; chỉ đổi cùng file mà không xung đột thì không; dòng bị xóa khi một task kết thúc; không task nào chờ vì
   xung đột.
-- [ ] T084 [P] [US3] Scenario `test/scenarios/deputy/goal-replan.test.ts`: đơn vị FAILED đưa goal vào `replan`; lượt `plan`
+- [x] T084 [P] [US3] Scenario `test/scenarios/deputy/goal-replan.test.ts`: đơn vị FAILED đưa goal vào `replan`; lượt `plan`
   thay đơn vị bằng task mới cùng khóa (thực thi), hoặc gửi sửa phạm vi chờ người, hoặc `handover`; đơn vị độc lập vẫn chạy;
   task phụ thuộc và task tổng không bị hủy dây chuyền, kể cả khi scheduler chạy trước lượt `plan`, và được đánh thức khi
   task thay thế DONE; thay đơn vị đã FAILED vì loop guard là sửa phạm vi.
 
 ### Implementation
 
-- [ ] T085 [US4] `src/daemon/conflicts.ts`: sau checkpoint, `git merge-tree --write-tree` với task hoạt động có file đã đổi
+- [x] T085 [US4] `src/daemon/conflicts.ts`: sau checkpoint, `git merge-tree --write-tree` với task hoạt động có file đã đổi
   chồng nhau; ghi `branch_conflicts` (FR-092). Đưa vào vùng 4 của context, `task explain`, `goal show`.
-- [ ] T086 [US4] Kiểm scheduler với đơn vị: scope khai báo bắt buộc đã có từ kế hoạch; không thêm luật chờ mới (FR-090,
+- [x] T086 [US4] Kiểm scheduler với đơn vị: scope khai báo bắt buộc đã có từ kế hoạch; không thêm luật chờ mới (FR-090,
   FR-091).
-- [ ] T087 [US3] Replan (FR-076, R-29): đơn vị FAILED thì `GoalReplanNeeded`; `notifyDependents` giải phụ thuộc theo khóa
+- [x] T087 [US3] Replan (FR-076, R-29): đơn vị FAILED thì `GoalReplanNeeded`; `notifyDependents` giải phụ thuộc theo khóa
   đơn vị và không hủy dây chuyền trong goal có kế hoạch chưa kết thúc; lối ra của lượt `plan` theo FR-076; thay đơn vị bằng
   task mới cùng khóa trong `goal_tasks`; goal `failed`/`cancelled` thì hủy task chưa kết thúc.
 

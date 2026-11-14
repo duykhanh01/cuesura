@@ -93,6 +93,9 @@ export function decideGoal(state: GoalState | null, env: GoalEnvelope): GoalDeci
         affected: t.affected,
         by,
         reason,
+        ...(t.amendment === 'execution' && t.units !== undefined && Object.keys(t.units).length > 0
+          ? { units: t.units }
+          : {}),
         at,
       };
       return accepted(

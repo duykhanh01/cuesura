@@ -79,8 +79,9 @@ type DependencyStatus = Extract<Trigger, { kind: 'dependency_status' }>;
 
 export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
   const s = ctx.state;
+  const goalDeps = ctx.related.goal_deps;
   if (
-    !s.task.depends_on.includes(t.depends_on) ||
+    !(goalDeps?.ids ?? s.task.depends_on).includes(t.depends_on) ||
     (s.status !== 'PENDING' && s.status !== 'READY')
   ) {
     ctx.emit('SignalIgnored', {
@@ -89,7 +90,9 @@ export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
     });
     return;
   }
-  if (t.status === 'FAILED' || t.status === 'CANCELLED') {
+  // R-29: read from the goal in this transaction, not from the trigger, so a goal that ended since cascades.
+  const replan = goalDeps?.replan.includes(t.depends_on) === true;
+  if ((t.status === 'FAILED' && !replan) || t.status === 'CANCELLED') {
     requestCancel(ctx, cascadeReason(t.depends_on, t.status, t.provenance?.terminal_reason));
     return;
   }

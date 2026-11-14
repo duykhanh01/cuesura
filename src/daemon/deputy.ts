@@ -32,6 +32,7 @@ import { isGoalTerminal, type GoalState } from '../domain/goal.ts';
 import { DEFAULT_BACKOFF } from '../config/normalize.ts';
 import {
   HandoffSchema,
+  LOOP_GUARD_ACTOR,
   type DeputyTurn,
   type FinalTurnState,
   type Handoff,
@@ -56,10 +57,7 @@ import { err, ok } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import type { CommandHandler } from './main.ts';
 
-export { DEPUTY_ACTOR } from '../domain/deputy.ts';
-
-/** Who ends a task whose every action ran out on its failure signature (FR-044). */
-export const LOOP_GUARD_ACTOR = 'system:loop-guard';
+export { DEPUTY_ACTOR, LOOP_GUARD_ACTOR } from '../domain/deputy.ts';
 
 /** How often a turn this daemon cannot conclude yet (still running elsewhere, unproven) is looked at again. */
 const ADOPT_RECHECK_MS = 10_000;
@@ -195,6 +193,9 @@ You act for the project owner, who is away, on the plan of one Cuesura goal. You
   depends_on (unit keys, no cycle) and run_config (from \`cusr task options\`). One unit when one is enough.
 - Send it with \`cusr goal propose\` (or \`cusr goal amend\` on a confirmed plan) with --reason and the
   plan_version given below. A refusal lists every problem: fix them and send again.
+- A unit FAILED (replan): keep its key in the plan you amend and it is retried by a new task of that key;
+  its dependents wait for it. Change only execution details, or send a scope change for the owner. A
+  unit the loop guard ended is retried only once the owner confirms the amendment.
 - The owner confirms the plan; you never do. If the goal needs the owner, say so with decision "handover".
 - Always end with \`cusr deputy handoff --cause <cause> --decision planned|handover\`.
 - Your final structured answer is a short closing message for the owner.`;

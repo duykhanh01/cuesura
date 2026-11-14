@@ -15,6 +15,7 @@ import {
   type Plan,
   type PlanUnit,
 } from '../domain/goal.ts';
+import { DEPUTY_ACTOR, isSpentFail, LOOP_GUARD_ACTOR } from '../domain/deputy.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import { CanonicalTaskSchema, TASK_SCHEMA_VERSION, type CanonicalTask } from '../domain/task.ts';
 import { selectionDigest, type RunSelection } from '../domain/run-config.ts';
@@ -673,6 +674,44 @@ function rewriteUnit(
   );
 }
 
+/**
+ * Keys still in `plan` whose current task FAILED: an amendment retries each with a new task of the same
+ * key, which its dependents then wait on (FR-075, R-29).
+ */
+function failedUnits(store: Store, goal: GoalState, plan: Plan): string[] {
+  const tasks = unitTasks(goal);
+  return plan.units.flatMap((u) => {
+    const id = tasks.get(u.key);
+    return id !== undefined && store.readTask(id as Uuid)?.status === 'FAILED' ? [u.key] : [];
+  });
+}
+
+/**
+ * The unit failed on a spent failure signature (FR-075, R-19): the loop guard ended it, or the deputy
+ * failed it after every action ran out, as the ledger row of the fail that succeeded records. A new task
+ * of the same key would only run the same loop again, so retrying it needs the owner.
+ */
+function failedOnSpentSignature(store: Store, goal: GoalState, key: string): boolean {
+  const id = unitTasks(goal).get(key);
+  if (id === undefined) return false;
+  if (
+    store.readEvents(id as Uuid).findLast((e) => e.type === 'TaskFailed')?.actor ===
+    LOOP_GUARD_ACTOR
+  )
+    return true;
+  // Only the fail that ended the task counts: a refused one (a stale version, say) marks nothing.
+  return store
+    .commandsFor([id])
+    .some(
+      (c) =>
+        c.kind === 'task_fail' &&
+        c.actor === DEPUTY_ACTOR &&
+        c.status === 'completed' &&
+        (c.result as { ok?: unknown } | null)?.ok === true &&
+        isSpentFail(c.trial),
+    );
+}
+
 /** Existing, unfinished tasks of `keys` in `plan`, with the ones not started yet apart. */
 function existingUnits(
   store: Store,
@@ -719,8 +758,12 @@ export async function goalAmend(
   const p = input.payload as { plan: unknown; plan_version: number };
   const plan = parsePlan(p.plan);
   if (!plan.ok) return plan;
-  const kind = classifyAmendment(current, plan.value, RULES);
-  const affected = affectedUnits(current, plan.value);
+  const replaced = failedUnits(deps.store, goal, plan.value);
+  const kind = replaced.some((k) => failedOnSpentSignature(deps.store, goal, k))
+    ? 'scope'
+    : classifyAmendment(current, plan.value, RULES);
+  const changed = affectedUnits(current, plan.value);
+  const affected = [...changed, ...replaced.filter((k) => !changed.includes(k))];
   // Every unit the amendment touches is checked against its menu now, whatever its kind (FR-075).
   const checked = await checkPlan(
     deps,
@@ -738,6 +781,10 @@ export async function goalAmend(
   const authz = authzContext(caller, now);
   const rid = admitted.record.request_id;
   const keyToTask = unitTasks(goal);
+  // An execution amendment replaces each FAILED unit at once; a scope one on its confirmation.
+  const units =
+    kind === 'execution' ? Object.fromEntries(replaced.map((k) => [k, deps.newId()])) : {};
+  for (const [k, id] of Object.entries(units)) keyToTask.set(k, id);
   const r = submitGoal(
     deps,
     admitted,
@@ -751,9 +798,25 @@ export async function goalAmend(
       plan_hash: hash,
       amendment: kind,
       affected,
+      ...(Object.keys(units).length === 0 ? {} : { units }),
     },
     (tx) => {
       if (kind === 'execution') {
+        // Before the rewrites below, whose `depends_on` may name them.
+        for (const layer of parallelGroups(plan.value) ?? [])
+          for (const key of layer) {
+            const id = units[key];
+            if (id === undefined) continue;
+            const unit = plan.value.units.find((u) => u.key === key) as PlanUnit;
+            createUnit(
+              tx,
+              deps,
+              caller,
+              unitTask(goal, plan.value, unit, id, keyToTask, caller, goal.branch),
+              checked.value.runs[key] as RunSelectionProposal,
+              `cmd:${rid}:unit:${key}:replace`,
+            );
+          }
         for (const key of rewrite) {
           const s = tx.readTask(keyToTask.get(key) as string);
           if (!notStarted(s)) continue;
@@ -821,9 +884,12 @@ export async function goalConfirm(
     return r;
   }
   const keyToTask = unitTasks(goal);
-  // New units get a task; units the amendment touched get its content. Units no longer in the plan keep
-  // their task (lát F).
-  const added = plan.units.filter((u) => !keyToTask.has(u.key)).map((u) => u.key);
+  // New units get a task, and so does each unit whose task FAILED (R-29); units the amendment touched
+  // get its content. Units no longer in the plan keep their task.
+  const failed = failedUnits(deps.store, goal, plan);
+  const added = plan.units
+    .filter((u) => !keyToTask.has(u.key) || failed.includes(u.key))
+    .map((u) => u.key);
   const touched =
     pending === null
       ? { all: [], unstarted: [] }
@@ -1125,6 +1191,10 @@ export function goalShow(
         started_at: t.started_at,
       })),
     ledger: goalLedger(store, g).slice(-LEDGER_SHOWN),
+    branch_conflicts: store.conflicts.among([
+      ...units.map((u) => u.task_id),
+      ...(g.final_task_id === null ? [] : [g.final_task_id]),
+    ]),
     ...(extras?.(g) ?? {}),
   });
 }

@@ -64,6 +64,7 @@ import { ObservationCoordinator, observationRound } from './observation.ts';
 import { statusSinceReader } from '../application/board.ts';
 import { retireDecider } from './decider-upgrade.ts';
 import { goalProgress } from '../application/goals.ts';
+import { conflictRound } from './conflicts.ts';
 import { goalBranchRound } from './goal-branch.ts';
 import { createDeputy, deputyHandoffHandler } from './deputy.ts';
 import { createDeputyAbsent } from './deputy-absent.ts';
@@ -616,6 +617,13 @@ export async function productionControl(opts: {
         },
         () => deputyAbsent.round(),
         () => Promise.resolve(goalProgress(store, opts.clock.now())),
+        conflictRound({
+          store,
+          git: ports.git,
+          projectPath: scopeDeps.projectPath,
+          now,
+          ...(opts.log === undefined ? {} : { log: opts.log }),
+        }),
         () =>
           goalBranchRound({
             store,

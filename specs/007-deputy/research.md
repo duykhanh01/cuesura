@@ -722,3 +722,47 @@ Dựng trên nhánh lát B (`007/slice-b`, PR #291).
   Một người merge tay PR đơn vị trên GitHub, trong lúc observation chưa ghi, cũng bị coi là drift.
 - **Chưa kiểm:** CI thật trên PR vào nhánh `goal/*`. Workflow GitHub Actions lọc `pull_request.branches` có thể không
   chạy, khi đó đơn vị đứng ở bước CI.
+
+### Quyết định khi làm lát F
+
+Đối chiếu tại `origin/main` `834e99d` ngày 2026-11-14.
+
+- **Scheduler không đổi (T086).** Scheduler chỉ đọc slot, hàng đợi, phụ thuộc và scope guard (#240); không đọc
+  `deputy_turns` hay goal. Đơn vị mang `scope` của kế hoạch nên guard luôn có dữ liệu. Không thêm luật chờ nào: test
+  `goal-scheduler` xanh ngay trước khi sửa code, kể cả khi có lượt deputy (incident và `plan`) đang chạy (FR-090, FR-091).
+- **Phụ thuộc theo khóa (R-29).** `unitPrerequisites` (thuần, `src/domain/goal.ts`) giải khóa thành task hiện hành của khóa
+  qua `goal.units`: với đơn vị là `depends_on_units`, với task tổng là mọi đơn vị của kế hoạch hiện hành. Nhờ vậy đơn vị
+  thêm bằng sửa đổi phạm vi sau lần confirm đầu cũng chặn task tổng (mục "dời sang lát F" của lát E), và đơn vị bị bỏ khỏi
+  kế hoạch thì thôi chặn. `depends_on` đóng băng của task giữ nguyên, chỉ dùng ngoài goal có kế hoạch.
+- **Cờ `replan` lấy từ store, không từ trigger.** `relatedFacts` đọc goal trong cùng transaction và trả
+  `goal_deps { ids, replan }`; engine giữ task ở `dependency_pending` có `detail.replan` khi khóa FAILED và goal chưa kết
+  thúc, kể cả khi lần triage khác (không phải `dependency_status`) chạy trước lượt `plan`. Trigger vẫn mang
+  `replan: true` để giải thích; dedup của thông báo là `dep-replan:<task>:<dep>`, nên khi goal `failed` hay `cancelled`
+  sau đó, thông báo `dep-cascade` hủy task phụ thuộc như cũ.
+- **Thay đơn vị FAILED.** Không có lệnh riêng: mọi `goal amend` (hay `goal confirm` của sửa đổi phạm vi) giữ một khóa
+  có task hiện hành FAILED thì khóa đó được thay bằng task mới cùng nội dung đơn vị trong kế hoạch. Sửa thực thi tạo
+  task ngay trong transaction của `PlanAmended` (payload thêm `units`, tùy chọn); sửa phạm vi tạo lúc confirm qua
+  `PlanConfirmed.units` như đơn vị mới. Khóa có task cũ chuyển sang `previous`, `goal_tasks` có thêm dòng. Request hash
+  của `amend` bỏ `units` như `confirm`.
+- **Chữ ký đã cạn là sửa phạm vi, bất kể ai fail.** Sửa đổi giữ một khóa là loại phạm vi khi task FAILED của khóa đó
+  có event `TaskFailed` do `system:loop-guard`, hoặc do deputy `task fail` lúc mọi hành động trên chữ ký đã cạn. Trường
+  hợp sau được ghi lúc admit lệnh: guard facts tính như mọi lệnh của deputy, và nếu `exhaustion(...).all` khi task còn
+  WAITING thì dòng ledger của `task fail` giữ `{ exhausted_signature }` ở cột `trial_json`. Không tính lại từ task đã kết
+  thúc vì `TaskFailed` xóa wait. `LOOP_GUARD_ACTOR` và `SpentFail` ở `src/domain/deputy.ts`. Bản đầu của lát này dựa vào
+  việc task thay thế kế thừa bảng thử theo khóa; review #296 chỉ ra điều đó không đủ: bảng thử chỉ chặn lệnh của deputy
+  về sau, còn worker của task thay thế đã chạy trước sự cố kế tiếp mà không ai xác nhận (FR-075).
+  Chỉ dấu của lệnh `task fail` đã hoàn tất thành công mới được tính; lệnh bị từ chối (ví dụ version cũ) không đánh dấu
+  gì, nên sau bằng chứng mới, lần fail hợp lệ không cạn được thay bằng sửa thực thi (review #296 vòng 2).
+- **Không backfill (không làm).** Lệnh `task fail` nhận trước bản này không có dấu, nên thay đơn vị đó vẫn là sửa thực
+  thi. Chấp nhận vì feature 007 chưa phát hành, dữ liệu như vậy chỉ có ở môi trường dev.
+- **Thay mọi khóa FAILED còn trong kế hoạch (hoãn).** Sửa đổi không có danh sách khóa cần thay: giữ khóa FAILED nào thì
+  thay khóa đó, kể cả khóa mà sửa đổi không nhắm tới. Muốn chọn từng khóa cần chốt hợp đồng danh sách khóa tường minh.
+- **Goal `failed`.** Chỉ task tổng FAILED làm goal `failed`, khi đó mọi đơn vị trong kế hoạch đã DONE; task chưa kết thúc
+  còn lại (nếu có) bị hủy dây chuyền qua `dep-cascade`. `goal cancel` vẫn hủy trực tiếp như lát E. Không thêm round
+  hủy riêng.
+- **`branch_conflicts` (T085).** Round `conflictRound` (`src/daemon/conflicts.ts`) chạy sau `goalProgress`: với mỗi task
+  sống có checkpoint mới (so theo sha, nhớ trong tiến trình; restart thì kiểm lại một lần), lấy các task chồng file từ
+  `projectScopes` hiện có rồi chạy `git merge-tree --write-tree --name-only -z` giữa hai head. Mỗi cặp lưu một dòng theo
+  chiều của task kiểm sau cùng; cặp không xung đột hay không còn chồng file thì xóa dòng. Đọc lỗi thì không ghi gì và
+  lần sau kiểm lại. Dòng của task đã kết thúc bị xóa đầu mỗi round. Hiện ở vùng 4 của context (phần đầu, không bị gập
+  trước), `task explain` (`branch_conflicts`) và `goal show` (các cặp chạm đơn vị hay task tổng).

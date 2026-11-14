@@ -214,6 +214,10 @@ function volatileZone(store: Store, goal: GoalState, self: string | null, since:
     for (const e of evs) items.push(`- event ${u.task_id} #${e.seq} ${e.type}`);
   }
   const ids = Object.values(goal.units).map((u) => u.task_id);
+  // FR-092: real conflicts with other live branches, the goal's units and any other task alike.
+  const conflicts = store.conflicts
+    .among(self === null ? ids : [self, ...ids])
+    .map((c) => `- conflict ${c.task_id} x ${c.other_task_id}: ${c.files.join(', ')}`);
   for (const c of store.commandsFor([goal.id, ...ids]))
     if (c.actor !== 'deputy' && c.admitted_at > since && c.status === 'completed')
       items.push(
@@ -221,7 +225,7 @@ function volatileZone(store: Store, goal: GoalState, self: string | null, since:
       );
   return {
     title: 'Now',
-    head: units.length === 0 ? ['- no unit task yet'] : units,
+    head: [...(units.length === 0 ? ['- no unit task yet'] : units), ...conflicts],
     items,
     label: 'events and writes',
   };

@@ -809,6 +809,8 @@ export function taskExplain(
     ),
     ...liveTurn(store, s.id),
     ...loopView(store, s),
+    // FR-092: what the daemon found at the last checkpoints; information only.
+    branch_conflicts: store.conflicts.of(s.id),
   });
 }
 

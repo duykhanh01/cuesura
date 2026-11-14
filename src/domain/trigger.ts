@@ -508,6 +508,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
         })
         .strict()
         .optional(),
+      // 007, additive (R-29): a unit FAILED in a goal that is replanning; the dependent keeps waiting.
+      replan: z.literal(true).optional(),
     })
     .strict(),
   // `runtime` is the 002 snapshot committed with PolicyFrozen; absent for legacy (001) starts.
@@ -918,6 +920,11 @@ export type RelatedFacts = {
   loan?: { active: boolean };
   /** A unit of a goal with several units: its goal branch, and whether it exists yet (007, R-23). */
   goal_branch?: { name: string; created: boolean };
+  /**
+   * A task of a planned goal (R-29): its prerequisites by unit key, and those FAILED while the goal has
+   * not ended, which it keeps waiting on instead of being cancelled.
+   */
+  goal_deps?: { ids: string[]; replan: string[] };
 };
 
 export const EMPTY_RELATED: RelatedFacts = {

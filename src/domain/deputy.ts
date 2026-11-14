@@ -4,6 +4,24 @@ import { z } from 'zod';
 /** The actor of commands a deputy turn sends, and so of the answers it gives (FR-050). */
 export const DEPUTY_ACTOR = 'deputy';
 
+/** Who ends a task whose every action ran out on its failure signature (FR-044). */
+export const LOOP_GUARD_ACTOR = 'system:loop-guard';
+
+/**
+ * What the command ledger keeps with a deputy's `task fail` sent once every action ran out on the
+ * failure signature (FR-075): retrying that unit is then a scope amendment, as after the loop guard.
+ * `TaskFailed` clears the wait, so this cannot be read back from the ended task.
+ */
+export type SpentFail = { readonly exhausted_signature: string };
+
+export function isSpentFail(v: unknown): v is SpentFail {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as Partial<SpentFail>).exhausted_signature === 'string'
+  );
+}
+
 export const TURN_KINDS = ['incident', 'question', 'plan'] as const;
 export type TurnKind = (typeof TURN_KINDS)[number];
 

@@ -12,6 +12,7 @@ import { claimEffect, type ClaimError, type ClaimRequest } from './claim.ts';
 import { grantNext, lendNext, type GrantOptions, type GrantOutcome } from './grant.ts';
 import * as commands from './commands.ts';
 import { crashHookFromEnv, type CrashHook } from './crash.ts';
+import { BranchConflicts } from './conflicts.ts';
 import { DeputyTurns } from './deputy.ts';
 import { GoalRecords } from './goals.ts';
 import { openDatabase, type StoreOpenError } from './open.ts';
@@ -33,6 +34,7 @@ export type { QueuedRequest, SlotHolding, SlotLoan } from './read.ts';
 export type { Admission, CommandRecord, LedgerError } from './commands.ts';
 export type { Timer } from './read.ts';
 export type { DeputyTurns, TurnError } from './deputy.ts';
+export type { BranchConflict, BranchConflicts, ConflictCheck } from './conflicts.ts';
 export type {
   GoalAcceptError,
   GoalAcceptOutcome,
@@ -49,6 +51,8 @@ export interface Store {
   readonly deputy: DeputyTurns;
   /** Goals (007): the second aggregate of the event log. */
   readonly goals: GoalRecords;
+  /** Real conflicts between live branches (007, FR-092): records outside the event log. */
+  readonly conflicts: BranchConflicts;
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError>;
   claimEffect(effectId: Uuid, now: EpochMs, req?: ClaimRequest): Result<Effect, ClaimError>;
   /** Grants a free execution slot to the queue head, if any (FR-044.01); `ids` feed a resumed step. */
@@ -133,12 +137,14 @@ export class SqliteStore implements Store {
   readonly db: Database;
   readonly deputy: DeputyTurns;
   readonly goals: GoalRecords;
+  readonly conflicts: BranchConflicts;
   private readonly crash: CrashHook;
 
   constructor(db: Database, crash: CrashHook) {
     this.db = db;
     this.deputy = new DeputyTurns(db);
     this.goals = new GoalRecords(db, crash);
+    this.conflicts = new BranchConflicts(db);
     this.crash = crash;
   }
 

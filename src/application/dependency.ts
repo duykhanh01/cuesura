@@ -4,10 +4,13 @@
  * DONE counts even when the merged head was not verified, with no extra approval; the dependent still
  * passes its own checks (acceptance, confirmation, config at start). A FAILED or CANCELLED prerequisite
  * cancels the dependent (#249), with the root task in the reason, instead of leaving it PENDING forever.
+ * A task of a planned goal waits on the current task of each unit key instead (R-29): a unit FAILED while
+ * the goal has not ended is waited on until a task of the same key replaces it.
  *
  * Notifications are derived from committed state on every pass rather than pushed once, so a crash never
  * loses one; the dedup key makes a repeat a no-op.
  */
+import { isGoalTerminal, unitPrerequisites } from '../domain/goal.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { AcceptOutcome, Store } from '../store/index.ts';
@@ -37,20 +40,30 @@ export function notifyDependents(store: Store, now: number): DependencyNotice[] 
   for (const id of store.taskIdsByStatus(['PENDING'])) {
     const s = store.readTask(id as Uuid);
     if (s === null || !waitingOnDependencies(s)) continue;
-    for (const dep of s.task.depends_on) {
-      const prereq = store.readTask(dep);
+    const goal = s.task.goal === undefined ? null : store.goals.read(s.task.goal.id);
+    const byKey = unitPrerequisites(s.task.goal, goal);
+    for (const dep of byKey ?? s.task.depends_on) {
+      const prereq = store.readTask(dep as Uuid);
       if (prereq === null || !TERMINAL.includes(prereq.status)) continue;
+      const replan =
+        byKey !== null &&
+        goal !== null &&
+        !isGoalTerminal(goal.status) &&
+        prereq.status === 'FAILED';
       const r = submit(store, {
         task_id: s.id,
         // A failed prerequisite gets its own key: a dependent that saw it before the cascade existed
-        // (#249) still waits on `dependency_failed` and is cancelled on the next pass.
+        // (#249) still waits on `dependency_failed` and is cancelled on the next pass. One seen while its
+        // goal replans gets another, so the goal ending later still cascades.
         dedup_key:
           prereq.status === 'DONE'
             ? `dep:${s.id}:${dep}:DONE`
-            : `dep-cascade:${s.id}:${dep}:${prereq.status}`,
+            : replan
+              ? `dep-replan:${s.id}:${dep}`
+              : `dep-cascade:${s.id}:${dep}:${prereq.status}`,
         trigger: {
           kind: 'dependency_status',
-          depends_on: dep,
+          depends_on: dep as Uuid,
           status: prereq.status,
           provenance: {
             prerequisite_version: prereq.version,
@@ -59,6 +72,7 @@ export function notifyDependents(store: Store, now: number): DependencyNotice[] 
               ? { terminal_reason: prereq.terminal.reason }
               : {}),
           },
+          ...(replan ? { replan: true as const } : {}),
         },
         now,
       });

@@ -82,7 +82,7 @@ PK `(task_id, other_task_id)`; dòng được thay ở mỗi checkpoint, xóa kh
 ### `command_ledger` (sửa)
 
 Thêm `reason TEXT NULL`, `turn_id TEXT NULL`, `trial_json TEXT NULL` (`{ hypothesis, expect, action_kind, params_hash,
-signature, goal_id, unit_key }`, chỉ có với lệnh gia hạn của deputy; bảng thử khóa theo `(goal_id, unit_key, signature)`), `lease TEXT NULL` (lease đã kiểm cho lệnh goal của trợ lý).
+signature, goal_id, unit_key }`, chỉ có với lệnh gia hạn của deputy; `task fail` của deputy lúc mọi hành động đã cạn giữ `{ exhausted_signature }`; bảng thử khóa theo `(goal_id, unit_key, signature)`), `lease TEXT NULL` (lease đã kiểm cho lệnh goal của trợ lý).
 
 ## Thay đổi domain
 

@@ -167,6 +167,7 @@ export type GoalEventPayloads = {
     at: number;
   };
   GoalBranchCreated: { branch: string; sha: string; at: number };
+  /** `units` names the task that replaces each FAILED unit this amendment retries (FR-075, R-29). */
   PlanAmended: {
     plan: Plan;
     plan_version: number;
@@ -174,6 +175,7 @@ export type GoalEventPayloads = {
     affected: string[];
     by: string;
     reason: string | null;
+    units?: Record<string, string>;
     at: number;
   };
   PlanAmendmentProposed: {
@@ -235,6 +237,8 @@ export type GoalTrigger =
       plan_hash: string;
       amendment: AmendmentKind;
       affected: string[];
+      /** Execution amendments only: the new task of each FAILED unit it replaces. */
+      units?: Record<string, string>;
     }
   | {
       kind: 'confirm';
@@ -276,3 +280,22 @@ export type GoalEnvelope = {
   expected_version?: number;
   trigger: GoalTrigger;
 };
+
+/**
+ * R-29: what a task of a planned goal waits on, by unit key: the current task of each key it depends on,
+ * or of every unit of the plan for the integration task. Null outside a planned goal, where `depends_on`
+ * holds as frozen.
+ */
+export function unitPrerequisites(
+  link:
+    | { readonly role: 'unit' | 'final'; readonly depends_on_units: readonly string[] }
+    | undefined,
+  goal: GoalState | null,
+): string[] | null {
+  if (link === undefined || goal === null || goal.plan === null) return null;
+  const keys = link.role === 'final' ? goal.plan.units.map((u) => u.key) : link.depends_on_units;
+  return keys.flatMap((k) => {
+    const u = Object.hasOwn(goal.units, k) ? goal.units[k] : undefined;
+    return u === undefined ? [] : [u.task_id];
+  });
+}

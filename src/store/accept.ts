@@ -4,6 +4,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import { EVENT_SCHEMA_VERSION, type DomainEvent, type DomainEventDraft } from '../domain/event.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { CanonicalTask } from '../domain/task.ts';
+import { isGoalTerminal, unitPrerequisites, type GoalState } from '../domain/goal.ts';
 import {
   computeRequestHash,
   HUMAN_TRIGGERS,
@@ -181,14 +182,19 @@ export function relatedFacts(
   }
 
   const goal = (incoming ?? state?.task)?.goal;
-  if (goal?.role === 'unit' && goal.branch !== undefined) {
-    const g = db.prepare('SELECT branch, state_json FROM goals WHERE id = ?').get(goal.id) as
-      | { branch: string | null; state_json: string }
+  if (goal !== undefined) {
+    const row = db.prepare('SELECT state_json FROM goals WHERE id = ?').get(goal.id) as
+      | { state_json: string }
       | undefined;
-    const created =
-      g !== undefined &&
-      (JSON.parse(g.state_json) as { branch_created?: boolean }).branch_created === true;
-    related.goal_branch = { name: goal.branch, created };
+    const g = row === undefined ? null : (JSON.parse(row.state_json) as GoalState);
+    const ids = unitPrerequisites(goal, g);
+    if (ids !== null && g !== null) {
+      for (const d of ids) deps[d] ??= readTaskStatus(db, d);
+      const live = !isGoalTerminal(g.status);
+      related.goal_deps = { ids, replan: live ? ids.filter((d) => deps[d] === 'FAILED') : [] };
+    }
+    if (goal.role === 'unit' && goal.branch !== undefined)
+      related.goal_branch = { name: goal.branch, created: g?.branch_created === true };
   }
 
   const retryOf = incoming?.retry_of ?? null;

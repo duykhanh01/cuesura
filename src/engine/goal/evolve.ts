@@ -29,6 +29,17 @@ function empty(goalId: string): GoalState {
   };
 }
 
+/** Each key's new task; the one it replaces moves to `previous`. */
+function linkUnits(s: GoalState, units: Readonly<Record<string, string>>): void {
+  for (const [key, taskId] of Object.entries(units)) {
+    const prev = Object.hasOwn(s.units, key) ? s.units[key] : undefined;
+    s.units[key] = {
+      task_id: taskId,
+      previous: prev === undefined ? [] : [...prev.previous, prev.task_id],
+    };
+  }
+}
+
 /** Folds one goal event; the state passed in is changed and returned. */
 export function evolveGoal(state: GoalState | null, goalId: string, e: GoalEventDraft): GoalState {
   const s = state ?? empty(goalId);
@@ -90,18 +101,13 @@ export function evolveGoal(state: GoalState | null, goalId: string, e: GoalEvent
         s.branch_created = false;
       }
       if (e.payload.final_task_id !== undefined) s.final_task_id = e.payload.final_task_id;
-      for (const [key, taskId] of Object.entries(e.payload.units)) {
-        const prev = Object.hasOwn(s.units, key) ? s.units[key] : undefined;
-        s.units[key] = {
-          task_id: taskId,
-          previous: prev === undefined ? [] : [...prev.previous, prev.task_id],
-        };
-      }
+      linkUnits(s, e.payload.units);
       s.status = 'running';
       s.replan_reason = null;
       break;
     }
     case 'PlanAmended':
+      linkUnits(s, e.payload.units ?? {});
       s.plan = e.payload.plan;
       s.plan_version = e.payload.plan_version;
       s.plan_hash = e.payload.plan_hash;
