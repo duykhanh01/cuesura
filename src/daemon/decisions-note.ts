@@ -5,9 +5,12 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { basename, dirname } from 'node:path';
-import { taskDecisions, type DeputyDecision } from '../application/deputy-decisions.ts';
+import {
+  goalOwnDecisions,
+  taskDecisions,
+  type DeputyDecision,
+} from '../application/deputy-decisions.ts';
 import { resultLine } from '../explain/trial-result.ts';
-import type { TaskState } from '../domain/state.ts';
 import type { Redactor } from '../runner/redact.ts';
 import { writeAtomicIn } from '../runner/files.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -23,13 +26,13 @@ export type DecisionsNoteDeps = {
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 const iso = (at: number): string => new Date(at).toISOString();
 
-function decisionEntry(s: TaskState, d: DeputyDecision): string[] {
+function decisionEntry(title: string, d: DeputyDecision): string[] {
   const unit = d.unit_key === null ? '' : `, unit ${d.unit_key}`;
   const lines = [
-    `## ${iso(d.at)} — ${oneLine(s.task.title)}: ${d.action}`,
+    `## ${iso(d.at)} — ${oneLine(title)}: ${d.action}`,
     '',
     `- Goal: ${d.goal_id}${unit}`,
-    `- Task: ${d.task_id}`,
+    `- Task: ${d.task_id ?? '- (the goal itself)'}`,
     `- By: ${d.actor}${d.turn_id === null ? '' : ` (turn ${d.turn_id})`}`,
   ];
   if (d.incident !== null) lines.push(`- Incident: ${d.incident}`);
@@ -56,15 +59,23 @@ export function decisionsNote(store: Store, eventTasks?: Iterable<string>): stri
     ...store.deputy.decisionTasks(),
     ...(eventTasks ?? store.deputy.noteEventTasks(0)),
   ]);
+  const decided = (title: string, d: DeputyDecision): void => {
+    entries.push({
+      at: d.at,
+      key: `${d.task_id ?? d.goal_id}:d:${d.request_id ?? d.turn_id ?? d.action}`,
+      lines: decisionEntry(title, d),
+    });
+  };
   for (const id of [...ids].sort()) {
     const s = store.readTask(id as Uuid);
-    if (s === null) continue;
-    for (const d of taskDecisions(store, s))
-      entries.push({
-        at: d.at,
-        key: `${d.task_id}:d:${d.request_id ?? d.turn_id ?? d.action}`,
-        lines: decisionEntry(s, d),
-      });
+    if (s === null) {
+      // A goal command or a plan turn: the decision is on the goal itself (FR-110).
+      const g = store.goals.read(id);
+      if (g !== null)
+        for (const d of goalOwnDecisions(store, g.id)) decided(g.plan?.summary ?? g.request, d);
+      continue;
+    }
+    for (const d of taskDecisions(store, s)) decided(s.task.title, d);
     for (const w of s.run.waivers ?? [])
       entries.push({
         at: w.at,

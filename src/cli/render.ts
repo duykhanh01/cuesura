@@ -386,7 +386,7 @@ const ReportSchema = z.object({
       ),
       deputy_decisions: ReportSection(
         z.object({
-          task_id: z.string(),
+          task_id: z.string().nullable(),
           title: z.string(),
           actor: z.string(),
           goal_id: z.string(),
@@ -530,11 +530,11 @@ export const renderReport: Render = (data) => {
               : ` (${sanitize(d.actor)})`;
           const result = resultLine(d.result, d.hypothesis);
           return [
-            `- ${d.task_id} ${oneLine(d.title)}: ${sanitize(d.action)}${where}`,
-            ...(d.incident === null
+            `- ${d.task_id ?? 'goal'} ${oneLine(d.title)}: ${sanitize(d.action)}${where}`,
+            ...(d.turn_id === null
               ? []
               : [
-                  `  Incident: ${sanitize(d.incident)}${d.turn_id === null ? '' : ` (turn ${sanitize(d.turn_id)})`}`,
+                  `  Turn: ${sanitize(d.turn_id)}${d.incident === null ? '' : ` (incident ${sanitize(d.incident)})`}`,
                 ]),
             ...(d.question === null ? [] : [`  Q: ${oneLine(d.question)}`]),
             ...(d.detail === null

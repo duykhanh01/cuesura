@@ -64,7 +64,11 @@ import {
 import { ensureWorktree, markerPath, taskBranch } from '../adapters/git/worktree.ts';
 import { ROLES, wireRoleSchema, type Role } from '../adapters/harness/result-schema.ts';
 import { manifestShortfalls } from '../application/capabilities.ts';
-import { contentDecisions, taskDecisions } from '../application/deputy-decisions.ts';
+import {
+  contentDecisions,
+  taskDecisions,
+  type DeputyDecision,
+} from '../application/deputy-decisions.ts';
 import { toMergeProof } from '../adapters/github/merge-proof.ts';
 import { observePull } from '../adapters/github/observe.ts';
 import {
@@ -1061,12 +1065,7 @@ function acceptContent(
       ? [{ question: q.body, answer: q.answer }]
       : [],
   );
-  // FR-111: what the deputy decided up to this publish; later decisions show in the views only.
-  const decided = withDeputyDecisions(
-    v.value.pr_body,
-    contentDecisions(taskDecisions(deps.store, l.s)),
-  );
-  const content = { ...v.value, pr_body: withDeputyAssumptions(decided, assumptions) };
+  const content = { ...v.value, pr_body: withDeputyAssumptions(v.value.pr_body, assumptions) };
   return {
     outcome: 'succeeded',
     data: { ...data, content: contentStore(deps).put(content) },
@@ -2079,6 +2078,7 @@ function prSpecOf(
   head: string,
   content: PublishContent,
   operationKey: string,
+  decisions: readonly DeputyDecision[],
   waivers: readonly Waiver[] = l.s.run.waivers ?? [],
 ): PrSpec {
   return {
@@ -2088,17 +2088,59 @@ function prSpecOf(
     base: l.s.task.base_branch,
     head_sha: head,
     title: content.pr_title,
-    body: prBody(content, waivers),
+    body: prBody(content, waivers, decisions),
     task_id: l.s.id,
     revision: l.s.revision,
     operation_key: operationKey,
   };
 }
 
-/** The worker's PR body with the task's waivers listed as waived (007, FR-046). */
-function prBody(content: PublishContent, waivers: readonly Waiver[]): string {
+/**
+ * The worker's PR body with the deputy's decisions up to this publish (007, FR-111) and the task's
+ * waivers listed as waived (FR-046).
+ */
+function prBody(
+  content: PublishContent,
+  waivers: readonly Waiver[],
+  decisions: readonly DeputyDecision[],
+): string {
+  const body = withDeputyDecisions(content.pr_body, decisions);
   const section = waiversSection(waivers);
-  return section === '' ? content.pr_body : `${content.pr_body}\n\n${section}`;
+  return section === '' ? body : `${body}\n\n${section}`;
+}
+
+/** The deputy's decisions a publish lists now, with secrets masked (FR-111, constitution: Secret). */
+function decisionsNow(deps: HandlerDeps, s: TaskState): DeputyDecision[] {
+  return contentDecisions(taskDecisions(deps.store, s, (t) => deps.redactor.text(t)));
+}
+
+const decisionKey = (d: DeputyDecision): string => d.request_id ?? `${d.action}@${d.at}`;
+
+const createIntentName = (effect: Effect): string => `pr-create-${effect.id}.json`;
+
+/**
+ * The decisions a PR create lists, fixed by the first run of the effect: a retry, and the probe after a
+ * crash, build the same body even when the deputy decided more since, so the PR is found as ours.
+ */
+function createDecisions(deps: HandlerDeps, s: TaskState, effect: Effect): DeputyDecision[] {
+  const now = decisionsNow(deps, s);
+  let raw: string | null = null;
+  try {
+    raw = readFileSync(join(deps.paths.intents, createIntentName(effect)), 'utf8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
+  }
+  if (raw !== null) {
+    const keys = new Set((JSON.parse(raw) as { decisions: string[] }).decisions);
+    return now.filter((d) => keys.has(decisionKey(d)));
+  }
+  mkdirSync(deps.paths.intents, { recursive: true, mode: 0o700 });
+  writeAtomicIn(
+    deps.paths.intents,
+    createIntentName(effect),
+    Buffer.from(JSON.stringify({ decisions: now.map(decisionKey) })),
+  );
+  return now;
 }
 
 const waiverIds = (waivers: readonly Waiver[]): { waivers?: string[] } =>
@@ -2109,6 +2151,7 @@ type RequestedBody = {
   readonly content: PublishContent;
   readonly content_digest: string;
   readonly waivers: readonly Waiver[];
+  readonly decisions: readonly DeputyDecision[];
 };
 
 /** The body an update writes now: the newest worker content with every waiver. */
@@ -2117,10 +2160,21 @@ function bodyNow(deps: HandlerDeps, s: TaskState): RequestedBody | null {
   const digest = s.run.content?.digest;
   return content === null || digest === undefined
     ? null
-    : { content, content_digest: digest, waivers: s.run.waivers ?? [] };
+    : {
+        content,
+        content_digest: digest,
+        waivers: s.run.waivers ?? [],
+        decisions: decisionsNow(deps, s),
+      };
 }
 
-type PrBodyIntent = { content_ref: string; content_digest: string; waivers: string[] };
+type PrBodyIntent = {
+  content_ref: string;
+  content_digest: string;
+  waivers: string[];
+  /** The decisions the body listed; the ledger only grows, so they are found again by key. */
+  decisions?: string[];
+};
 const intentName = (effect: Effect): string => `pr-body-${effect.id}.json`;
 
 /** Records what an update is about to send, before it sends it, for a probe after a crash. */
@@ -2135,6 +2189,7 @@ function recordBodyIntent(deps: HandlerDeps, s: TaskState, effect: Effect, b: Re
         content_ref: ref,
         content_digest: b.content_digest,
         waivers: b.waivers.map((w) => w.id),
+        decisions: b.decisions.map(decisionKey),
       } satisfies PrBodyIntent),
     ),
   );
@@ -2156,7 +2211,9 @@ function bodySent(deps: HandlerDeps, s: TaskState, effect: Effect): RequestedBod
   const content = contentStore(deps).get(i.content_ref, i.content_digest);
   if (content === null) return null;
   const waivers = (s.run.waivers ?? []).filter((w) => i.waivers.includes(w.id));
-  return { content, content_digest: i.content_digest, waivers };
+  const listed = new Set(i.decisions ?? []);
+  const decisions = decisionsNow(deps, s).filter((d) => listed.has(decisionKey(d)));
+  return { content, content_digest: i.content_digest, waivers, decisions };
 }
 
 /** The task's PR, created or found again, as `create_pr` data. */
@@ -2166,11 +2223,12 @@ function prOutcome(
   operationKey: string,
   pr: PrFact,
   bodyDigest: string,
+  decisions: readonly DeputyDecision[],
 ): EffectOutcome {
   // A PR found again may carry a body sent before a later waiver: the waivers count as listed only
   // when the body is the one they make; otherwise a later update lists them.
   const waivers = l.s.run.waivers ?? [];
-  const sent = fitContent(prSpecOf(l, pr.head_sha, content, operationKey, waivers));
+  const sent = fitContent(prSpecOf(l, pr.head_sha, content, operationKey, decisions, waivers));
   const listed = bodyDigestOf(finalBody(sent)) === bodyDigest ? waivers : [];
   return {
     outcome: 'succeeded',
@@ -2199,12 +2257,20 @@ async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcom
   }
   const content = currentContent(deps, l.s);
   if (content === null) return failed('infra', 'no accepted PR content');
+  const decisions = createDecisions(deps, l.s, effect);
   const r = await createOrRecoverPr(deps.github(), {
-    ...prSpecOf(l, l.s.head_sha, content, effect.idem_key),
+    ...prSpecOf(l, l.s.head_sha, content, effect.idem_key, decisions),
     draft: effect.request['draft'] === true,
   });
   if (r.kind === 'created' || r.kind === 'recovered')
-    return prOutcome(l, content, r.operation_key ?? effect.idem_key, r.pr, r.body_digest);
+    return prOutcome(
+      l,
+      content,
+      r.operation_key ?? effect.idem_key,
+      r.pr,
+      r.body_digest,
+      decisions,
+    );
   if (r.kind === 'unknown') return unknown(r.detail);
   // Someone else's PR or a forged or edited marker/body: a person reconciles.
   if (r.kind === 'conflict') return failed('auth_config', `pull request conflict: ${r.reason}`);
@@ -2427,7 +2493,10 @@ export async function observeTaskPr(
 }
 
 /** The description update of the task's PR to `content`: same PR, same marker, the body it last sent. */
-function descriptionOf(l: Loaded, { content, waivers }: RequestedBody): DescriptionUpdate | null {
+function descriptionOf(
+  l: Loaded,
+  { content, waivers, decisions }: RequestedBody,
+): DescriptionUpdate | null {
   const n = prNumber(l.s.pr_ref);
   const pb = l.s.run.pr_body;
   if (n === null || pb === null || l.s.run.content === null) return null;
@@ -2437,7 +2506,7 @@ function descriptionOf(l: Loaded, { content, waivers }: RequestedBody): Descript
     expected_body_digest: pb.body_digest,
     spec: {
       title: content.pr_title,
-      body: prBody(content, waivers),
+      body: prBody(content, waivers, decisions),
       task_id: l.s.id,
       revision: pb.revision,
       operation_key: pb.operation_key,
@@ -2905,11 +2974,15 @@ async function probeCreatePr(deps: HandlerDeps, target: Effect): Promise<Probe> 
   if (l.s.head_sha === null) return still('no published head');
   const content = currentContent(deps, l.s);
   if (content === null) return still('no accepted PR content to compare');
-  const r = await probePr(deps.github(), prSpecOf(l, l.s.head_sha, content, target.idem_key));
+  const decisions = createDecisions(deps, l.s, target);
+  const r = await probePr(
+    deps.github(),
+    prSpecOf(l, l.s.head_sha, content, target.idem_key, decisions),
+  );
   switch (r.kind) {
     case 'recovered':
       return fromOutcome(
-        prOutcome(l, content, r.operation_key ?? target.idem_key, r.pr, r.body_digest),
+        prOutcome(l, content, r.operation_key ?? target.idem_key, r.pr, r.body_digest, decisions),
       );
     case 'absent':
       return {

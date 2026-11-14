@@ -18,7 +18,13 @@ import type { StatusSince } from './board.ts';
 import type { AppError, QueuePauseReader } from './queries.ts';
 import { queuePausedView } from '../explain/explain.ts';
 import { GOAL_STATUSES, isGoalTerminal, type GoalState } from '../domain/goal.ts';
-import { taskDecisions, waiverView, type DeputyDecision } from './deputy-decisions.ts';
+import {
+  goalOwnDecisions,
+  taskDecisions,
+  waiverView,
+  type DeputyDecision,
+  type Redact,
+} from './deputy-decisions.ts';
 import { nextAction } from './inbox.ts';
 import { DECIDER_ACTOR } from '../engine/questions.ts';
 
@@ -40,6 +46,8 @@ export type ReportDeps = {
   readonly statusSince: StatusSince;
   readonly now: () => number;
   readonly queuePause?: QueuePauseReader;
+  /** Masks secrets in what the deputy wrote (constitution: Secret). */
+  readonly redact?: Redact;
 };
 
 /** A sum over the runs that gave this metric; with `missing` runs it is a lower bound, never a zero for unknown. */
@@ -129,6 +137,7 @@ export function addToReport(
   statusSince?: () => number | null,
   queuePaused = false,
   decisions?: readonly DeputyDecision[],
+  redact?: Redact,
 ): void {
   const inWindow = (t: number): boolean => t >= window.since && t <= window.until;
   const base = { task_id: s.id, title: s.task.title };
@@ -172,7 +181,7 @@ export function addToReport(
   for (const d of decisions ?? legacyDecisions(s))
     if (inWindow(d.at)) push(r.deputy_decisions, { ...base, ...d });
   for (const w of s.run.waivers ?? [])
-    if (inWindow(w.at)) push(r.waivers, { ...base, ...waiverView(w) });
+    if (inWindow(w.at)) push(r.waivers, { ...base, ...waiverView(w, redact) });
 }
 
 /** The old decider's answers, from the state alone. */
@@ -292,7 +301,8 @@ export function report(
         isTerminal(s.status) ? statusSince(s) : null,
         () => statusSince(s),
         queuePaused !== null,
-        taskDecisions(store, s),
+        taskDecisions(store, s, deps.redact),
+        deps.redact,
       );
     }
   }
@@ -308,6 +318,10 @@ export function report(
       byProject.set(g.project, r);
     }
     addGoal(r, g, { since, until }, (id) => store.readTask(id as Uuid)?.status ?? null);
+    // Decisions on the goal itself, which no task holds (FR-110).
+    for (const d of goalOwnDecisions(store, g.id, deps.redact))
+      if (d.at >= since && d.at <= until)
+        push(r.deputy_decisions, { title: g.plan?.summary ?? g.request, ...d });
   }
 
   const at = (key: string) => (x: Record<string, unknown>) => x[key] as number;

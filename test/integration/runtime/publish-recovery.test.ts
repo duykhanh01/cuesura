@@ -1326,3 +1326,63 @@ describe('H05 restart: reviewer A finished on disk, not ingested, drift B record
     }
   });
 });
+
+describe('the deputy decisions of a unit PR are rendered at each publish (007, FR-111, review #300)', () => {
+  const TOKEN = `ghp_${'A1b2C3d4E5f6G7h8I9j0'}K1l2M3n4O5p6Q7r8`;
+  /** A completed `task_continue` of the deputy, as the ledger keeps it once its handler ran. */
+  const decide = (store: Store, taskId: string, id: number, reason: string, now: number) => {
+    const rid = uuidOf(id);
+    const a = store.admitCommand({
+      request_id: rid,
+      actor: 'deputy',
+      kind: 'task_continue',
+      command_hash: `sha256:${rid}`,
+      project: 'acme',
+      task_id: taskId,
+      assigned_ids: [],
+      now,
+      reason,
+      turn_id: null,
+      trial: { hypothesis: `the ${TOKEN} is valid again`, expect: 'gates pass' },
+    });
+    if (!a.ok) throw new Error(JSON.stringify(a.error));
+    if (!store.completeCommand(rid, { ok: true, value: {} }, now as EpochMs).ok)
+      throw new Error('complete');
+  };
+
+  it('a decision between the content and the publish is in the PR body, its secret masked', async () => {
+    const task = buildTask();
+    const w = world(task);
+    w.start();
+    await w.until('create_pr');
+    // The worker's content was accepted before this decision.
+    expect(w.d.task(task.id).run.content).not.toBeNull();
+    decide(w.d.store, task.id, 41_000, `retry: ${TOKEN} was rotated`, w.d.now);
+    await w.tick();
+    const body = w.github.prs[0]?.body ?? '';
+    expect(body).toContain('## Decisions made by the deputy');
+    expect(body).toContain('`task_continue`');
+    expect(body).toContain('was rotated');
+    expect(body).not.toContain(TOKEN);
+    const s = w.d.task(task.id);
+    expect(s.run.pr_body?.body_digest).toBe(bodyDigest(body));
+  });
+
+  it('a decision recorded while the daemon was down after the POST: the probe still recovers the one PR', async () => {
+    const task = buildTask();
+    const w = world(task);
+    w.start();
+    await w.until('create_pr');
+    decide(w.d.store, task.id, 42_000, 'first decision', w.d.now);
+    await w.dieAt({ at: 'after', github: postPulls });
+    expect(w.github.prs[0]?.body).toContain('first decision');
+    decide(w.d.store, task.id, 42_001, 'second decision', w.d.now);
+    const report = await w.restart();
+    await expectReconciled(w, task, 'create_pr', report, 'succeeded');
+    expect(w.d.task(task.id).pr_ref).toBe('acme/app#7');
+    expect(posts(w)).toBe(1);
+    expect(w.d.task(task.id).run.pr_body?.body_digest).toBe(
+      bodyDigest(w.github.prs[0]?.body ?? ''),
+    );
+  });
+});

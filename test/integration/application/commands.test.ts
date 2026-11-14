@@ -164,6 +164,26 @@ describe('command admission ledger (T023)', () => {
   });
 });
 
+describe('secrets in what a command says about itself (007, review #300 S1)', () => {
+  it('masks the reason and the trial before the ledger keeps them; the hash is of what was sent', () => {
+    const token = `ghp_${'A1b2C3d4E5f6G7h8I9j0'}K1l2M3n4O5p6Q7r8`;
+    const plain = deps();
+    const masked = { ...deps(), redact: (t: string) => t.replaceAll(token, '[masked]') };
+    const body = cancel({
+      reason: `token ${token} leaked`,
+      trial: { hypothesis: `rotate ${token}`, expect: 'ok' },
+    });
+    const a = admitCommand(plain, assistant, body);
+    const b = admitCommand(masked, assistant, body);
+    if (!a.ok || !b.ok) throw new Error('not admitted');
+    expect(b.value.record.reason).toBe('token [masked] leaked');
+    expect(b.value.reason).toBe('token [masked] leaked');
+    expect(JSON.stringify(b.value.record.trial)).not.toContain(token);
+    expect(JSON.stringify(b.value.trial)).not.toContain(token);
+    expect(b.value.record.command_hash).toBe(a.value.record.command_hash);
+  });
+});
+
 describe('queue commands (issue #142)', () => {
   const queue = (over: Record<string, unknown> = {}) => ({
     request_id: uuidOf(900),

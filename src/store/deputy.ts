@@ -278,12 +278,15 @@ export class DeputyTurns {
     }));
   }
 
-  /** Tasks with a command of the deputy or a turn with a handoff (FR-110). */
+  /**
+   * Tasks and goals with a command of the deputy, and those with a turn that handed off; a plan turn
+   * has no task and counts for its goal (FR-110).
+   */
   decisionTasks(): string[] {
     const rows = this.#db
       .prepare(
         `SELECT task_id FROM command_ledger WHERE actor = 'deputy' AND task_id IS NOT NULL
-         UNION SELECT task_id FROM deputy_turns WHERE task_id IS NOT NULL AND handoff_json IS NOT NULL`,
+         UNION SELECT COALESCE(task_id, goal_id) FROM deputy_turns WHERE handoff_json IS NOT NULL`,
       )
       .all() as { task_id: string }[];
     return rows.map((r) => r.task_id);

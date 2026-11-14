@@ -36,9 +36,11 @@ import type { Admitted, CommandInput } from './commands.ts';
 import { recordConfigCheck } from './confirm.ts';
 import { goalLedger, noteKindOf } from './goal-ledger.ts';
 import {
+  goalOwnDecisions,
   taskDecisions,
   waiverView,
   type DeputyDecision,
+  type Redact,
   type WaiverView,
 } from './deputy-decisions.ts';
 import {
@@ -1130,6 +1132,7 @@ export function goalShow(
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
   extras?: GoalShowExtras,
+  redact?: Redact,
 ): Result<unknown, AppError> {
   const allowed = authorize(caller, { role: 'read' });
   if (!allowed.ok)
@@ -1198,7 +1201,7 @@ export function goalShow(
       })),
     ledger: goalLedger(store, g).slice(-LEDGER_SHOWN),
     // FR-110, FR-046: every decision on the goal's tasks, and their waivers as waived.
-    ...goalDecisions(store, g),
+    ...goalDecisions(store, g, redact),
     branch_conflicts: store.conflicts.among([
       ...units.map((u) => u.task_id),
       ...(g.final_task_id === null ? [] : [g.final_task_id]),
@@ -1210,6 +1213,7 @@ export function goalShow(
 function goalDecisions(
   store: Store,
   g: GoalState,
+  redact?: Redact,
 ): { deputy_decisions: DeputyDecision[]; waivers: (WaiverView & { task_id: string })[] } {
   const ids = [
     ...Object.values(g.units).flatMap((u) => [...u.previous, u.task_id]),
@@ -1220,12 +1224,14 @@ function goalDecisions(
     return s === null ? [] : [s];
   });
   return {
-    deputy_decisions: tasks
-      .flatMap((s) => taskDecisions(store, s))
+    deputy_decisions: [
+      ...(g.implicit ? [] : goalOwnDecisions(store, g.id, redact)),
+      ...tasks.flatMap((s) => taskDecisions(store, s, redact)),
+    ]
       .sort((a, b) => a.at - b.at)
       .slice(-LEDGER_SHOWN),
     waivers: tasks.flatMap((s) =>
-      (s.run.waivers ?? []).map((w) => ({ task_id: s.id, ...waiverView(w) })),
+      (s.run.waivers ?? []).map((w) => ({ task_id: s.id, ...waiverView(w, redact) })),
     ),
   };
 }

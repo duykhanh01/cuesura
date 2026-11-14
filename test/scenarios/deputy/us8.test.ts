@@ -6,18 +6,20 @@ import type { HarnessInput } from '../../../src/adapters/ports.ts';
 import type { Caller } from '../../../src/application/authz.ts';
 import { statusSinceReader } from '../../../src/application/board.ts';
 import { contentDecisions, taskDecisions } from '../../../src/application/deputy-decisions.ts';
+import { goalShow } from '../../../src/application/goals.ts';
+import { renderReport } from '../../../src/cli/render.ts';
 import { taskShow } from '../../../src/application/queries.ts';
 import { report } from '../../../src/application/report.ts';
 import { writeDecisionsNote } from '../../../src/daemon/decisions-note.ts';
 import type { GoalTrigger } from '../../../src/domain/goal.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
 import { waiversSection } from '../../../src/engine/waivers.ts';
-import type { Uuid } from '../../../src/shared/brand.ts';
+import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { Store } from '../../../src/store/index.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
-import { buildTask, ownerAuthz } from '../../support/builders.ts';
-import { deputyDaemon, handoffBody, type DeputyDaemon } from '../../support/deputy.ts';
+import { buildTask, ownerAuthz, uuidOf } from '../../support/builders.ts';
+import { deputyDaemon, deputyTurn, handoffBody, type DeputyDaemon } from '../../support/deputy.ts';
 import { goalPlan, planUnit } from '../../support/goal.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, PREPARE_DATA } from '../../support/scenario.ts';
@@ -267,5 +269,220 @@ describe('US8: a waiver shows as waived, never as passed', () => {
     const section = waiversSection(d.task(t.id).run.waivers ?? []);
     expect(section).toContain('waived');
     expect(section).not.toMatch(/\bpassed\b/);
+  });
+});
+
+// A canary credential the configured redactor masks (review #300, S1).
+const TOKEN = `ghp_${'A1b2C3d4E5f6G7h8I9j0'}K1l2M3n4O5p6Q7r8`;
+const REDACTOR = new Redactor({ values: [] });
+const redact = (t: string): string => REDACTOR.text(t);
+const OWNER_CALLER: Caller = { grant: { actor: 'owner', roles: ['read', 'operate', 'admin'] } };
+
+/** A completed command of the deputy in the ledger, as `admitCommand` and its handler leave it. */
+function ledgerDecision(
+  store: Store,
+  o: {
+    readonly request_id: string;
+    readonly kind: string;
+    readonly target: string;
+    readonly reason: string;
+    readonly turn_id?: string | null;
+    readonly trial?: unknown;
+    readonly now: number;
+  },
+): void {
+  const a = store.admitCommand({
+    request_id: o.request_id,
+    actor: 'deputy',
+    kind: o.kind,
+    command_hash: `sha256:${o.request_id}`,
+    project: 'acme',
+    task_id: o.target,
+    assigned_ids: [],
+    now: o.now,
+    reason: o.reason,
+    turn_id: o.turn_id ?? null,
+    trial: o.trial ?? null,
+  });
+  if (!a.ok) throw new Error(JSON.stringify(a.error));
+  const c = store.completeCommand(o.request_id, { ok: true, value: {} }, o.now as EpochMs);
+  if (!c.ok) throw new Error(JSON.stringify(c.error));
+}
+
+function goalAccept(
+  store: Store,
+  goalId: string,
+  trigger: GoalTrigger,
+  key: string,
+  actor = 'owner',
+) {
+  const r = store.goals.accept({ goal_id: goalId, dedup_key: key, now: 10, actor, trigger });
+  if (!r.ok || r.value.decision.kind !== 'accepted') throw new Error(JSON.stringify(r));
+}
+
+describe('US8: secrets in what the deputy wrote are masked where it is shown (review #300, S1)', () => {
+  const tempDir = useTempDir('cusr-us8-secret-');
+
+  it('report, task show and goal show mask the reason and the trial of a decision', () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr');
+    ledgerDecision(d.store, {
+      request_id: uuidOf(7001),
+      kind: 'task_continue',
+      target: t.id,
+      reason: `the token ${TOKEN} expired`,
+      trial: { hypothesis: `rotate ${TOKEN}`, expect: `no 401 for ${TOKEN}` },
+      now: d.now,
+    });
+    const r = report(
+      { store: d.store, statusSince: statusSinceReader(d.store), now: () => d.now, redact },
+      OWNER_CALLER,
+      { kind: 'report', since: 0 },
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    const text = JSON.stringify(r.value);
+    expect(text).toContain('task_continue');
+    expect(text).not.toContain(TOKEN);
+    const shown = taskShow(d.store, OWNER_CALLER, { kind: 'task_show', task_id: t.id }, redact);
+    if (!shown.ok) throw new Error(JSON.stringify(shown.error));
+    expect(JSON.stringify((shown.value as Data)['deputy_decisions'])).toContain('expired');
+    expect(JSON.stringify(shown.value)).not.toContain(TOKEN);
+  });
+});
+
+describe('US8: decisions on the goal itself (review #300, P1)', () => {
+  const tempDir = useTempDir('cusr-us8-goal-');
+  const G = '0192aaaa-0000-7000-8000-0000000000c1';
+
+  it('lists the plan turn and its proposal before the plan is confirmed, and an amendment on replan', () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const store = d.store;
+    goalAccept(
+      store,
+      G,
+      { kind: 'add', project: 'acme', base_branch: 'main', request: 'r', hints: {} },
+      'seed:add',
+    );
+    const plan = deputyTurn({
+      turn_id: uuidOf(7100),
+      goal_id: G,
+      task_id: null,
+      kind: 'plan',
+      incident: `${G}:0:new`,
+    });
+    if (!store.deputy.startTurn(plan).ok) throw new Error('turn');
+    const propose = uuidOf(7101);
+    ledgerDecision(store, {
+      request_id: propose,
+      kind: 'goal_propose',
+      target: G,
+      reason: 'one unit per layer',
+      turn_id: plan.turn_id,
+      now: 20,
+    });
+    goalAccept(
+      store,
+      G,
+      { kind: 'propose', plan: goalPlan([planUnit('a')]), plan_version: 0, plan_hash: 'sha256:p1' },
+      `cmd:${propose}:goal`,
+      'deputy',
+    );
+    store.deputy.setHandoff(plan.turn_id, {
+      cause: 'spec',
+      decision: 'proposed a plan of one unit',
+      ruled_out: [],
+      next_look: null,
+    });
+    store.deputy.finishTurn(plan.turn_id, { state: 'done', now: 30 });
+
+    const goalDecision: unknown = expect.objectContaining({
+      goal_id: G,
+      task_id: null,
+      action: 'goal_propose',
+      turn_id: plan.turn_id,
+      incident: `${G}:0:new`,
+      reason: 'one unit per layer',
+      detail: expect.stringContaining('plan v1') as unknown,
+    });
+    const shown = goalShow(store, OWNER_CALLER, { kind: 'goal_show', goal_id: G });
+    if (!shown.ok) throw new Error(JSON.stringify(shown.error));
+    expect((shown.value as Data)['deputy_decisions']).toEqual([
+      goalDecision,
+      expect.objectContaining({ action: 'handoff', detail: 'proposed a plan of one unit' }),
+    ]);
+    const r = report(
+      { store, statusSince: statusSinceReader(store), now: () => 100 },
+      OWNER_CALLER,
+      { kind: 'report', since: 0 },
+    );
+    if (!r.ok) throw new Error(JSON.stringify(r.error));
+    const [project] = (r.value as { projects: Data[] }).projects;
+    expect((project?.['deputy_decisions'] as { items: unknown[] }).items).toEqual(
+      expect.arrayContaining([goalDecision]),
+    );
+    // The CLI prints a goal's decision too, with no task.
+    expect(renderReport(r.value)).toContain('goal_propose');
+    const file = join(tempDir(), 'decisions.md');
+    writeDecisionsNote({ store, file, redactor: REDACTOR });
+    const note = readFileSync(file, 'utf8');
+    expect(note).toContain('goal_propose');
+    expect(note).toContain('one unit per layer');
+    expect(note).toContain('proposed a plan of one unit');
+
+    // Confirmed, then a unit failed: the deputy amends the plan while the goal waits for a new one.
+    goalAccept(
+      store,
+      G,
+      { kind: 'confirm', plan_hash: 'sha256:p1', units: { a: uuidOf(7102) } },
+      'seed:confirm',
+    );
+    goalAccept(store, G, { kind: 'replan', reason: 'unit_failed:a' }, 'seed:replan', 'system:goal');
+    expect(store.goals.read(G)?.status).toBe('replan');
+    const amend = uuidOf(7103);
+    ledgerDecision(store, {
+      request_id: amend,
+      kind: 'goal_amend',
+      target: G,
+      reason: 'replace the failed unit',
+      now: 40,
+    });
+    const again = goalShow(store, OWNER_CALLER, { kind: 'goal_show', goal_id: G });
+    if (!again.ok) throw new Error(JSON.stringify(again.error));
+    expect((again.value as Data)['deputy_decisions']).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ action: 'goal_amend', reason: 'replace the failed unit' }),
+      ]),
+    );
+  });
+});
+
+describe('US8: a turn acting on another task of its goal (review #300, P3)', () => {
+  const tempDir = useTempDir('cusr-us8-cross-');
+
+  it("keeps the incident of the turn's own task", () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const a = buildTask({ id: uuidOf(7200) });
+    const b = buildTask({ id: uuidOf(7201) });
+    createGrantStart(d, a, 'direct-pr');
+    d.must(b.id, { kind: 'create_task', task: b });
+    const turn = deputyTurn({
+      turn_id: uuidOf(7202),
+      goal_id: a.id,
+      task_id: a.id,
+      incident: `${a.id}:1:backoff_exhausted:9`,
+    });
+    if (!d.store.deputy.startTurn(turn).ok) throw new Error('turn');
+    ledgerDecision(d.store, {
+      request_id: uuidOf(7203),
+      kind: 'task_pause',
+      target: b.id,
+      reason: 'b overlaps a',
+      turn_id: turn.turn_id,
+      now: d.now,
+    });
+    expect(taskDecisions(d.store, d.task(b.id))).toEqual([
+      expect.objectContaining({ turn_id: turn.turn_id, incident: turn.incident }),
+    ]);
   });
 });

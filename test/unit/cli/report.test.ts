@@ -164,6 +164,25 @@ describe('renderReport', () => {
                 },
                 at: NOW,
               },
+              {
+                task_id: TASK2,
+                title: 'Paused',
+                actor: 'deputy',
+                goal_id: 'goal-1',
+                unit_key: 'a',
+                turn_id: 'turn-2',
+                incident: null,
+                action: 'task_pause',
+                detail: null,
+                question: null,
+                reason: 'overlaps another unit',
+                hypothesis: null,
+                expect: null,
+                applied: true,
+                failure: null,
+                result: null,
+                at: NOW,
+              },
             ],
             truncated: false,
           },
@@ -219,9 +238,11 @@ describe('renderReport', () => {
     expect(out).toContain('  A: The old one.');
     expect(out).toContain('  Why: Spec.');
     expect(out).toContain('  Not applied: answered_by_user.');
-    expect(out).toContain('Deputy decisions (2)');
+    expect(out).toContain('Deputy decisions (3)');
     expect(out).toContain(`- ${TASK2} Paused: task_continue (goal goal-1, unit a)`);
-    expect(out).toContain('  Incident: i:1:backoff_exhausted:3 (turn turn-1)');
+    expect(out).toContain('  Turn: turn-1 (incident i:1:backoff_exhausted:3)');
+    // A turn of another task still names itself (review #300, P3).
+    expect(out).toContain('  Turn: turn-2');
     expect(out).toContain('  Why: transient network error');
     expect(out).toContain('  Hypothesis: the mirror is back; expect: prepare passes');
     expect(out).toContain('  Result: no progress (signature unchanged, errors +0, tree unchanged)');

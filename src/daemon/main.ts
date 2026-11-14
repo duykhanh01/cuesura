@@ -549,6 +549,7 @@ export async function startDaemon(
           newId,
           ...(extra.leaseHolder === undefined ? {} : { leaseHolder: extra.leaseHolder }),
           ...(models == null ? {} : { models }),
+          redact: (text: string) => redactor.text(text),
         },
         caller,
         input,
