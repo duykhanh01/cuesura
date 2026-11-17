@@ -1125,10 +1125,12 @@ async function startAgent(
   // binary is never a silent switch between attempts (T070/T071). Nothing is invoked: the engine records
   // the new manifest in `run.manifest_refs` and runs the step again when it still meets what the task
   // froze for (#249), and otherwise waits on `manifest_changed` for a person's `recheck`.
+  // A run read back after a restart already ran under the confirmed manifest; the harness checks
+  // its launch state against that one instead (#321).
   const confirmed =
     l.s.run.manifest_refs?.[binding.harness] ?? l.rt.capability_refs[binding.harness];
   const inForce = harness.manifest.manifest_hash;
-  if (confirmed !== undefined && confirmed !== inForce) {
+  if (!recovering && confirmed !== undefined && confirmed !== inForce) {
     const shortfalls = manifestShortfalls(
       binding.harness,
       harness.manifest,
@@ -1361,7 +1363,11 @@ async function startAgent(
     if (!recovering) out = await harness.run(input, signal);
     else if (harness.recover === undefined)
       throw new InvocationUnknown(`harness ${binding.harness} cannot recover a finished run`);
-    else out = harness.recover(input);
+    else
+      out = harness.recover(
+        input,
+        confirmed === undefined ? undefined : { manifest_hash: confirmed },
+      );
   } catch (e) {
     // Launch or end not proven: the effect is reconciled, its reservation kept (contracts/execution.md §5).
     if (e instanceof InvocationUnknown) return unknown(e.message);

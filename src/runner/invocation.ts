@@ -674,11 +674,12 @@ export class RunnerHarness implements HarnessPort {
    * that does not match this input and launch, or a write zone changed since in a way the run cannot be
    * told apart from, stays unknown.
    */
-  recover(input: HarnessInput): HarnessOutcome {
-    return asTurn(input, this.#recover(input));
+  recover(input: HarnessInput, launched?: { readonly manifest_hash: string }): HarnessOutcome {
+    return asTurn(input, this.#recover(input, launched?.manifest_hash));
   }
 
-  #recover(input: HarnessInput): HarnessOutcome {
+  /** `manifest`: the one the run was launched under; the one in force unless the caller knows better. */
+  #recover(input: HarnessInput, manifest: string = this.#o.manifest.manifest_hash): HarnessOutcome {
     const o = this.#o;
     let run: RunDir;
     try {
@@ -697,7 +698,7 @@ export class RunnerHarness implements HarnessPort {
     }
     // A review the daemon finalized stands or falls with its proof; it is never re-derived.
     if (input.role === 'reviewer' && run.readFinal(RUN_FILES.result).state !== 'missing')
-      return this.#recoverReview(run, input);
+      return this.#recoverReview(run, input, manifest);
     const state = run.readFinal(LAUNCH_STATE_FILE, LaunchStateSchema);
     const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
     const marker = readLaunchMarker(run);
@@ -709,7 +710,7 @@ export class RunnerHarness implements HarnessPort {
     const e = exit.value;
     if (
       st.input_digest !== inputDigest(input) ||
-      st.manifest_hash !== o.manifest.manifest_hash ||
+      st.manifest_hash !== manifest ||
       marker.value.operation_id !== input.operation_id ||
       marker.value.attempt_id !== input.attempt_id ||
       marker.value.launch_nonce !== st.launch_nonce ||
@@ -969,7 +970,7 @@ export class RunnerHarness implements HarnessPort {
   }
 
   /** A repeated call may read finalized review data; it never launches a replacement. */
-  #recoverReview(run: RunDir, input: HarnessInput): HarnessOutcome {
+  #recoverReview(run: RunDir, input: HarnessInput, manifest: string): HarnessOutcome {
     const result = run.readFinal(RUN_FILES.result, FinalizedReviewSchema);
     const exit = run.readFinal(RUN_FILES.exit, RunnerExitSchema);
     const marker = readLaunchMarker(run);
@@ -988,7 +989,7 @@ export class RunnerHarness implements HarnessPort {
       p.recovery.input_digest !== inputDigest(input) ||
       p.recovery.value_digest !== hashCanonical(result.value.value) ||
       p.recovery.exit_digest !== hashCanonical(e) ||
-      p.manifest_hash !== this.#o.manifest.manifest_hash ||
+      p.manifest_hash !== manifest ||
       marker.value.operation_id !== input.operation_id ||
       marker.value.attempt_id !== input.attempt_id ||
       marker.value.launch_nonce !== e.launch_nonce ||

@@ -1880,6 +1880,84 @@ describe.each(['coder', 'reviewer'] as const)(
   },
 );
 
+it('#321: a coder that finished before a restart that also brought a new manifest is taken as it ran; no second run', async () => {
+  const task = buildTask();
+  const { d, deps, start, settle, coder, github } = setup(task, {
+    mode: 'full-review',
+    confirmManifests: true,
+  });
+  const harness = deps.harnesses['claude'];
+  if (harness === undefined) throw new Error('no harness');
+  const launched = harness.manifest.manifest_hash;
+  const finished: { input: HarnessInput; out: HarnessOutcome; manifest: string }[] = [];
+  const run = harness.run.bind(harness);
+  let died = false;
+  Object.assign(harness, {
+    run: async (input: HarnessInput, signal: AbortSignal) => {
+      const out = await run(input, signal);
+      if (died) return out;
+      died = true;
+      finished.push({ input, out, manifest: harness.manifest.manifest_hash });
+      throw new Error('daemon killed');
+    },
+    // As the runner does: a run is read back only under the manifest it was launched with.
+    recover: (input: HarnessInput, at?: { manifest_hash: string }): HarnessOutcome => {
+      const r = finished.find((f) => canonicalJson(f.input) === canonicalJson(input));
+      if (r === undefined || r.manifest !== (at?.manifest_hash ?? harness.manifest.manifest_hash))
+        throw new InvocationUnknown('launch state does not match this invocation');
+      return r.out;
+    },
+  });
+  d.must(task.id, { kind: 'create_task', task });
+  start();
+  await settle();
+  const agent = Object.values(d.task(task.id).effects).find((e) => e.status === 'started');
+  const op = Object.values(d.task(task.id).operations).find((o) => o.effect_id === agent?.id);
+  if (agent === undefined || op === undefined) throw new Error('no running agent');
+  const worktree = join(deps.paths.worktrees, task.id);
+  const before = d.task(task.id).run.worktree_tree;
+  // The restarted daemon proved the binary again: a new manifest that still meets the task.
+  Object.assign(harness, {
+    manifest: { ...harness.manifest, manifest_hash: hashCanonical('re-proved manifest') },
+  });
+  d.must(task.id, {
+    kind: 'operation_result',
+    operation_id: op.id as Uuid,
+    status: 'finished',
+    outcome: 'succeeded',
+    invocation_id: null,
+    processes: [],
+    started_at: d.now as EpochMs,
+    finished_at: d.now as EpochMs,
+    receipt_digest: `sha256:${'c'.repeat(64)}`,
+  });
+  d.must(task.id, {
+    kind: 'effect_result',
+    effect_id: agent.id as Uuid,
+    ...(agent.attempt_id === null ? {} : { attempt_id: agent.attempt_id as Uuid }),
+    outcome: 'unknown',
+  });
+  await settleWithSlot(d, settle);
+
+  const s = d.task(task.id);
+  expect(finished[0]?.manifest).toBe(launched);
+  expect(s.effects[agent.id]?.status).toBe('succeeded');
+  expect(s.attempts[agent.attempt_id as string]).toMatchObject({
+    outcome: { class: null, status: 'done' },
+  });
+  expect(coder.calls).toHaveLength(1);
+  const events = d.store.readEvents(task.id);
+  expect(events.some((e) => e.type === 'WorktreeChangeAccepted')).toBe(false);
+  expect(
+    events.some((e) => e.type === 'TaskWaiting' && JSON.stringify(e.payload).includes('worktree_')),
+  ).toBe(false);
+  // The coder's own change is the task's tree now, and the flow went on through gates and review.
+  expect(s.run.worktree_tree).not.toBe(before);
+  expect(readFileSync(join(worktree, 'search.ts'), 'utf8')).toContain('search');
+  expect(s.run.reviews).toMatchObject([{ verdict: 'approve', sha: s.run.checkpoint?.sha }]);
+  expect(github.prs).toHaveLength(1);
+});
+
 describe('minor findings of an approving review (real Git)', () => {
   const approveMinor = {
     schema_version: 1,

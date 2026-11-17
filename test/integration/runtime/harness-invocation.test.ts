@@ -876,6 +876,30 @@ describe('T139 M07 finalized reviewer recovery', () => {
     },
   );
 
+  it.each([
+    ['coder', 's0-claude-coder-1793172185'],
+    ['reviewer', 's0-claude-reviewer-1793180331'],
+  ] as const)(
+    '#321: a %s run is read back under the manifest it was launched with, not one proven after the restart',
+    async (role, scenario) => {
+      const e = env('claude', scenario);
+      const inp = input('claude', role);
+      const launched = evidenceManifest(e.pin).manifest_hash;
+      if (role === 'coder') await orphaned(e, inp);
+      else await harness(e).run(inp, signal());
+      const reproved = harness(e, {
+        credentials: {},
+        manifest: { ...evidenceManifest(e.pin), manifest_hash: hashCanonical('re-proved') },
+      });
+      expect(() => reproved.recover(inp)).toThrow(InvocationUnknown);
+      expect(() => reproved.recover(inp, { manifest_hash: hashCanonical('other') })).toThrow(
+        InvocationUnknown,
+      );
+      expect(reproved.recover(inp, { manifest_hash: launched }).kind).toBe('result');
+      expect(e.proc.launches).toHaveLength(1);
+    },
+  );
+
   it('recovery after the auth left returns the stored, redacted outcome; without it, unknown', async () => {
     const secret = 'plain-auth-value-0123456789';
     const e = env('codex', 's0-codex-coder-1793178479', 'leak_summary', secret);

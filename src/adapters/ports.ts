@@ -309,9 +309,10 @@ export interface HarnessPort {
   run(input: HarnessInput, signal: AbortSignal): Promise<HarnessOutcome>;
   /**
    * The outcome of a run of this operation that already ended, read from what it finalized on disk;
-   * never launches. Throws when the outcome cannot be proven for this exact input.
+   * never launches. Throws when the outcome cannot be proven for this exact input. `launched` names the
+   * manifest the run must have been launched under when that is no longer the one in force.
    */
-  recover?(input: HarnessInput): HarnessOutcome;
+  recover?(input: HarnessInput, launched?: { readonly manifest_hash: string }): HarnessOutcome;
   /** Whether this attempt got as far as a launch; false proves nothing was ever spawned for it. */
   started?(attemptId: string): boolean;
   /** Stops a launched run of this operation that this process no longer waits on, e.g. after a restart. */
