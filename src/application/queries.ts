@@ -323,7 +323,38 @@ export async function taskAdd(
     if (!p.ok && p.error.code !== 'conflict') return p;
   }
   const s = deps.store.readTask(task.value.id) as TaskState;
-  return ok(taskView(s));
+  // With a run_config the config was already checked, and a problem refused the add.
+  const warning = resolved === undefined ? await configWarning(deps, task.value) : null;
+  return ok({ ...taskView(s), ...(warning === null ? {} : { config_warning: warning }) });
+}
+
+/**
+ * What `task options` would refuse with, so the task is not added blind (#311): the same computation,
+ * on the local base. When it cannot run, the warning says the config was not checked rather than nothing.
+ */
+async function configWarning(
+  deps: TaskServiceDeps,
+  task: CanonicalTask,
+): Promise<Record<string, unknown> | null> {
+  const unchecked = (detail: string) => ({
+    code: 'config_unchecked',
+    message: `could not check whether the config can run this task: ${detail}; run cusr task options ${task.id} later`,
+    checks: [],
+  });
+  try {
+    const r = await computeRunOptions(deps.confirm, {
+      id: task.id,
+      revision: task.revision,
+      project: task.project,
+      task,
+    });
+    if (r.ok) return null;
+    if (r.error.code === 'config_invalid')
+      return { code: r.error.code, message: r.error.message, ...r.error.details };
+    return unchecked(r.error.message);
+  } catch (e) {
+    return unchecked(e instanceof Error ? e.message : String(e));
+  }
 }
 
 export type RunSelectionProposal = Omit<RunSelection, 'task_id' | 'revision'>;

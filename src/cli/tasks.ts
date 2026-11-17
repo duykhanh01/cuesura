@@ -21,6 +21,7 @@ import {
   DOCTOR_CLIENT_TIMEOUT_MS,
   UNSUPPORTED_GUIDANCE,
 } from '../application/limits.ts';
+import { MINIMAL_PROJECT_CONFIG_HELP } from '../config/minimal-project.ts';
 import { TASK_STATUSES } from '../domain/state.ts';
 import { UuidSchema } from '../shared/brand.ts';
 import { parseDuration } from '../shared/duration.ts';
@@ -76,6 +77,26 @@ const CHOICE_LISTS = [
   ['models', 'configured models'],
 ] as const;
 
+type FailedCheck = { name: string; status: string; detail: string; fix: string | null };
+
+function printChecks(checks: readonly FailedCheck[] | undefined, io: CliIo, prefix = ''): void {
+  for (const c of checks ?? [])
+    if (c.status === 'fail')
+      io.stderr(
+        `cusr: ${prefix}${c.name}: ${c.detail}${c.fix === null ? '' : `; fix: ${c.fix}`}\n`,
+      );
+}
+
+/** `task add` succeeded but the project config would stop the task: say so where a person looks. */
+function printConfigWarning(data: unknown, io: CliIo): void {
+  const w = (
+    data as { result?: { config_warning?: { message: string; checks?: FailedCheck[] } } } | null
+  )?.result?.config_warning;
+  if (w === undefined) return;
+  io.stderr(`cusr: warning: ${w.message}\n`);
+  printChecks(w.checks, io, 'warning: ');
+}
+
 export function print(
   envelope: Envelope,
   json: boolean,
@@ -83,8 +104,10 @@ export function print(
   render: Render = stringify,
 ): number {
   if (json) io.stdout(renderEnvelope(envelope));
-  else if (envelope.ok) io.stdout(render(envelope.data));
-  else {
+  else if (envelope.ok) {
+    io.stdout(render(envelope.data));
+    printConfigWarning(envelope.data, io);
+  } else {
     const id = envelope.error.request_id;
     io.stderr(
       `cusr: ${envelope.error.code}: ${envelope.error.message}${id === null ? '' : ` (request ${id})`}\n`,
@@ -99,12 +122,7 @@ export function print(
     }
     const issues = envelope.error.details['issues'];
     if (Array.isArray(issues)) for (const issue of issues) io.stderr(`cusr: ${String(issue)}\n`);
-    const checks = envelope.error.details['checks'] as
-      | { name: string; status: string; detail: string; fix: string | null }[]
-      | undefined;
-    for (const c of checks ?? [])
-      if (c.status === 'fail')
-        io.stderr(`cusr: ${c.name}: ${c.detail}${c.fix === null ? '' : `; fix: ${c.fix}`}\n`);
+    printChecks(envelope.error.details['checks'] as FailedCheck[] | undefined, io);
   }
   return exitCodeFor(envelope);
 }
@@ -394,6 +412,12 @@ refused as conflict task_exists with error.details.detail.task_id, instead of ma
 
 Then: cusr task options <id> lists modes and bindings; cusr task propose sets one (or pass the run
 flags here); cusr task show gives version and run_config digest; cusr task confirm --run-config confirms.
+
+Without run flags the task is added, then cusr.yaml at origin/<base> (as this machine has it, no fetch) is
+checked as task options checks it: every problem it finds is listed at once, each with its fix, in
+config_warning (and on stderr). With run flags the same problems refuse the add as config_invalid.
+A minimal cusr.yaml that can run a task:
+${MINIMAL_PROJECT_CONFIG_HELP}
 
 Examples:
   cusr task add --file task.json --json

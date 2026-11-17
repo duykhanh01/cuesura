@@ -112,6 +112,8 @@ describe('request_show', () => {
 
   it('is in_progress while the daemon runs the request', async () => {
     let release = (): void => undefined;
+    // `task add` reads the config too (#311); only the confirm after it is held.
+    let holding = false;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -120,13 +122,14 @@ describe('request_show', () => {
         store,
         ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
         configInputs: async () => {
-          await held;
+          if (holding) await held;
           return { user: userConfig(), packs: PACKS, manifests: MANIFESTS };
         },
         now: () => sd.clock.now(),
       },
     }));
     const added = await sd.command('assistant', addBody(3));
+    holding = true;
     const task = (added.envelope.data as { result: TaskState & { task_id: string } }).result;
     const pending = sd.command('assistant', {
       request_id: uuidOf(4),
@@ -221,6 +224,8 @@ describe('request_show', () => {
 
   it('#267: the same request sent while its first run is still going shares that run and is marked replayed', async () => {
     let release = (): void => undefined;
+    // `task add` reads the config too (#311); only the confirm after it is held.
+    let holding = false;
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
@@ -229,13 +234,14 @@ describe('request_show', () => {
         store,
         ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
         configInputs: async () => {
-          await held;
+          if (holding) await held;
           return { user: userConfig(), packs: PACKS, manifests: MANIFESTS };
         },
         now: () => sd.clock.now(),
       },
     }));
     const added = await sd.command('assistant', addBody(12));
+    holding = true;
     const task = (added.envelope.data as { result: TaskState & { task_id: string } }).result;
     const confirm = {
       request_id: uuidOf(13),

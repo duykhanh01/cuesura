@@ -8,6 +8,7 @@ import {
   type InitFile,
   type InitItemId,
 } from '../application/init.ts';
+import { MINIMAL_PROJECT_CONFIG_HELP } from '../config/minimal-project.ts';
 import { resolveDataDir } from './client.ts';
 import { exitCodeForError } from './errors.ts';
 import { ExitCode, errorEnvelope, okEnvelope, renderEnvelope } from './output.ts';
@@ -84,6 +85,8 @@ export function makeInitCommand(deps: InitDeps = processDeps): CliCommand {
             assistant, hidden from Git through info/exclude: .claude/settings.local.json, plus
             .codex/hooks.json and .pi/extensions/cusr-assistant.ts when codex or pi is on PATH.
   cusr.yaml created as "version: 1" when the repo has none; an existing one is never touched.
+            A task needs more before it can run; a minimal cusr.yaml that can:
+${MINIMAL_PROJECT_CONFIG_HELP.replace(/^/gm, '            ')}
 Nothing is committed: cusr reads the template from the base commit, so commit the files for new
 tasks to use them. Do not commit the hook files: they hold this machine's data dir.
 

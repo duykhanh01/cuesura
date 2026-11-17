@@ -7,8 +7,7 @@
  * evidence. Prompts and attachments are stood in for: nothing frozen here is kept.
  */
 import { z } from 'zod';
-import type { ConfigSource } from '../config/yaml-loader.ts';
-import { validateConfig } from '../config/validate.ts';
+import type { RuntimeConfig } from '../config/normalize.ts';
 import type { ValidatedConfig } from '../domain/config.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import {
@@ -26,7 +25,12 @@ import { UuidSchema } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfirmDeps } from './confirm.ts';
-import { readLocalBaseConfig } from './preflight.ts';
+import {
+  checkProjectConfig,
+  problemChecks,
+  type ConfigCheck,
+  type ConfigProblem,
+} from './config-check.ts';
 import type { AppError } from './queries.ts';
 import { badTaskId } from './task-id.ts';
 import { checkSelection } from './run-config.ts';
@@ -36,18 +40,43 @@ export const RUN_OPTION_COMBINATIONS = 64;
 
 const WORKER_ROLES = ['coder', 'fixer'];
 const REVIEWER_ROLES = ['reviewer'];
-const DIAGNOSTICS = 20;
 const NO_REVIEWER: readonly (RunChoice | null)[] = [null];
 
 const QuerySchema = z.object({ kind: z.literal('run_options'), task_id: UuidSchema }).strict();
 
 export type RunOptionsDeps = Pick<ConfirmDeps, 'store' | 'ports' | 'configInputs'>;
 
-const configInvalid = (message: string, diagnostics: string[] = []): AppError => ({
-  code: 'config_invalid',
-  message,
-  details: { diagnostics: diagnostics.slice(0, DIAGNOSTICS) },
-});
+/** Every problem at once, each with its fix, and the base it was read at (#315). */
+export function configCheckError(
+  c: Pick<ConfigCheck, 'base' | 'problems'>,
+  message = 'cannot run a task',
+): AppError {
+  const at = c.base === null ? '' : ` at ${c.base.ref} (${c.base.sha})`;
+  const kinds = [...new Set(c.problems.map((p) => p.check))];
+  const checks = problemChecks(c.problems);
+  return {
+    code: 'config_invalid',
+    message: `the config${at} ${message}: ${kinds.join(', ')}`,
+    details: {
+      diagnostics: checks.map((p) => `${p.name}: ${p.detail}`),
+      checks,
+      base: c.base,
+    },
+  };
+}
+
+const FREEZE_FIX =
+  "allow the coder and fixer roles, and a model bound to them, in the task's profile in the user config";
+
+/** A freeze problem as `code: message`, kept with how to make a selection freezable. */
+function freezeProblems(problems: readonly string[]): ConfigProblem[] {
+  return [...new Set(problems)].map((p) => {
+    const at = p.indexOf(': ');
+    return at < 0
+      ? { check: p, message: p, fix: FREEZE_FIX }
+      : { check: p.slice(0, at), message: p.slice(at + 2), fix: FREEZE_FIX };
+  });
+}
 
 const choiceKey = (c: RunChoice): string => `${c.harness}/${c.model}/${c.effort}`;
 
@@ -226,53 +255,20 @@ export async function computeRunOptions(
   deps: RunOptionsDeps,
   s: TaskRef,
 ): Promise<Result<{ options: RunOptions; probe: PairProbe }, AppError>> {
-  const { user, packs } = await deps.configInputs();
-  const userOnly = validateConfig({ user, packs: {} });
-  if (!userOnly.ok)
-    return err(
-      configInvalid(
-        'the user config is invalid',
-        userOnly.error.map((d) => `${d.code}: ${d.message}`),
-      ),
-    );
-  const path = userOnly.value.locations[s.project]?.path ?? null;
-  if (path === null)
-    return err(configInvalid(`projects.${s.project}.path is not set in the user config`));
-
-  const base = await readLocalBaseConfig(deps.ports.git, path, s.task.base_branch);
-  if (!base.ok)
-    return err(
-      base.error.kind === 'invalid'
-        ? configInvalid(base.error.detail)
-        : {
-            code: 'options_unavailable',
-            message: base.error.detail,
-            details: {},
-          },
-    );
-  const project: ConfigSource | null = base.value.config;
-  const validated = validateConfig({
-    user,
-    ...(project === null ? {} : { project }),
-    packs,
+  const checked = await checkProjectConfig(deps.ports.git, await deps.configInputs(), {
+    project: s.project,
+    base_branch: s.task.base_branch,
+    profile: s.task.profile ?? null,
   });
-  if (!validated.ok)
-    return err(
-      configInvalid(
-        `the config at base ${base.value.base_sha} is invalid`,
-        validated.error.map((d) => `${d.code}: ${d.message}`),
-      ),
-    );
-  const { config, runtime } = validated.value;
-  if (runtime === null) return err(configInvalid('the `runtime:` section is required by cusrd'));
-
-  const profile = s.task.profile ?? config.project?.profile ?? null;
-  if (profile === null)
-    return err(
-      configInvalid(
-        'neither the task nor the project selects a profile; set `profile:` in cusr.yaml',
-      ),
-    );
+  if (!checked.ok)
+    return err({ code: 'options_unavailable', message: checked.error.detail, details: {} });
+  if (checked.value.ready === null) return err(configCheckError(checked.value));
+  const { validated, profile: chosen } = checked.value.ready;
+  const { config } = validated;
+  const runtime = validated.runtime as RuntimeConfig;
+  const profile = chosen.id;
+  // A ready check always read its base.
+  const baseSha = checked.value.base?.sha ?? '';
 
   const budget = { left: RUN_OPTION_COMBINATIONS, skipped: false };
   const problems: string[] = [];
@@ -280,34 +276,26 @@ export async function computeRunOptions(
     const allowed = runtime.modes[mode];
     return allowed === undefined
       ? []
-      : [
-          optionsForMode(
-            s,
-            config,
-            base.value.base_sha,
-            profile,
-            mode,
-            allowed.when_to_use,
-            budget,
-            problems,
-          ),
-        ];
+      : [optionsForMode(s, config, baseSha, profile, mode, allowed.when_to_use, budget, problems)];
   });
   // Nothing froze at all: the config is the problem, not the choices.
   if (problems.length > 0 && modes.every((m) => m.workers.length === 0))
     return err(
-      configInvalid('no run selection can be frozen for this task', [...new Set(problems)]),
+      configCheckError(
+        { base: checked.value.base, problems: freezeProblems(problems) },
+        'cannot freeze any run selection for this task',
+      ),
     );
   return ok({
     options: {
-      profile: { id: profile, source: s.task.profile === null ? 'project' : 'task' },
+      profile: chosen,
       modes,
       truncated: budget.skipped,
     },
     // The listing stops at RUN_OPTION_COMBINATIONS and pairs workers with reviewers loosely, so a
     // proposal is checked on its own pair rather than looked up in the lists.
     probe: (mode, worker, reviewer) =>
-      pairFallbacks(s, config, base.value.base_sha, profile, mode, worker, reviewer, []),
+      pairFallbacks(s, config, baseSha, profile, mode, worker, reviewer, []),
   });
 }
 
