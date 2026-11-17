@@ -214,15 +214,20 @@ describe('FR-006 and gates', () => {
     });
     expect(!r.ok && r.error.map((d) => d.code)).toEqual(['required_gate_missing']);
   });
-  it('allow_no_gates permits a project without gates', () => {
+  it('a project without gates is valid', () => {
+    const r = validateConfig({
+      user: minUser({}),
+      project: { file: 'cusr.yaml', text: 'version: 1\nprofile: standard\n' },
+      packs: {},
+    });
+    expect(r.ok).toBe(true);
+  });
+  it('allow_no_gates was removed and says so', () => {
     const profiles = 'profiles:\n  standard: { workflow: impl, allow_no_gates: true }\n';
-    expect(
-      validateConfig({
-        user: minUser({ profiles }),
-        project: { file: 'cusr.yaml', text: 'version: 1\nprofile: standard\n' },
-        packs: {},
-      }).ok,
-    ).toBe(true);
+    const r = validateConfig({ user: minUser({ profiles }), packs: {} });
+    expect(!r.ok && r.error.map((d) => d.message)).toEqual([
+      expect.stringContaining("Key 'allow_no_gates' is not supported; it was removed") as string,
+    ]);
   });
 });
 

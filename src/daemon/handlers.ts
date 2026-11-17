@@ -1792,7 +1792,8 @@ async function runGateStep(
   const data = r.data ?? { results: [], tree: '', stable: true };
   const must = required.length > 0 ? required : data.results.map((x) => x.gate);
   // A failure a waiver covers lets the checkpoint be committed as on a pass (007, R-20).
-  const { passed } = gatesPass(l.s, must, data.results);
+  const passed =
+    (list.length === 0 && required.length === 0) || gatesPass(l.s, must, data.results).passed;
   const minor = minorStep(l.policy, step);
   if (minor && (!passed || !data.stable)) {
     await restoreCheckpoint(deps, l);

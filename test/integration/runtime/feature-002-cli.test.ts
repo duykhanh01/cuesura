@@ -2038,24 +2038,14 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(c?.detail).toContain('standard');
   });
 
-  it('fails, with a fix, a project without gates that no profile allows (issue #314)', async () => {
-    const { sd } = doctored({ cusr: NO_GATES.replace('profile: standard\n', '') });
-    await sd.start();
-    const r = await cli(sd, ['doctor', '--project', 'acme']);
-    expect(r.code).toBe(ExitCode.failure);
-    const c = checksOf(r);
-    expect(c['profile:acme']).toMatchObject({ status: 'ok' });
-    expect(c['gates:acme']).toMatchObject({ status: 'fail' });
-    expect(c['gates:acme']?.fix).toContain('allow_no_gates');
-  });
-
-  it('fails a profile that does not allow a project without gates (issue #314)', async () => {
+  it('a project without gates passes doctor with no gate check (issue #314)', async () => {
     const { sd } = doctored({ cusr: NO_GATES });
     await sd.start();
-    const c = checksOf(await cli(sd, ['doctor', '--project', 'acme']));
-    expect(c['project_config:acme']).toMatchObject({ status: 'fail' });
-    expect(c['project_config:acme']?.detail).toContain('no_gates_not_allowed');
-    expect(c['project_config:acme']?.fix).toContain('allow_no_gates: true');
+    const r = await cli(sd, ['doctor', '--project', 'acme']);
+    expect(r.code, r.out).toBe(ExitCode.ok);
+    const c = checksOf(r);
+    expect(c['project_config:acme']).toMatchObject({ status: 'ok' });
+    expect(c['gates:acme']).toBeUndefined();
   });
 
   it('fails a project without required checks, which start refuses (issue #314)', async () => {

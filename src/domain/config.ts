@@ -39,7 +39,6 @@ export type NormalizedProfile = {
   workflow: string | null;
   allow_roles: string[] | null;
   allow_models: string[] | null;
-  allow_no_gates: boolean;
   /** null means the task has no cap. */
   escalation: {
     enabled: boolean;
@@ -116,7 +115,6 @@ export const DIAGNOSTIC_CODES = [
 
   // Gate
   'required_gate_missing',
-  'no_gates_not_allowed',
   // Profile
   'profile_cycle',
   'override_not_allowed',

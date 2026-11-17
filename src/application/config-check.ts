@@ -48,15 +48,10 @@ export type ConfigCheck = {
 /** The base could not be read at all: not a config verdict. */
 export type ConfigCheckUnavailable = { readonly detail: string };
 
-const GATES_FIX =
-  'declare the gates the workflow requires in cusr.yaml, e.g. `gates: { build: "pnpm build", unit: "pnpm test" }`';
-
 const where = (d: Diagnostic): string => `${d.file}:${String(d.line)}:${String(d.col)}`;
 
 function diagnosticFix(d: Diagnostic, profiles: readonly string[]): string {
   switch (d.code) {
-    case 'no_gates_not_allowed':
-      return `${GATES_FIX}, or set allow_no_gates in the profile`;
     case 'required_gate_missing':
       return `declare that gate under \`gates:\` in cusr.yaml, or change the workflow's \`gates.required\` in the user config`;
     case 'unknown_profile':
@@ -137,8 +132,7 @@ const nonEmpty = (v: unknown): boolean =>
     : typeof v === 'object' && v !== null && Object.keys(v).length > 0;
 
 /**
- * What a failed validation leaves unsaid: it checks gates only against a profile and never looks at the
- * profile or `ci.required_checks`. Read from the raw document, so a pack's gates are not seen.
+ * What a failed validation leaves unsaid: it never looks at the profile or `ci.required_checks`. Read from the raw document, so a pack's gates are not seen.
  */
 function rawProblems(
   project: ConfigSource,
@@ -162,10 +156,6 @@ function rawProblems(
   const named = typeof doc['profile'] === 'string' ? doc['profile'] : null;
   const id = subject.profile ?? named;
   if (id === null) out.push(noProfile(Object.keys(userProfiles)));
-  const gatesReported = reported.some((d) => d.code === 'no_gates_not_allowed');
-  const allowed = id !== null && userProfiles[id]?.allow_no_gates === true;
-  if (!gatesReported && !allowed && doc['extends'] === undefined && !nonEmpty(doc['gates']))
-    out.push(noGates(id));
   const ci = doc['ci'];
   const checks =
     typeof ci === 'object' && ci !== null
@@ -255,8 +245,6 @@ function ready(
   const profile = id === null ? undefined : config.profiles[id];
   if (id === null) problems.push(noProfile(profiles));
   else if (profile === undefined) problems.push(unknownProfile(id, profiles));
-  if (Object.keys(config.project?.gates ?? {}).length === 0 && profile?.allow_no_gates !== true)
-    problems.push(noGates(id));
   if ((config.project?.required_checks ?? []).length === 0) problems.push(noRequiredChecks());
 
   return problems.length > 0 || id === null
@@ -283,17 +271,6 @@ function noProfile(profiles: readonly string[]): ConfigProblem {
     check: 'profile',
     message: 'neither the task nor the project selects a profile',
     fix: `set \`profile:\` in cusr.yaml to one of: ${profiles.join(', ') || '(none declared in the user config)'}`,
-  };
-}
-
-function noGates(profile: string | null): ConfigProblem {
-  return {
-    check: 'no_gates_not_allowed',
-    message:
-      profile === null
-        ? 'cusr.yaml declares no gates'
-        : `cusr.yaml declares no gates and profile '${profile}' does not set allow_no_gates`,
-    fix: GATES_FIX,
   };
 }
 

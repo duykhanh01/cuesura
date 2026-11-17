@@ -62,7 +62,7 @@ trừ lỗi cú pháp và lỗi vượt kích thước làm tài liệu không �
 | Binding | `no_initial_binding` | FR-003 (5) |
 | Predicate | `unknown_predicate` | FR-003 (6) |
 | Chế độ quyết định | `decision_mode_forbidden` | FR-006 |
-| Gate | `required_gate_missing`, `no_gates_not_allowed` | SPEC.md §8 |
+| Gate | `required_gate_missing` | SPEC.md §8 |
 | Profile | `profile_cycle`, `override_not_allowed`, `override_exceeds_caller` | FR-001 |
 
 ## Khả năng chưa hỗ trợ

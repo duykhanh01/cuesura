@@ -178,13 +178,7 @@ export type OverrideTarget = {
   project: PlainObject;
 };
 
-export const PROFILE_OVERRIDE_KEYS = [
-  'escalation',
-  'limits',
-  'allow_models',
-  'allow_roles',
-  'allow_no_gates',
-];
+export const PROFILE_OVERRIDE_KEYS = ['escalation', 'limits', 'allow_models', 'allow_roles'];
 
 /**
  * Only admins may change permission-sensitive leaves. Compare the effective configuration rather
@@ -193,8 +187,7 @@ export const PROFILE_OVERRIDE_KEYS = [
  */
 export function isPrivilegedPath(path: readonly string[]): boolean {
   const [head] = path;
-  if (head === 'allow_models' || head === 'allow_roles' || head === 'allow_no_gates')
-    return path.length === 1;
+  if (head === 'allow_models' || head === 'allow_roles') return path.length === 1;
   if (head === 'escalation') return true;
   return head === 'roles' && path.length === 3 && path[2] === 'permissions';
 }

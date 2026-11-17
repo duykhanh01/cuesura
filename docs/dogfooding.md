@@ -95,8 +95,7 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
 
 3. Kiểm tra `cusr doctor --project cuesura --json` trả `ok: true`. Với `--project`, doctor đọc
    `cusr.yaml` ở `origin/<base>` máy đang có và báo các check `project_config`, `profile`, `gates`,
-   `required_checks` của dự án: profile không tồn tại, thiếu gate mà profile không bật
-   `allow_no_gates`, hay thiếu `ci.required_checks` đều làm doctor thất bại, mỗi check kèm cách sửa.
+   `required_checks` của dự án: profile không tồn tại hay thiếu `ci.required_checks` đều làm doctor thất bại; project không khai gate không phải lỗi, mỗi check kèm cách sửa.
    Không có profile mặc định thì chỉ báo thông tin: task phải tự nêu `profile:` trong `--file`.
 
 ## Vòng làm một việc
@@ -145,7 +144,7 @@ thuẫn (vd test không có trong worktree) là finding.
 `gate_evidence` gồm các trạng thái:
 
 - `passed`/`failed`: kết quả của lượt gate tạo ra checkpoint đó, kể cả gate tuỳ chọn bị fail.
-- `not_configured`: project không khai báo gate (`allow_no_gates`).
+- `not_configured`: project không khai báo gate.
 - `missing`: không có lượt gate nào khớp commit đang review.
 
 Mục `worker_reports` chép summary của các lượt coder/fixer trong revision hiện tại kể từ lượt review gần nhất có

@@ -162,7 +162,6 @@ export const ProfileSchema = z
     workflow: z.string().min(1).optional(),
     allow_roles: nameList.optional(),
     allow_models: nameList.optional(),
-    allow_no_gates: z.boolean().optional(),
     escalation: z
       .object({
         enabled: z.boolean().optional(),

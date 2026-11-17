@@ -489,7 +489,8 @@ export function runStep(
     case 'gate': {
       const gates = p.gates.by_step[step];
       const run = gates?.run ?? [];
-      if (run.length === 0) return skip(ctx, step, 'no_gates');
+      // The step that ends in the checkpoint commit still runs with no gate, so review and publish get one.
+      if (run.length === 0 && !commitsCheckpoint(ctx, step)) return skip(ctx, step, 'no_gates');
       if (
         waitForSlot(ctx, {
           kind: 'run_step',
@@ -1471,7 +1472,10 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         sg !== undefined && sg.required.length > 0
           ? sg.required
           : (sg?.run ?? d.results.map((r) => r.gate));
-      const { passed, waived } = gatesPass(ctx.state, required, d.results);
+      const gated = gatesPass(ctx.state, required, d.results);
+      const waived = gated.waived;
+      const noneDeclared = sg !== undefined && sg.run.length === 0 && sg.required.length === 0;
+      const passed = noneDeclared || gated.passed;
       const failing =
         d.results.find((r) => !r.passed && !waived.includes(r.gate) && required.includes(r.gate)) ??
         d.results.find((r) => !r.passed && !waived.includes(r.gate));

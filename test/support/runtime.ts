@@ -128,7 +128,7 @@ export function createGrantStart(
   d: StoreDriver,
   task: CanonicalTask,
   mode: ExecutionMode = 'full-review',
-  policy: Pick<PolicyOptions, 'limits' | 'ci_rules' | 'required_checks' | 'roles'> = {},
+  policy: Pick<PolicyOptions, 'limits' | 'ci_rules' | 'required_checks' | 'roles' | 'gates'> = {},
   runtime: Partial<Omit<FrozenRuntimeContext, 'runtime_hash'>> = {},
   // Started tasks keep their slot reserved while they wait (FR-044.02), so fixtures that put several
   // tasks in flight run as with a large `runtime.concurrency`; slot tests pass the capacity they test.

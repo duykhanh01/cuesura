@@ -23,7 +23,6 @@ const OVERRIDE_ROOTS = [
   'limits',
   'allow_models',
   'allow_roles',
-  'allow_no_gates',
   'setup',
   'gates',
   'autofix',
@@ -357,22 +356,11 @@ function checkProfiles(ctx: Ctx, profiles: Record<string, NormalizedProfile>): v
 export function gateDiagnostics(
   w: Workflow,
   project: NormalizedProject,
-  profile: NormalizedProfile | null,
   at: Locator,
 ): Diagnostic[] {
   const out: Diagnostic[] = [];
   const declared = { ...project.gates, ...project.autofix };
   if (Object.keys(project.gates).length === 0) {
-    if (profile !== null && !profile.allow_no_gates) {
-      out.push(
-        diag(
-          'no_gates_not_allowed',
-          at(['gates']),
-          ['gates'],
-          'The project declares no gates and the profile does not enable allow_no_gates',
-        ),
-      );
-    }
     return out;
   }
   for (const [sn, s] of Object.entries(w.steps)) {
@@ -432,7 +420,7 @@ export function runChecks(input: CheckInput): Diagnostic[] {
     for (const wn of wfNames) {
       const w = input.user.workflows[wn];
       if (w === undefined) continue;
-      for (const d of gateDiagnostics(w, project, profile, input.atProject)) {
+      for (const d of gateDiagnostics(w, project, input.atProject)) {
         const k = d.message;
         if (!seen.has(k)) ctx.out.push(d);
         seen.add(k);

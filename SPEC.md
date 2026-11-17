@@ -215,7 +215,7 @@ Kiểm tra trước thực thi:
 5. Mỗi bước có binding khởi đầu hợp lệ. Rule bị loại bởi allowlist được bỏ qua để thử rule kế tiếp; không còn rule thì task không được READY.
 6. Predicate chỉ lấy từ tập định nghĩa trước như flag/size/label/type/attempt/branch; không `eval` hoặc diễn giải điều kiện tự do bằng LLM.
 
-Gate project không khai báo chỉ được bỏ qua theo quy tắc optional và được ghi vào snapshot; thiếu gate bắt buộc là lỗi. Không có gate nào chỉ hợp lệ khi profile cho phép `allow_no_gates`; vẫn không đủ điều kiện auto-merge nếu thiếu các kiểm tra bắt buộc.
+Gate project không khai báo chỉ được bỏ qua theo quy tắc optional và được ghi vào snapshot; thiếu gate bắt buộc là lỗi. Project không có gate nào vẫn hợp lệ và chạy bình thường (`allow_no_gates` đã bị gỡ); vẫn không đủ điều kiện auto-merge nếu thiếu các kiểm tra bắt buộc.
 
 ## 9. Role, escalation và ngân sách
 

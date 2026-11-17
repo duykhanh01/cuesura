@@ -259,7 +259,7 @@ export function buildPolicy(o: PolicyOptions = {}): FrozenPolicy {
     const run = (step.run ?? []).filter((g) => g in commands);
     by_step[name] = {
       run,
-      required: step.required ?? [],
+      required: Object.keys(commands).length === 0 ? [] : (step.required ?? []),
       skipped: (step.run ?? []).filter((g) => !(g in commands)),
     };
   }

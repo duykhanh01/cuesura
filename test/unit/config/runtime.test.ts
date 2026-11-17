@@ -546,16 +546,16 @@ describe('historical hashes', () => {
     };
   }
 
-  // Recaptured when decision modes left the workflow and when user.yaml dropped `uses`; must never move otherwise.
+  // Recaptured when decision modes left the workflow and when user.yaml dropped `uses`, and when profiles lost allow_no_gates; must never move otherwise.
   const GOLDEN = {
     config: {
-      user: 'sha256:ad2bd8f7dfebc4e4670a600f8ee72eee13d348baf032d9ca955796122eaa7da4',
+      user: 'sha256:007cfaf0696391109a15338406435a9740d73571ccfe1cfb6b2a6b02b799ad63',
       project: 'sha256:20aed651e16b81216ae85b13a4b78eae960183761c88f2fbb1dffd6059f2949f',
       packs: {
         node: 'sha256:dc2a20df419481471b5e3cbb2efc284701c47f5395e127910c07a0ffe091e003',
       },
     },
-    policy: 'sha256:bffd04158f0a9056bb674ea4655644a33f98ae26044aaa9aeba330031116383b',
+    policy: 'sha256:7804b8edd141fd9fb4f70c5bac267e1cd37399fd61049e548f53d59ef62fbdd3',
     context: 'sha256:452fab522cb5cdb63dbf6ddf2887ca014076ed9b97c7aad73b4eea7eebeb3731',
   };
 

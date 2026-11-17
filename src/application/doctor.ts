@@ -124,11 +124,9 @@ const RESTART_FIX =
 /** One fix per distinct problem, so the operator does not have to map diagnostic codes to edits. */
 function configFix(diagnostics: readonly Diagnostic[], base: string): string {
   const fixes = diagnostics.map((d) =>
-    d.code === 'no_gates_not_allowed'
-      ? `declare gates in cusr.yaml on ${base}, or set allow_no_gates: true in the profile of the user config`
-      : d.code === 'unknown_profile'
-        ? `set profile: in cusr.yaml on ${base} to a profile of the user config`
-        : `fix ${d.path.join('.') || '(root)'} in ${d.file}`,
+    d.code === 'unknown_profile'
+      ? `set profile: in cusr.yaml on ${base} to a profile of the user config`
+      : `fix ${d.path.join('.') || '(root)'} in ${d.file}`,
   );
   return [...new Set(fixes)].join('; ');
 }
@@ -197,23 +195,7 @@ async function projectReadinessChecks(
         : ok_(`profile:${project}`, `${profileId}, workflow ${profile.workflow}`),
   );
   const gates = Object.keys(p?.gates ?? {}).sort();
-  const noGatesProfiles = profiles.filter((id) => config.profiles[id]?.allow_no_gates === true);
-  out.push(
-    gates.length > 0
-      ? ok_(`gates:${project}`, gates.join(', '))
-      : profile?.allow_no_gates === true
-        ? ok_(`gates:${project}`, `none; profile ${profileId ?? ''} allows no gates`)
-        : profileId === null && noGatesProfiles.length > 0
-          ? ok_(
-              `gates:${project}`,
-              `none; only tasks that name a profile allowing no gates run: ${noGatesProfiles.join(', ')}`,
-            )
-          : fail(
-              `gates:${project}`,
-              `cusr.yaml declares no gates and ${profileId === null ? 'no profile enables allow_no_gates' : `profile ${profileId} does not enable allow_no_gates`} (no_gates_not_allowed)`,
-              `declare gates in cusr.yaml on ${base}, or set allow_no_gates: true in profiles.${profileId ?? '<profile>'} of the user config`,
-            ),
-  );
+  if (gates.length > 0) out.push(ok_(`gates:${project}`, gates.join(', ')));
   const required = p?.required_checks ?? [];
   out.push(
     required.length > 0

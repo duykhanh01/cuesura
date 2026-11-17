@@ -28,33 +28,32 @@ const check = (text: string | null, profile: string | null = null) =>
 const names = (r: ReturnType<typeof check>) => r.problems.map((p) => p.check).sort();
 
 describe('projectConfigProblems', () => {
-  it('a cusr.yaml with only `version: 1` reports profile, gates and required checks at once', () => {
+  it('a cusr.yaml with only `version: 1` reports profile and required checks at once', () => {
     const r = check('version: 1\n');
-    expect(names(r)).toEqual(['no_gates_not_allowed', 'profile', 'required_checks']);
+    expect(names(r)).toEqual(['profile', 'required_checks']);
     expect(r.ready).toBeNull();
     for (const p of r.problems) expect(p.fix).toEqual(expect.any(String));
     expect(r.problems.find((p) => p.check === 'profile')?.fix).toContain('standard');
   });
 
-  it('a profile without gates reports the gate once, and the missing required checks too', () => {
-    const r = check('version: 1\nprofile: standard\n');
-    expect(names(r)).toEqual(['no_gates_not_allowed', 'required_checks']);
-    expect(r.problems.find((p) => p.check === 'no_gates_not_allowed')?.fix).toContain('gates:');
+  it('a project without gates has no gate problem', () => {
+    const r = check('version: 1\nprofile: standard\nci: { required_checks: [test] }\n');
+    expect(r.problems).toEqual([]);
+    expect(r.ready).not.toBeNull();
+    expect(check('version: 1\nprofile: standard\n').problems.map((p) => p.check)).toEqual([
+      'required_checks',
+    ]);
   });
 
-  it('a task profile that does not allow an empty gate list is checked, not the project one', () => {
-    const r = check('version: 1\nci: { required_checks: [test] }\n', 'heavy');
-    expect(names(r)).toEqual(['no_gates_not_allowed']);
+  it('the minimal sample, with its gates commented out, is ready', () => {
+    const r = check(MINIMAL_PROJECT_CONFIG.replace('profile: default', 'profile: standard'));
+    expect(r.problems).toEqual([]);
+    expect(r.ready).not.toBeNull();
   });
 
   it('no cusr.yaml at the base says so and lists the rest, with the minimal config as the fix', () => {
     const r = check(null);
-    expect(names(r)).toEqual([
-      'no_gates_not_allowed',
-      'profile',
-      'project_config',
-      'required_checks',
-    ]);
+    expect(names(r)).toEqual(['profile', 'project_config', 'required_checks']);
     expect(r.problems.find((p) => p.check === 'project_config')?.message).toContain(
       'origin/main (abc)',
     );
@@ -120,7 +119,7 @@ describe('projectConfigProblems', () => {
       cusr('version: 1\n'),
       'origin/main',
     );
-    expect(names(r)).toEqual(['no_gates_not_allowed', 'profile', 'required_checks', 'runtime']);
+    expect(names(r)).toEqual(['profile', 'required_checks', 'runtime']);
   });
 
   it('an unsupported key does not hide a missing required gate (review of #326)', () => {
@@ -185,10 +184,9 @@ describe('cappedProblems', () => {
   it('keeps every kind and its fix when one kind has many problems', () => {
     const keys = Array.from({ length: 21 }, (_, i) => `k${String(i)}: 1`).join('\n');
     const r = check(`version: 1\n${keys}\n`);
-    expect(r.problems.length).toBe(24);
+    expect(r.problems.length).toBe(23);
     const shown = cappedProblems(r.problems);
     expect([...new Set(shown.map((p) => p.check))].sort()).toEqual([
-      'no_gates_not_allowed',
       'profile',
       'required_checks',
       'schema_invalid',

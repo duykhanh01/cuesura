@@ -12,7 +12,7 @@ describe('task add config warning (#311)', () => {
     };
     const checks = [
       { name: 'profile', status: 'fail', detail: 'no profile', fix: 'set `profile:`' },
-      { name: 'no_gates_not_allowed', status: 'fail', detail: 'no gates', fix: 'add gates' },
+      { name: 'required_checks', status: 'fail', detail: 'no checks', fix: 'add checks' },
     ];
     print(
       okEnvelope({
@@ -27,7 +27,7 @@ describe('task add config warning (#311)', () => {
     expect(errs).toEqual([
       'cusr: warning: cannot run\n',
       'cusr: warning: profile: no profile; fix: set `profile:`\n',
-      'cusr: warning: no_gates_not_allowed: no gates; fix: add gates\n',
+      'cusr: warning: required_checks: no checks; fix: add checks\n',
     ]);
   });
 });

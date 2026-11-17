@@ -67,7 +67,14 @@ export function zodDiagnostics(error: z.ZodError, at: Locator, prefix: KeyPath =
     if (issue.code === 'unrecognized_keys') {
       for (const k of issue.keys)
         out.push(
-          diag('schema_invalid', at([...path, k]), [...path, k], `Key '${k}' is not supported`),
+          diag(
+            'schema_invalid',
+            at([...path, k]),
+            [...path, k],
+            k === 'allow_no_gates'
+              ? `Key '${k}' is not supported; it was removed, a project without gates runs normally: delete it`
+              : `Key '${k}' is not supported`,
+          ),
         );
     } else {
       out.push(diag('schema_invalid', at(path), path, issue.message));

@@ -492,6 +492,21 @@ it('#215: each review gets the worker reports since the review before, redacted,
   expect(JSON.stringify(f.d.task(task.id).attempts)).not.toContain(token);
 });
 
+it('a project without gates still gets a checkpoint, and a review, and reaches a PR', async () => {
+  const task = buildTask();
+  const f = setup(task, { mode: 'full-review', gates: {} });
+  f.d.must(task.id, { kind: 'create_task', task });
+  f.start();
+  await settleWithSlot(f.d, f.settle);
+  const s = f.d.task(task.id);
+  expect(s.run.checkpoint).not.toBeNull();
+  expect(f.codex.calls).toHaveLength(1);
+  expect(f.codex.calls[0]?.context.text).toContain('Status: not_configured');
+  expect(s.pr_ref).not.toBeNull();
+  expect(s.run.reviews.filter((r) => r.valid)).toHaveLength(1);
+  expect(f.d.store.readEvents(task.id).map((e) => e.type)).not.toContain('AttemptInvalid');
+});
+
 it('#213: the second review resumes the first review session through the handler; the fixer keeps the worker session', async () => {
   const task = buildTask();
   const f = setup(task, {

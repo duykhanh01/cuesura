@@ -1,5 +1,0 @@
-# expect: no_gates_not_allowed 1 1
-# role: project
-version: 1
-setup: make deps
-profile: standard

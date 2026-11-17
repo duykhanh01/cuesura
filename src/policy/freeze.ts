@@ -169,32 +169,22 @@ function stepBinding(
   });
 }
 
-function gatesOf(
-  config: ValidatedConfig,
-  profile: NormalizedProfile,
-  w: Workflow,
-): Result<FrozenPolicy['gates'], FreezeError> {
+function gatesOf(config: ValidatedConfig, w: Workflow): Result<FrozenPolicy['gates'], FreezeError> {
   const file = config.files.project ?? '<project>';
   const project = config.project;
   const commands: Record<string, string> = {
     ...(project?.gates ?? {}),
     ...(project?.autofix ?? {}),
   };
-  if (Object.keys(project?.gates ?? {}).length === 0 && !profile.allow_no_gates) {
-    return invalid(
-      file,
-      'no_gates_not_allowed',
-      ['gates'],
-      'The project declares no gates and the profile does not enable allow_no_gates',
-    );
-  }
+  // A project that declares no gates runs without them, so no gate is required of it.
+  const noGates = Object.keys(project?.gates ?? {}).length === 0;
   const by_step: FrozenPolicy['gates']['by_step'] = {};
   for (const [name, step] of Object.entries(w.steps)) {
     if (step.kind !== 'gate') continue;
     const run = step.run ?? [];
     // Without required, all declared gates in run are mandatory; undeclared gates remain optional and are skipped.
 
-    const required = step.required ?? run.filter((g) => g in commands);
+    const required = noGates ? [] : (step.required ?? run.filter((g) => g in commands));
     const missing = required.find((g) => !(g in commands));
     if (missing !== undefined) {
       return invalid(
@@ -275,7 +265,7 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
   );
   for (const [n, s] of Object.entries(steps)) s.floor_map = floorMaps[n] ?? {};
 
-  const gates = gatesOf(config, profile, workflow);
+  const gates = gatesOf(config, workflow);
   if (!gates.ok) return gates;
 
   const attachments = [];

@@ -364,6 +364,24 @@ describe('freeze (FR-004, FR-037)', () => {
     });
   });
 
+  it('freezes a policy for a project without gates, recording every gate as skipped', () => {
+    const r = run(
+      config(source('configs/valid/user.yaml'), {
+        file: 'cusr.yaml',
+        text: 'version: 1\nprofile: standard\n',
+      }),
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.value.policy.gates.commands).toEqual({});
+    expect(r.value.policy.gates.by_step.gates).toEqual({
+      run: [],
+      required: [],
+      skipped: ['build', 'unit', 'lint'],
+    });
+    expect(verifyPolicyHash(r.value.policy)).toBe(true);
+  });
+
   it('freezes required checks and CI rules after pack/project merging', () => {
     const r = run(USER);
     expect(r.ok && r.value.policy.ci).toEqual({

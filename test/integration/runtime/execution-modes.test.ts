@@ -340,6 +340,21 @@ describe('run selection confirmation (T135, M01/M02)', () => {
     expect(s.terminal?.reason).toMatch(/\(draft PR acme\/x#9\)$/);
   });
 
+  it('an empty gate run passes only when no gate is required either', () => {
+    const d = setup();
+    const t = buildTask();
+    // Only an autofix command is declared: no gate runs, yet the step still requires build and unit.
+    createGrantStart(d, t, 'full-review', { gates: { format_fix: 'true' } });
+    expect(d.task(t.id).run.mode).toBe('full-review');
+    d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done', {}));
+    const effect = d.pendingOne(t.id, 'run_gates');
+    d.complete(t.id, effect.id, 'succeeded', checkpointGates(A, {}));
+    const s = d.task(t.id);
+    expect(s.evidence.gates.at(-1)).toMatchObject({ step: 'gates', passed: false });
+    expect(s.run.checkpoint).toBeNull();
+  });
+
   it('a task failing past its deadline does not start a salvage it could not run (#247)', () => {
     const d = setup();
     const t = buildTask();

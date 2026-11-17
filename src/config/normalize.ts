@@ -144,7 +144,6 @@ export function normalizeProfile(p: RawProfile): NormalizedProfile {
     workflow: p.workflow ?? null,
     allow_roles: p.allow_roles ?? null,
     allow_models: p.allow_models ?? null,
-    allow_no_gates: p.allow_no_gates ?? false,
     escalation: {
       enabled: p.escalation?.enabled ?? DEFAULT_ESCALATION.enabled,
       auto_up_to_tier: p.escalation?.auto_up_to_tier ?? DEFAULT_ESCALATION.auto_up_to_tier,

@@ -86,6 +86,7 @@ const checksOf = (r: Awaited<ReturnType<typeof add>>) =>
 const names = (checks: Check[]) => checks.map((c) => c.name).sort();
 
 const NO_PROFILE_NO_GATES = 'version: 1\n';
+const NO_CHECKS = 'version: 1\nprofile: standard\n';
 const PROFILE_NO_GATES = 'version: 1\nprofile: standard\nci: { required_checks: [build] }\n';
 
 describe('task add checks the project config (#311, #315)', () => {
@@ -98,19 +99,13 @@ describe('task add checks the project config (#311, #315)', () => {
       code: 'config_invalid',
       base: { ref: 'origin/main', sha: SHA },
     });
-    expect(names(w?.checks ?? [])).toEqual(['no_gates_not_allowed', 'profile', 'required_checks']);
+    expect(names(w?.checks ?? [])).toEqual(['profile', 'required_checks']);
     for (const c of w?.checks ?? []) expect(c.fix).toEqual(expect.any(String));
   });
 
-  it('a project with a profile but no gate is warned about the gate', async () => {
+  it('a project with a profile but no gate is added without a warning', async () => {
     const sd = await daemon(PROFILE_NO_GATES);
-    const w = result(await add(sd)).config_warning;
-    expect(w?.checks).toEqual([
-      expect.objectContaining({
-        name: 'no_gates_not_allowed',
-        fix: expect.stringContaining('gates:') as string,
-      }),
-    ]);
+    expect(result(await add(sd)).config_warning).toBeUndefined();
   });
 
   it('task options refuses with the same list', async () => {
@@ -123,7 +118,7 @@ describe('task add checks the project config (#311, #315)', () => {
   });
 
   it('a run config on such a project refuses the add with every problem', async () => {
-    const sd = await daemon(PROFILE_NO_GATES);
+    const sd = await daemon(NO_CHECKS);
     const r = await add(sd, {
       profile: 'standard',
       mode: 'direct-pr',
@@ -136,7 +131,7 @@ describe('task add checks the project config (#311, #315)', () => {
       code: 'config_invalid',
       details: { base: { ref: 'origin/main', sha: SHA } },
     });
-    expect(names(checksOf(r))).toEqual(['no_gates_not_allowed']);
+    expect(names(checksOf(r))).toEqual(['required_checks']);
   });
 
   it('a base without cusr.yaml says so', async () => {
