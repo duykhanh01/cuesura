@@ -93,7 +93,11 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
    trỏ tới `~/cuesura-dogfood/config.yaml` và `~/cuesura-dogfood/data`, thêm
    `Environment=PATH=%h/cuesura-dogfood/tools/node/bin:%h/.local/bin:/usr/bin:/bin`.
 
-3. Kiểm tra `cusr doctor --project cuesura --json` trả `ok: true`.
+3. Kiểm tra `cusr doctor --project cuesura --json` trả `ok: true`. Với `--project`, doctor đọc
+   `cusr.yaml` ở `origin/<base>` máy đang có và báo các check `project_config`, `profile`, `gates`,
+   `required_checks` của dự án: profile không tồn tại, thiếu gate mà profile không bật
+   `allow_no_gates`, hay thiếu `ci.required_checks` đều làm doctor thất bại, mỗi check kèm cách sửa.
+   Không có profile mặc định thì chỉ báo thông tin: task phải tự nêu `profile:` trong `--file`.
 
 ## Vòng làm một việc
 
@@ -229,9 +233,19 @@ PR và bằng chứng, rồi `cusr queue resume`. Snapshot đã đóng băng c�
 hủy task để nâng. Dừng service và backup DB/config/pin trước khi nâng;
 sau khi tạo lại manifest và restart, kiểm tra lại `doctor`, `status` và chạy task nghiệm thu.
 
-Config được đọc lại khi xác nhận task mới; `yolo` được đọc lại trước khi daemon xét merge. Thay đổi
-công cụ, credential reference, pin/manifest hay binary cần restart để các thành phần trong process
-dùng cùng cấu hình. Không thay snapshot của task cũ. Assistant tự duyệt escalation (`task approve --kind
+Thứ daemon đọc lại trực tiếp và thứ cần restart:
+
+| Đọc lại trực tiếp, không cần restart | Cần restart `cusrd` |
+| --- | --- |
+| Config người dùng (role, model, profile, kể cả role `deputy`), đọc khi xác nhận task mới và mỗi lượt deputy | `runtime.tool_paths`, `runtime.credential_refs`, `runtime.terminal` |
+| `cusr.yaml` của dự án, đọc ở base khi xem `task options` và khi bắt đầu task | Pin và manifest harness (`harnesses/<h>/pin.json`, `manifest.json`): daemon nạp lúc khởi động |
+| `yolo`, đọc trước khi daemon xét merge | Binary harness và release `cusrd` |
+
+Sau `setup-harness` hoặc `record-manifest`, manifest mới chỉ nằm trên đĩa cho tới khi restart:
+`doctor` so manifest trên đĩa với manifest daemon đang giữ và báo `manifest:<h>` (cùng `deputy` nếu
+harness đó chạy deputy) kèm cách sửa là restart, không phải chứng minh lại. Ngược lại, daemon còn giữ
+manifest mà bản trên đĩa mất hoặc hỏng thì doctor cũng thất bại, vì restart sẽ làm harness mất manifest:
+khôi phục file hoặc chứng minh lại trước khi restart. Không thay snapshot của task cũ. Assistant tự duyệt escalation (`task approve --kind
 escalation`, quyền operate) vì nấc đó đã nằm trong ladder người dùng cấu hình; duyệt nhận PR có sẵn
 (`--kind adopt`) vẫn cần người dùng chạy bằng quyền admin.
 

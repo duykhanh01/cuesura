@@ -43,6 +43,7 @@ import { PACKS } from '../../support/config-fixtures.ts';
 import { SeededDaemon, type SeededExtra } from '../../support/daemon-task.ts';
 import { A as HEAD, merge, observation, toGreen } from '../../support/observation.ts';
 import {
+  CUSR,
   fakeGit,
   fakeGitHub,
   fakeHost,
@@ -1618,6 +1619,12 @@ describe('doctor (T112, FR-027.02/033)', () => {
       probeBudgetMs?: number;
       harnessTools?: Record<string, { dirs: string[]; requires: string[] }>;
       runtime?: string;
+      cusr?: string | null;
+      user?: { extra?: string };
+      manifestReload?: Record<
+        string,
+        { loaded: string | null; disk: string | null; disk_problem?: string }
+      >;
     } = {},
   ) {
     const host = fakeHost(o.host);
@@ -1627,7 +1634,10 @@ describe('doctor (T112, FR-027.02/033)', () => {
         host,
         configInputs: () =>
           Promise.resolve({
-            user: userConfig(o.runtime === undefined ? {} : { runtime: o.runtime }),
+            user: userConfig({
+              ...(o.runtime === undefined ? {} : { runtime: o.runtime }),
+              ...o.user,
+            }),
             packs: PACKS,
             manifests: (o.manifests ?? PROVEN) as typeof MANIFESTS,
           }),
@@ -1643,6 +1653,8 @@ describe('doctor (T112, FR-027.02/033)', () => {
         now: () => sd.now,
         ...(o.probeBudgetMs === undefined ? {} : { probeBudgetMs: o.probeBudgetMs }),
         ...(o.harnessTools === undefined ? {} : { harnessTools: () => o.harnessTools ?? {} }),
+        ...(o.cusr === undefined ? {} : { git: fakeGit({ cusr: o.cusr }) }),
+        ...(o.manifestReload === undefined ? {} : { manifestReload: () => o.manifestReload ?? {} }),
       },
     }));
     return { sd, host };
@@ -1990,6 +2002,107 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(names(await cli(sd, ['doctor']))['data_dir']).toBe('fail');
     chmodSync(sd.dataDir, 0o700);
     expect((await cli(sd, ['doctor', '--project', 'nope'])).code).toBe(ExitCode.missing);
+  });
+
+  type Check = { name: string; status: string; fix: string | null; detail: string };
+  const checksOf = (r: Run): Record<string, Check> =>
+    Object.fromEntries(
+      (
+        (r.envelope.ok ? r.envelope.data['checks'] : r.envelope.error.details['checks']) as Check[]
+      ).map((c) => [c.name, c]),
+    );
+  const NO_GATES = CUSR.replace(/gates:\n( {2}.*\n)+/, '');
+
+  it('reports the project config a task needs when it is complete (issue #314)', async () => {
+    const { sd } = doctored({ cusr: CUSR });
+    await sd.start();
+    const r = await cli(sd, ['doctor', '--project', 'acme']);
+    expect(r.code, r.out).toBe(ExitCode.ok);
+    expect(names(r)).toMatchObject({
+      'project_config:acme': 'ok',
+      'profile:acme': 'ok',
+      'gates:acme': 'ok',
+      'required_checks:acme': 'ok',
+    });
+  });
+
+  it('runs a project without a default profile, telling how to set one (PR #325 review)', async () => {
+    const { sd } = doctored({ cusr: CUSR.replace('profile: standard\n', '') });
+    await sd.start();
+    const r = await cli(sd, ['doctor', '--project', 'acme']);
+    expect(r.code, r.out).toBe(ExitCode.ok);
+    const c = checksOf(r)['profile:acme'];
+    expect(c).toMatchObject({ status: 'ok' });
+    expect(c?.detail).toContain('each task must name one');
+    expect(c?.detail).toContain('set profile: in cusr.yaml');
+    expect(c?.detail).toContain('standard');
+  });
+
+  it('fails, with a fix, a project without gates that no profile allows (issue #314)', async () => {
+    const { sd } = doctored({ cusr: NO_GATES.replace('profile: standard\n', '') });
+    await sd.start();
+    const r = await cli(sd, ['doctor', '--project', 'acme']);
+    expect(r.code).toBe(ExitCode.failure);
+    const c = checksOf(r);
+    expect(c['profile:acme']).toMatchObject({ status: 'ok' });
+    expect(c['gates:acme']).toMatchObject({ status: 'fail' });
+    expect(c['gates:acme']?.fix).toContain('allow_no_gates');
+  });
+
+  it('fails a profile that does not allow a project without gates (issue #314)', async () => {
+    const { sd } = doctored({ cusr: NO_GATES });
+    await sd.start();
+    const c = checksOf(await cli(sd, ['doctor', '--project', 'acme']));
+    expect(c['project_config:acme']).toMatchObject({ status: 'fail' });
+    expect(c['project_config:acme']?.detail).toContain('no_gates_not_allowed');
+    expect(c['project_config:acme']?.fix).toContain('allow_no_gates: true');
+  });
+
+  it('fails a project without required checks, which start refuses (issue #314)', async () => {
+    const { sd } = doctored({ cusr: CUSR.replace('ci:\n  required_checks: [build, test]\n', '') });
+    await sd.start();
+    const c = checksOf(await cli(sd, ['doctor', '--project', 'acme']));
+    expect(c['required_checks:acme']).toMatchObject({ status: 'fail' });
+    expect(c['required_checks:acme']?.fix).toContain('ci.required_checks');
+  });
+
+  it('asks for a restart, not a proof, when a proof changed the manifest on disk (issue #317)', async () => {
+    const { sd } = doctored({
+      manifestReload: { claude: { loaded: 'sha256:old', disk: 'sha256:new' } },
+    });
+    await sd.start();
+    const r = await cli(sd, ['doctor']);
+    expect(r.code).toBe(ExitCode.failure);
+    const m = checksOf(r)['manifest:claude'];
+    expect(m).toMatchObject({ status: 'fail' });
+    expect(m?.detail).toContain('sha256:new');
+    expect(m?.fix).toContain('restart cusrd');
+    expect(m?.fix).not.toContain('record-manifest');
+  });
+
+  it('fails a held manifest whose record on disk is gone, which a restart would lose', async () => {
+    const { sd } = doctored({
+      manifestReload: {
+        claude: { loaded: 'sha256:held', disk: null, disk_problem: 'manifest.json is missing' },
+      },
+    });
+    await sd.start();
+    const r = await cli(sd, ['doctor']);
+    expect(r.code).toBe(ExitCode.failure);
+    const m = checksOf(r)['manifest:claude'];
+    expect(m).toMatchObject({ status: 'fail' });
+    expect(m?.detail).toContain('manifest.json is missing');
+    expect(m?.detail).toContain('after a restart');
+    expect(m?.fix).toContain('restore');
+    expect(m?.fix).not.toContain('restart cusrd');
+  });
+
+  it('keeps a manifest that matches the one on disk', async () => {
+    const { sd } = doctored({
+      manifestReload: { claude: { loaded: 'sha256:same', disk: 'sha256:same' } },
+    });
+    await sd.start();
+    expect(names(await cli(sd, ['doctor']))['manifest:claude']).toBe('ok');
   });
 });
 

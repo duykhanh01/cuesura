@@ -582,6 +582,21 @@ export async function productionControl(opts: {
         health: daemon.health,
         recoveryClaims: daemon.recoveryClaims,
         spoolProblems: daemon.spoolProblems,
+        manifestReload: (harnesses) =>
+          Object.fromEntries(
+            harnesses.map((h) => {
+              const disk = loadHarnessRecord(opts.dataDir, h);
+              return [
+                h,
+                {
+                  loaded: records.get(h)?.manifest.manifest_hash ?? null,
+                  ...(disk.ok
+                    ? { disk: disk.value.manifest.manifest_hash }
+                    : { disk: null, disk_problem: disk.error }),
+                },
+              ];
+            }),
+          ),
         now,
       },
     });

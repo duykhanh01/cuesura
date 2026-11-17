@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, HostProbePort } from '../adapters/ports.ts';
 import { ROLE_SCHEMA_DIGESTS } from '../adapters/harness/result-schema.ts';
-import type { NormalizedRole } from '../domain/config.ts';
+import type { Diagnostic, NormalizedRole } from '../domain/config.ts';
 import { CapabilityManifestSchema, type CapabilityManifest } from '../domain/runtime.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -74,6 +74,21 @@ export type DoctorDeps = {
     readonly mounts: readonly string[];
     readonly unresolved: readonly string[];
   }>;
+  /**
+   * Per harness, the manifest hash cusrd loaded at start and the one on disk now (null: none or
+   * unreadable). A proof after start changes only the disk, so the fix is a restart, not another proof.
+   */
+  readonly manifestReload?: (harnesses: readonly string[]) => Readonly<
+    Record<
+      string,
+      {
+        readonly loaded: string | null;
+        readonly disk: string | null;
+        /** Why the disk has no usable manifest, when `disk` is null. */
+        readonly disk_problem?: string;
+      }
+    >
+  >;
 };
 
 export type DoctorCheck = {
@@ -103,33 +118,113 @@ const fail = (name: string, detail: string, fix: string | null = null): DoctorCh
   fix,
 });
 
+const RESTART_FIX =
+  'restart cusrd once no task is running (systemctl --user restart cusrd.service): it reads harness manifests only at start';
+
+/** One fix per distinct problem, so the operator does not have to map diagnostic codes to edits. */
+function configFix(diagnostics: readonly Diagnostic[], base: string): string {
+  const fixes = diagnostics.map((d) =>
+    d.code === 'no_gates_not_allowed'
+      ? `declare gates in cusr.yaml on ${base}, or set allow_no_gates: true in the profile of the user config`
+      : d.code === 'unknown_profile'
+        ? `set profile: in cusr.yaml on ${base} to a profile of the user config`
+        : `fix ${d.path.join('.') || '(root)'} in ${d.file}`,
+  );
+  return [...new Set(fixes)].join('; ');
+}
+
 /**
- * Whether the project declares required CI checks (007, R-23): without them a goal with several units is
- * refused (`no_required_checks`), so only one-unit goals run. A report, not a failure.
+ * Whether a task of this project can get past run options and start (issue #314): `cusr.yaml` at the
+ * base this machine has, the profile it selects, its gates and required CI checks. Doctor would otherwise
+ * report healthy while every task is refused `config_invalid`.
  */
-async function requiredChecksCheck(
+async function projectReadinessChecks(
   git: GitPort,
   inputs: Awaited<ReturnType<ConfigInputs>>,
   project: string,
   path: string,
   base: string,
-): Promise<DoctorCheck> {
-  const name = `required_checks:${project}`;
+): Promise<DoctorCheck[]> {
+  const configName = `project_config:${project}`;
   const read = await readLocalBaseConfig(git, path, base);
-  if (!read.ok) return ok_(name, `not read: ${read.error.detail}`);
+  if (!read.ok)
+    return [
+      fail(
+        configName,
+        read.error.detail,
+        read.error.kind === 'unavailable'
+          ? `git -C ${path} fetch origin ${base}`
+          : `fix cusr.yaml on ${base} and push it`,
+      ),
+    ];
+  const at = `cusr.yaml at origin/${base} (${read.value.base_sha.slice(0, 12)})`;
   const v = validateConfig({
     user: inputs.user,
     ...(read.value.config === null ? {} : { project: read.value.config }),
     packs: inputs.packs,
   });
-  if (!v.ok) return ok_(name, `not read: the config at ${base} is invalid`);
-  const required = v.value.config.project?.required_checks ?? [];
-  return required.length > 0
-    ? ok_(name, required.join(', '))
-    : ok_(
-        name,
-        'none declared: only one-unit goals run; declare ci.required_checks in cusr.yaml for goals with several units',
-      );
+  if (!v.ok)
+    return [
+      fail(
+        configName,
+        `${at} is invalid: ${v.error.map((d) => `${d.code}: ${d.message}`).join('; ')}`,
+        configFix(v.error, base),
+      ),
+    ];
+  const { config } = v.value;
+  const p = config.project;
+  const out: DoctorCheck[] = [
+    p === null
+      ? fail(configName, `no ${at}`, `add cusr.yaml to ${base}`)
+      : ok_(configName, `${at} is valid`),
+  ];
+  const profileId = p?.profile ?? null;
+  const profile = profileId === null ? null : (config.profiles[profileId] ?? null);
+  const profiles = Object.keys(config.profiles).sort();
+  // Without a default, a task that names its own profile still runs, so this is not a failure.
+  out.push(
+    profileId === null
+      ? ok_(
+          `profile:${project}`,
+          `no default profile: each task must name one (profile: in its --file); for a default, set profile: in cusr.yaml on ${base} to one of: ${profiles.join(', ') || '(none; add profiles to the user config)'}`,
+        )
+      : profile === null
+        ? fail(
+            `profile:${project}`,
+            `profile ${profileId} does not exist in the user config`,
+            `set profile: in cusr.yaml on ${base} to one of: ${profiles.join(', ') || '(none; add profiles to the user config)'}`,
+          )
+        : ok_(`profile:${project}`, `${profileId}, workflow ${profile.workflow}`),
+  );
+  const gates = Object.keys(p?.gates ?? {}).sort();
+  const noGatesProfiles = profiles.filter((id) => config.profiles[id]?.allow_no_gates === true);
+  out.push(
+    gates.length > 0
+      ? ok_(`gates:${project}`, gates.join(', '))
+      : profile?.allow_no_gates === true
+        ? ok_(`gates:${project}`, `none; profile ${profileId ?? ''} allows no gates`)
+        : profileId === null && noGatesProfiles.length > 0
+          ? ok_(
+              `gates:${project}`,
+              `none; only tasks that name a profile allowing no gates run: ${noGatesProfiles.join(', ')}`,
+            )
+          : fail(
+              `gates:${project}`,
+              `cusr.yaml declares no gates and ${profileId === null ? 'no profile enables allow_no_gates' : `profile ${profileId} does not enable allow_no_gates`} (no_gates_not_allowed)`,
+              `declare gates in cusr.yaml on ${base}, or set allow_no_gates: true in profiles.${profileId ?? '<profile>'} of the user config`,
+            ),
+  );
+  const required = p?.required_checks ?? [];
+  out.push(
+    required.length > 0
+      ? ok_(`required_checks:${project}`, required.join(', '))
+      : fail(
+          `required_checks:${project}`,
+          'none declared; start refuses every task (config_invalid) and goals with several units are refused (no_required_checks)',
+          `add ci.required_checks to cusr.yaml on ${base}`,
+        ),
+  );
+  return out;
 }
 
 /**
@@ -419,6 +514,7 @@ function deputyCheck(
     readonly models: Readonly<Record<string, { readonly harness: string }>>;
   },
   manifests: Readonly<Record<string, CapabilityManifest | null | undefined>>,
+  restart: ReadonlySet<string> = new Set(),
 ): DoctorCheck {
   const alias = user.roles['deputy'] === undefined && user.roles['decider'] !== undefined;
   const role = user.roles['deputy'] ?? user.roles['decider'];
@@ -436,8 +532,9 @@ function deputyCheck(
       'fix roles.deputy.binding',
     );
   const m = manifests[harness] ?? null;
-  const prove =
-    'prove the harness again (cusr-runner setup-harness, or record-manifest from evidence that ran the deputy role)';
+  const prove = restart.has(harness)
+    ? `the manifest of ${harness} on disk changed since cusrd started; ${RESTART_FIX}`
+    : 'prove the harness again (cusr-runner setup-harness, or record-manifest from evidence that ran the deputy role)';
   if (m === null) return fail('deputy', `harness ${harness} has no capability manifest`, prove);
   if (m.role_schemas['deputy'] !== ROLE_SCHEMA_DIGESTS.deputy)
     return fail('deputy', `the manifest of ${harness} has no proof of the deputy role`, prove);
@@ -532,7 +629,9 @@ export async function runDoctor(
           : ok_(`project:${project}`, path),
       );
       if (path !== null && deps.git !== undefined)
-        checks.push(await requiredChecksCheck(deps.git, inputs, project, path, loc.base_branch));
+        checks.push(
+          ...(await projectReadinessChecks(deps.git, inputs, project, path, loc.base_branch)),
+        );
     }
     for (const [h, tools] of Object.entries(deps.harnessTools?.() ?? {}).sort(([a], [b]) =>
       a < b ? -1 : 1,
@@ -552,19 +651,40 @@ export async function runDoctor(
               ),
       );
     }
-    for (const h of Object.keys(config.user.harnesses).sort()) {
+    const harnesses = Object.keys(config.user.harnesses).sort();
+    const reload = deps.manifestReload?.(harnesses) ?? {};
+    const restart = new Set(
+      harnesses.filter((h) => {
+        const r = reload[h];
+        return r !== undefined && r.disk !== null && r.disk !== r.loaded;
+      }),
+    );
+    for (const h of harnesses) {
       const m = inputs.manifests[h] ?? null;
+      const r = reload[h];
       checks.push(
-        m === null
+        r !== undefined && r.loaded !== null && r.disk === null
           ? fail(
               `manifest:${h}`,
-              `${inputs.manifest_problems?.[h] ?? 'no capability manifest recorded'}; bindings of this harness stay capability_missing`,
-              'if matching evidence exists, run cusr-runner record-manifest --evidence <file> to repair the manifest without model usage; otherwise see cusr-runner setup-harness in deploy/README.md; a help or version output is not proof',
+              `cusrd holds manifest ${r.loaded}, but the record on disk is unusable (${r.disk_problem ?? 'missing or unreadable'}); after a restart the harness has no manifest and its bindings stay capability_missing`,
+              `restore harnesses/${h}/ in the data dir from backup, or prove the harness again (cusr-runner record-manifest --evidence <file>, or setup-harness)`,
             )
-          : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
+          : restart.has(h) && r !== undefined
+            ? fail(
+                `manifest:${h}`,
+                `the manifest on disk (${r.disk ?? ''}) is not the one cusrd loaded (${r.loaded ?? 'none'})`,
+                RESTART_FIX,
+              )
+            : m === null
+              ? fail(
+                  `manifest:${h}`,
+                  `${inputs.manifest_problems?.[h] ?? 'no capability manifest recorded'}; bindings of this harness stay capability_missing`,
+                  'if matching evidence exists, run cusr-runner record-manifest --evidence <file> to repair the manifest without model usage; otherwise see cusr-runner setup-harness in deploy/README.md; a help or version output is not proof',
+                )
+              : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
       );
     }
-    checks.push(deputyCheck(config.user, inputs.manifests));
+    checks.push(deputyCheck(config.user, inputs.manifests, restart));
   }
   const failed = checks.filter((c) => c.status === 'fail');
   const data = {
