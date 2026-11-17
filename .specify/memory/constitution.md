@@ -335,4 +335,11 @@ gộp với mục còn chờ của amendment 10.0.0 và làm ở lát cuối c�
 `docs/architecture.md`, `specs/003-telegram-channel/spec.md`, skill `cusr`. Template Spec Kit đã kiểm tra, không cần thay
 đổi. Mục đồng bộ còn chờ: các tài liệu vừa nêu.
 
+**Sync Impact Report 2026-11-17:** phần đồng bộ còn chờ của amendment 10.0.0 và 11.0.0 đã làm ở lát I của feature 007,
+sau khi các lát A–H hiện thực deputy và goal, và đối chiếu với code trên `main`: `SPEC.md` (§2, §4 I09 và I11, §5.1,
+§5.3, §9, §10, §14.1–§14.3, §15.1, §15.2), `deploy/README.md` (mục Deputy và autonomous, mục Goal, người gọi và quyền,
+proof harness), ADR-0005, ADR-0012 cho lượt deputy, ADR-0013 cho nhánh goal, `GLOSSARY.md`, `docs/architecture.md`,
+`specs/003-telegram-channel/spec.md` và skill `cusr`. Nguyên tắc I–VIII không đổi, version giữ 11.0.0; template Spec
+Kit đã kiểm tra, không cần thay đổi. Không có mục đồng bộ còn chờ.
+
 **Version**: 11.0.0 | **Ratified**: 2026-10-27 | **Last Amended**: 2026-11-09

@@ -3,8 +3,9 @@
 **Input**: [spec.md](spec.md), [plan.md](plan.md), [research.md](research.md), [data-model.md](data-model.md),
 [contracts/](contracts/), [quickstart.md](quickstart.md)
 
-**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A, B và C xong. Amendment
-11.0.0 nằm cùng PR với bản viết lại; không task code nào bắt đầu trước khi PR đó merge.
+**Trạng thái**: Backlog viết lại ngày 2026-11-09, thay backlog 2026-11-08. Lát A–H xong; lát I xong phần đồng
+bộ tài liệu (T097–T102), còn smoke harness thật (T103). Amendment 11.0.0 nằm cùng PR với bản viết lại; không task
+code nào bắt đầu trước khi PR đó merge.
 
 **Mã nền**: `origin/main` `62eadbd`.
 
@@ -386,13 +387,13 @@ vào nhánh gốc.
 
 ## Phase 10: Lát I — đồng bộ tài liệu và smoke
 
-- [ ] T097 Đồng bộ `SPEC.md` theo danh sách cuối [spec](spec.md#tác-động-lên-hiến-chương-và-spec), gồm mục còn chờ của
+- [x] T097 Đồng bộ `SPEC.md` theo danh sách cuối [spec](spec.md#tác-động-lên-hiến-chương-và-spec), gồm mục còn chờ của
   amendment 10.0.0.
-- [ ] T098 [P] `deploy/README.md`: role `deputy` và limits, mục goal, bỏ decider.
-- [ ] T099 [P] ADR-0005 sửa câu về decider; ADR mới cho lượt deputy; ADR mới cho nhánh goal.
-- [ ] T100 [P] `GLOSSARY.md` và `docs/architecture.md`.
-- [ ] T101 [P] `specs/003-telegram-channel/spec.md` và skill `cusr` (lệnh `goal`, lease, đọc tiến độ).
-- [ ] T102 Cập nhật Sync Impact Report của hiến chương: không còn mục đồng bộ chờ.
+- [x] T098 [P] `deploy/README.md`: role `deputy` và limits, mục goal, bỏ decider.
+- [x] T099 [P] ADR-0005 sửa câu về decider; ADR mới cho lượt deputy; ADR mới cho nhánh goal.
+- [x] T100 [P] `GLOSSARY.md` và `docs/architecture.md`.
+- [x] T101 [P] `specs/003-telegram-channel/spec.md` và skill `cusr` (lệnh `goal`, lease, đọc tiến độ).
+- [x] T102 Cập nhật Sync Impact Report của hiến chương: không còn mục đồng bộ chờ.
 - [ ] T103 Smoke harness thật theo [quickstart](quickstart.md#kịch-bản-với-harness-thật-smoke-tốn-usage): SC-002 (một
   đêm, goal ít nhất năm đơn vị có phụ thuộc), SC-003 (phiên treo); ghi acceptance report, mục chưa chạy ghi "chưa đạt".
 

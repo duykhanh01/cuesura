@@ -75,8 +75,8 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
    evidence có sẵn, không gọi model và không cần model/approval/cap/force. Config được nạp một lần
    cho cả luồng để các bước dùng cùng cấu hình.
 
-   Proof chạy bốn role `coder`, `fixer`, `reviewer`, `decider`, tốn 4 lượt cho mỗi harness
-   (thêm `--prove-resume` thì cần 5 lượt). `--model` và `--effort` áp dụng chung cho cả bốn role.
+   Proof chạy năm role `coder`, `fixer`, `reviewer`, `decider`, `deputy`, tốn 5 lượt cho mỗi harness
+   (thêm `--prove-resume` thì cần 6 lượt). `--model` và `--effort` áp dụng chung cho cả năm role.
    Proof chỉ kiểm quyền và sandbox native, xác thực và các thao tác cơ học của role, không kiểm chất lượng code,
    nên dùng model rẻ nhất với effort `low`; model của proof không cần trùng model role dùng khi chạy task.
 

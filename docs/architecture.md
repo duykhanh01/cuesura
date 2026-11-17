@@ -3,6 +3,10 @@
 > Cập nhật thiết kế 2026-10-29: [hai chế độ và xác nhận trước khi chạy](../specs/002-task-to-green-pr/task-execution-modes.md)
 > thay thế các ví dụ cũ về skip review theo XS, bắt buộc khác vendor và commit sau review.
 > Nội dung bên dưới lưu lập luận kiến trúc ban đầu; runtime của quyết định mới chưa triển khai.
+>
+> Cập nhật thiết kế 2026-11-09 (feature 007, hiến chương 11.0.0): [deputy và goal](../specs/007-deputy/spec.md) thay
+> decider, đưa một agent vào các điểm quyết định mà bảng định tuyến giao cho nó (mục 5.5), và thay integration branch
+> của nhóm task bằng nhánh goal (mục 8.7, 8.9). Hành vi đã triển khai ở [SPEC §10 và §14.3](../SPEC.md#10-hỏi-đáp-và-quyết-định).
 
 *Ngày: 2026-10-26. Vai trò: Principal Software Architect review.*
 
@@ -366,11 +370,16 @@ Chạy mỗi lần `cusrd` khởi động, trước scheduler. Thuật toán ở
 - Thao tác: `pr create` (có marker), `pr checks`/`run list` (poll có backoff 30s → 5 phút), `run view --log-failed` (lấy log lỗi CI cho CI Fixer), `pr merge` (chỉ sau approval gắn với head SHA), comment có marker `<!-- cusr:<idem_key> -->`.
 - Webhook để sau (cần endpoint công khai, ví dụ Tailscale Funnel). Polling CI bằng code không tốn token, và với một người dùng thì quota API của GitHub dư sức.
 
+#### Deputy và goal
+- **Deputy** là component của daemon, không phải process thường trực: khi task vào một wait mà bảng định tuyến (code) giao cho nó, hay khi goal cần kế hoạch, daemon mở một **lượt** ngắn, tức một phiên harness mới với context do code dựng từ sổ goal. Lượt hành động bằng `cusr` như mọi caller, kết thúc bằng bàn giao; engine vẫn quyết mọi chuyển trạng thái ([ADR-0012](adr/0012-deputy-short-turns.md)).
+- Chữ ký lỗi, tín hiệu vòng lặp và bảng thử là hàm thuần trên dữ liệu đã ghi; daemon dùng chúng chặn deputy lặp cùng hành động khi chưa có bằng chứng mới.
+- **Goal** là aggregate thứ hai trong cùng event log: yêu cầu nguyên văn, kế hoạch có version và hash, duyệt một lần. Goal nhiều đơn vị tích hợp trên nhánh goal do daemon ghi và ra một PR vào nhánh gốc ([ADR-0013](adr/0013-goal-integration-branch.md)).
+
 #### External Assistant Interface
 - **Hợp đồng chính là CLI có `--json`** + một file `SKILL.md`/`AGENTS.md` ngắn mô tả lệnh. Mọi harness đọc được file này. Nó cũng rẻ token hơn MCP, vì schema của tool MCP nằm trong context của assistant ở mọi lượt. **[SL]**
 - **MCP server** (giai đoạn 2) là lớp vỏ mỏng, khoảng 10 tool, gọi chung application service với CLI.
 - Truy vấn trả **bản tóm tắt tính sẵn** chứ không phải log thô: `cusr group status customer-management --json`, `cusr task explain T012 --json` (lỗi cuối, 40 dòng cuối của gate/CI log, findings review gần nhất). Bản tóm tắt được dựng bằng code, không cần LLM.
-- **Phân quyền 3 mức** (theo token hoặc theo kênh):
+- **Phân quyền 3 mức** (theo actor tự khai hoặc theo kênh; token đã bỏ ở [ADR-0011](adr/0011-declared-actor-instead-of-tokens.md)). Deputy là actor riêng có `read`/`operate`, chỉ được nhận khi mang ID của một lượt đang chạy; lệnh ghi lên goal từ assistant cần phiên giữ khóa assistant:
   - `read`: status, logs, history.
   - `operate`: tạo task (task do agent tạo cần xác nhận, mục 8.3), retry, trả lời câu hỏi, huỷ.
   - `admin`: sửa policy, duyệt merge vào `main` (khi yolo tắt), bật/tắt yolo. Mức này phải do người thật xác nhận qua TTY, nút duyệt Telegram (đúng `chat_id` của bạn) hoặc GitHub approval.
@@ -784,7 +793,7 @@ lần kiểm tra trả outcome o; S = bước agent sửa code gần nhất; r =
 - Hết thang hoặc hết số vòng (`escalate`).
 - Merge.
 
-Mọi điểm quyết định đều chờ bạn (`WAITING`): bạn trả lời qua kênh của task, câu trả lời được ghi vào event log và đưa vào context của bước sau. Không agent nào tự quyết thay.
+Điểm quyết định chờ bạn (`WAITING`): bạn trả lời qua kênh của task, câu trả lời được ghi vào event log và đưa vào context của bước sau. Từ feature 007, những chỗ kẹt cần phán đoán (hết thang, vòng sửa không tiến triển, hết hạn, lỗi chưa phân loại…) tới **deputy** trước: một lượt agent ngắn do daemon gọi, hành động bằng lệnh có lý do, bị code chặn lặp, không xác nhận task hay kế hoạch và không merge; không gỡ được thì chuyển cho bạn. Câu hỏi của agent chỉ tới deputy khi bạn bật `autonomous`. Merge, credentials, refusal và xác nhận luôn tới bạn ([SPEC §10](../SPEC.md#10-hỏi-đáp-và-quyết-định)).
 
 **Rào chắn:**
 - **Merge vào `main` có đúng hai chế độ, và không chế độ nào để agent quyết.** Ở đây `main` nghĩa là mọi nhánh trong `protected_branches` của repo, mặc định là nhánh mặc định.
@@ -822,7 +831,7 @@ Mọi điểm quyết định đều chờ bạn (`WAITING`): bạn trả lời 
     protection, GitHub không chặn nhánh đích có commit mới hay check đổi kết quả giữa lúc đọc và merge;
     expected-head `sha` chỉ chặn PR head đổi.
   - **Sau merge:** nếu CI trên `main` đỏ, tự tạo PR revert và báo bạn. Không tự force-push.
-- **Merge vào nhánh không được bảo vệ** (integration `group/*`, `feature/*`) tự động khi đủ điều kiện cứng, theo `auto_when` của bước `merge_gate`. Không cần yolo.
+- **Merge vào nhánh goal** (`goal/*`, feature 007) tự động bằng merge commit khi đủ các điều kiện cứng như yolo, với approver `policy:goal`, không cần yolo; nhánh goal chỉ daemon ghi ([ADR-0013](adr/0013-goal-integration-branch.md)). `auto_when` của `merge_gate` cho `group/*`, `feature/*` như thiết kế ban đầu chưa có ở runtime.
 
 ---
 
@@ -1113,7 +1122,7 @@ Triage do code xác định, không phải Primary AI. Sự kiện thô nằm tr
 
 Ngoài ra, mọi câu hỏi đều nằm trong `cusr inbox`. Khi bạn mở lại agent (ví dụ trong Paseo) và hỏi "có gì đang chờ tôi không?", agent chạy `cusr inbox --json` rồi giúp bạn trả lời bằng `cusr answer`.
 
-Muốn biết cả ngày đã làm được gì, chạy `cusr report` (mặc định 24 giờ qua, `--since 8h`, `--project <id>`): theo từng project, báo cáo liệt kê task đã kết thúc kèm PR, lý do và usage, task đang chờ bạn kèm câu hỏi còn mở, task đang chạy và các câu decider đã tự trả lời. Báo cáo dựng bằng code từ event log, không gọi model.
+Muốn biết cả ngày đã làm được gì, chạy `cusr report` (mặc định 24 giờ qua, `--since 8h`, `--project <id>`): theo từng project, báo cáo liệt kê task đã kết thúc kèm PR, lý do và usage, task đang chờ bạn kèm câu hỏi còn mở, task đang chạy, quyết định của deputy (kể cả câu trả lời của decider cũ), bản miễn và goal. Báo cáo dựng bằng code từ event log, command ledger và bản ghi lượt deputy, không gọi model.
 
 **Chọn kênh mặc định:**
 
@@ -1127,6 +1136,11 @@ Muốn biết cả ngày đã làm được gì, chạy `cusr report` (mặc đ�
 **Mỗi câu hỏi gửi đi gồm:** mã câu hỏi, task, nội dung, các lựa chọn (nếu có), và cách trả lời. Câu trả lời đi qua dedup và kiểm tra quyền giống mọi sự kiện nguồn (mục 8.6). Câu hỏi đã được trả lời ở một kênh thì các kênh khác được cập nhật là "đã trả lời", để không bị trả lời hai lần.
 
 ### 8.7 Chiến lược branch khi task phụ thuộc nhau
+
+> Đã hiện thực theo hướng khác: goal nhiều đơn vị dùng nhánh goal `goal/<id>-<slug>` do daemon tạo và ghi, đơn vị mở PR
+> vào đó và được code merge bằng merge commit, task phụ thuộc bắt đầu khi đơn vị trước đã vào nhánh goal
+> ([SPEC §14.3](../SPEC.md#143-goal-và-nhánh-goal)). `group/<tên>` dưới đây là thiết kế ban đầu.
+
 - **Task độc lập:** mỗi task một branch tách từ `base_branch`, mở một PR vào `base_branch`.
 - **Nhóm task phụ thuộc nhau** (cùng `group` hoặc cùng `parent`): có thể dùng một **integration branch** `group/<tên>` tách từ `main`.
   - Mỗi task mở PR vào integration branch.
@@ -1151,6 +1165,11 @@ Muốn biết cả ngày đã làm được gì, chạy `cusr report` (mặc đ�
 6. **v1:** mỗi lúc chỉ merge một PR vào mỗi branch đích. Merge song song hoặc GitHub merge queue để sau.
 
 ### 8.9 Hoàn tất cả nhóm task (group/epic)
+
+> Đã hiện thực bằng **task tổng** của goal: workflow `goal_final` không có bước code, chạy gate, review toàn bộ diff của
+> goal, CI và mở một PR vào nhánh gốc; goal `done` khi task tổng DONE ([SPEC §14.3](../SPEC.md#143-goal-và-nhánh-goal)).
+> `cusr group status` và workflow `integrate` dưới đây là thiết kế ban đầu, chưa có.
+
 
 Tất cả task con DONE **chưa** có nghĩa là cả nhóm chạy đúng: tầng dữ liệu, business logic, UI/API, routing và wiring dependency có thể từng phần đều ổn nhưng hỏng khi ghép lại. Vì vậy nhóm (`group`/`parent`) có **task tích hợp** riêng, do orchestrator tự tạo khi task con cuối cùng DONE. Task tích hợp có:
 - **`acceptance` cấp nhóm**: lấy từ task cha (epic) hoặc do bạn khai báo khi tạo nhóm. Thiếu thì chuyển `PENDING(needs_info)`, như mọi task khác.

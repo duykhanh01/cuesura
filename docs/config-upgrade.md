@@ -71,7 +71,7 @@ Các bước chưa có giới hạn lượt (`triage`, `prepare`, `pr`, `merge_g
 | `role` | Daemon chỉ chạy các role cố định của graph; đổi role của bước làm preflight thất bại |
 | `uses` | Không bước nào đọc lúc chạy |
 | `when`, `skip_when`, `auto_when` | Đổi bước chạy hay bỏ qua review/merge approval của graph; `full-review` và `direct-pr` tự quyết review, merge do policy và yolo quyết |
-| `decisions` | Đã bỏ từ #65; decider trả lời câu hỏi của worker bật bằng `autonomous: true` ở gốc user config (#66), không theo workflow |
+| `decisions` | Đã bỏ từ #65; câu hỏi của worker tới deputy (role `deputy`, thay decider từ feature 007) khi bật `autonomous: true` ở gốc user config, không theo workflow |
 
 ## Task cũ
 

@@ -13,7 +13,8 @@ Read it for flags this skill does not cover.
 
 ## Connection
 
-External assistant callers only. Workers must not run `cusr`, not even on their own task.
+External assistant callers only. Workers must not run `cusr`, not even on their own task. A deputy turn
+(`CUSR_DEPUTY_TURN` set) follows its own role text, not this skill.
 
 Every daemon command in this skill runs with this prefix, written out in each shell call (exports and functions
 from an earlier call may be gone). The examples below omit it:
@@ -112,6 +113,34 @@ cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" --expected-version "$VER
   Confirm with the CURRENT version and digest; follow the user if they asked to review the settings first. A
   confirm error may come after intake changed the version: reread, never reuse the stale version, never drop
   `CUSR_ACTOR`.
+
+## Goals
+
+A goal is one request kept verbatim: the deputy plans it (one unit or several), the user approves the plan once by
+its hash, and the units run as normal tasks. Several units integrate on a goal branch the daemon merges them into,
+and one PR goes to the base branch for the user. `task add` still works and is the way for a small, clear task.
+
+Every goal write (`goal add/revise/note/propose/amend/confirm/cancel`) needs this session to hold the lease
+(Waiting section); otherwise `forbidden` with `lease_required`. Ask the user before `--take`. Reads need no lease.
+
+```sh
+cusr goal add --project "$PROJECT" --base "$BASE" --file "$REQUEST_FILE" --request-id "$ID" --json
+cusr goal list --project "$PROJECT" --json         # open goals; --all includes ended ones
+cusr goal show "$GOAL_ID" --json                    # request, plan, parallel_groups, plan_version, plan_hash,
+                                                    # units with their task and state, incidents, decisions
+cusr goal confirm "$GOAL_ID" --plan-hash "$PLAN_HASH" --expected-version "$VERSION" --request-id "$ID" --json
+printf '%s\n' "$NOTE" | cusr goal note "$GOAL_ID" --file - --expected-version "$VERSION" --request-id "$ID" --json
+```
+
+- Ask the user before `goal add`, as for `task add`, and pass their request as written; do not plan it yourself.
+  Without a deputy role the goal waits for a plan (`goal propose`); tell the user.
+- Confirm only after showing the user the whole plan from `goal show` (summary, scope, non-goals, each unit's
+  acceptance, scope and dependencies, parallel groups) and they approve it. Use the `plan_hash` they saw; a newer
+  hash is refused with the current one: show the plan again. `amendment_pending` is confirmed the same way.
+- `goal note` records a directive the deputy must follow; only what the user said. `goal revise` (new request,
+  plan made again) and `goal cancel` (cancels every unfinished task of the goal) only when the user asks.
+- Progress: `goal show` for one goal; `cusr report` lists goals, deputy decisions and waivers.
+- A multi-unit plan is refused `no_required_checks` when `ci.required_checks` in `cusr.yaml` is empty: tell the user.
 
 ## Read tasks
 
@@ -259,7 +288,8 @@ printf '%s\n' "$MESSAGE" | cusr task message "$TASK_ID" --file - \
 
 - inbox items are `kind: question` or `kind: wait` (needs the user without a question). Each has `wait_code`,
   `task_version` (use it as `--expected-version`) and `next`, the first way out from explain (`command` null: its
-  `note` says what to do). `decider: true`: the decider is answering; answer only if the user wants to.
+  `note` says what to do). `deputy: true`: the deputy is handling it; act only if the user wants to (a person's
+  command wins). `handed_off`: the deputy gave it up; relay its cause, decision and what it ruled out.
   `--task`/`--project` filter (a wrong one is an error); `truncated`: pass `next_after` as `--after`.
   `queue_paused`: nothing not yet started runs until `cusr queue resume`; ask the user first.
 - Answer with the user's answer or known facts; unresolved decisions go to the user.
@@ -271,7 +301,8 @@ printf '%s\n' "$MESSAGE" | cusr task message "$TASK_ID" --file - \
 ```sh
 cusr report --project "$PROJECT" --since 24h --json
 # Since a moment (30m, 8h, 2d, epoch ms, ISO time): finished tasks, tasks waiting for the user, running tasks,
-# decider answers, queue_paused. Present it as is; do not act on needs_you items without the user.
+# deputy_decisions (old decider answers included), waivers, goals, queue_paused. Present it as is; a waiver
+# is "waived", never a pass. Do not act on needs_you items without the user.
 ```
 
 ## Recheck, continue, approve, pause, cancel
@@ -300,10 +331,17 @@ cusr task cancel "$TASK_ID" --reason "$REASON" --expected-version "$VERSION" --r
   - `harness_auth`: the user signs in again on the daemon host; recheck after they say so. Never loop it.
   - `loop_exhausted`: offered only when the latest attempts failed on infrastructure, rate limit or login; it
     gives those visits back. Ask the user to fix the cause first.
-- continue (offered for ladder_exhausted, rung_denied, escalations_exhausted, quality loop_exhausted): same model,
-  fresh tries. Read the latest review/gate failures first; when they repeat with no progress, report instead.
-- amend-policy without `--confirm` only previews (rung, binding, approval need, `policy_hash`); confirming needs
-  admin: hand it to the user.
+- When a deputy role is configured, these limit waits go to the deputy first; you see them only once handed off.
+- continue (offered for ladder_exhausted, rung_denied, escalations_exhausted, quality loop_exhausted, and for
+  agent_runs_exhausted, deadline, backoff_exhausted, ci_wait_exhausted): same model, fresh tries. Read the latest
+  review/gate failures first; when they repeat with no progress, report instead. agent_runs_exhausted and deadline
+  need the limit raised first (amend-policy).
+- amend-policy without `--confirm` only previews (rung, binding, approval need, `policy_hash`). `--agent-runs +N`
+  and `--deadline <ISO|+2h>` raise limits. Confirm only with the user's go:
+  `cusr task amend-policy "$TASK_ID" ... --reason "$REASON" --confirm "$POLICY_HASH" --expected-version "$VERSION"
+  --request-id "$ID" --json`. A hash that no longer matches means state or config changed: preview again.
+- `cusr task fail "$TASK_ID" --reason "$REASON"` ends a waiting task (draft PR when work is unpublished); only when
+  the user asks.
 - approve `--kind escalation` (wait `escalation`): you may approve it; it is a rung of the frozen ladder the user
   configured. Take step and rung from explain's command.
 - pause instead of cancel when work must stop for a while: started work finishes, the next step waits as `paused`,
@@ -323,13 +361,10 @@ without it. The user reads `task show` again for the current version first.
 ```sh
 CUSR_DATA_DIR="${DATA_DIR:?}" cusr task approve "$TASK_ID" --kind adopt --head-sha "$HEAD_SHA" \
   --expected-version "$VERSION" --request-id "$ID" --json
-CUSR_DATA_DIR="${DATA_DIR:?}" cusr task amend-policy "$TASK_ID" --model "$MODEL" --effort "$EFFORT" \
-  --reason "$REASON" --confirm "$POLICY_HASH" --expected-version "$VERSION" --request-id "$ID" --json
 ```
 
 - adopt (wait `adopt_approval`, task added with `--pr`): present the PR and its full head SHA (explain shows it in
   `wait.detail.head_sha` once read). It refuses forks, closed PRs, another base, a moved head, a PR a live task holds.
-- amend-policy confirm: a hash that no longer matches means state or config changed: preview again.
 
 ## Not supported
 
