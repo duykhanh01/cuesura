@@ -233,7 +233,7 @@ kết thúc và mở lại giới hạn.
 - [x] T051 [US2] Context của lượt có tín hiệu, chữ ký và bảng thử (vùng 3); lệnh khả dụng ghi rõ lệnh sẽ bị loop guard từ
   chối (vùng 5).
 - [x] T052 [US2] Vai trò của deputy (văn bản cố định): bảng nguyên nhân → hành động, luật chống lặp, bắt buộc bàn giao.
-- [ ] T053 [US2] `task explain` có `loop_signals`, `signature`, `waivers`.
+- [x] T053 [US2] (Làm ở lát H, xem [R-30](research.md#quyết-định-khi-làm-lát-h).) `task explain` có `loop_signals`, `signature`, `waivers`.
 
 **Checkpoint**: deputy không lặp được cùng hành động khi không có tiến triển; bản miễn có hiệu lực và có dấu vết.
 
@@ -374,13 +374,13 @@ vào nhánh gốc.
 
 ## Phase 9: Lát H — ghi nhận và xem lại (US8)
 
-- [ ] T093 [P] [US8] Scenario `test/scenarios/deputy/us8.test.ts` (SC-007): `decisions.md`, `report`, `goal show`, chi tiết
+- [x] T093 [P] [US8] Scenario `test/scenarios/deputy/us8.test.ts` (SC-007): `decisions.md`, `report`, `goal show`, chi tiết
   task, mô tả PR có mỗi quyết định với goal, task, sự cố, hành động, lý do, giả thuyết, tiêu chí, kết quả; bản miễn hiện là
   "miễn".
-- [ ] T094 [US8] `decisions.md` và `report` (`src/application/report.ts`): `deputy_decisions` (giữ `agent:decider` cũ),
+- [x] T094 [US8] `decisions.md` và `report` (`src/application/report.ts`): `deputy_decisions` (giữ `agent:decider` cũ),
   `waivers`, `goals`; join command ledger và `deputy_turns` theo `turn_id`; kết quả đo lấy từ bảng thử.
-- [ ] T095 [US8] Mục quyết định và bản miễn trong mô tả PR đơn vị (FR-111).
-- [ ] T096 [US8] Lịch sử task hiện actor, lý do, ID lượt, thử nghiệm của mỗi lệnh.
+- [x] T095 [US8] Mục quyết định và bản miễn trong mô tả PR đơn vị (FR-111).
+- [x] T096 [US8] Lịch sử task hiện actor, lý do, ID lượt, thử nghiệm của mỗi lệnh.
 
 ---
 

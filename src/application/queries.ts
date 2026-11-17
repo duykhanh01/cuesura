@@ -11,7 +11,7 @@ import {
   type CanonicalTask,
 } from '../domain/task.ts';
 import { DeclaredScopeSchema } from './scope-match.ts';
-import type { TaskState, Waiver } from '../domain/state.ts';
+import type { TaskState } from '../domain/state.ts';
 import { failureSignature } from '../engine/failure-signature.ts';
 import {
   loopSignals,
@@ -23,7 +23,14 @@ import type { PublishContent } from '../adapters/context.ts';
 import { readStoredContent } from '../adapters/publish-content.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import type { Store } from '../store/index.ts';
+import type { CommandRecord, Store } from '../store/index.ts';
+import {
+  commandRequest,
+  taskDecisions,
+  waiverView,
+  type Redact,
+  type WaiverView,
+} from './deputy-decisions.ts';
 import { authorize, authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
@@ -524,6 +531,7 @@ export function taskShow(
   store: Store,
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
+  redact?: Redact,
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
   if (!q.success) return err(badTaskId(body));
@@ -534,7 +542,8 @@ export function taskShow(
     step: s.value.current_step,
     provenance: provenance(s.value),
     ...liveTurn(store, s.value.id),
-    ...loopView(store, s.value),
+    ...loopView(store, s.value, redact),
+    deputy_decisions: taskDecisions(store, s.value, redact),
   });
 }
 
@@ -545,8 +554,9 @@ export function taskShow(
 function loopView(
   store: Store,
   s: TaskState,
-): { loop_signals: LoopSignal[]; signature: string | null; waivers: Waiver[] } {
-  const waivers = s.run.waivers ?? [];
+  redact?: Redact,
+): { loop_signals: LoopSignal[]; signature: string | null; waivers: WaiverView[] } {
+  const waivers = (s.run.waivers ?? []).map((w) => waiverView(w, redact));
   if (s.status !== 'WAITING') return { loop_signals: [], signature: null, waivers };
   const sig = failureSignature(s).signature;
   return {
@@ -699,6 +709,7 @@ export function taskHistory(
   store: Store,
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
+  redact: Redact = (t) => t,
 ): Result<unknown, AppError> {
   const q = TaskHistorySchema.safeParse(body);
   if (!q.success) return err(invalidQuery('task_history', q.error));
@@ -721,6 +732,13 @@ export function taskHistory(
     kept.push(r);
   }
   if (tail) kept.reverse();
+  const commands = new Map<string, CommandRecord | null>();
+  const commandOf = (dedupKey: string | null): CommandRecord | null => {
+    const id = commandRequest(dedupKey);
+    if (id === null) return null;
+    if (!commands.has(id)) commands.set(id, store.readCommand(id));
+    return commands.get(id) ?? null;
+  };
   const events = kept.map(({ event: e, at }) => ({
     seq: e.seq,
     type: e.type,
@@ -729,6 +747,7 @@ export function taskHistory(
     at: at === null ? null : new Date(at).toISOString(),
     dedup_key: e.causation.dedup_key,
     payload: e.payload,
+    ...commandFields(commandOf(e.causation.dedup_key), redact),
   }));
   const last = events.at(-1);
   return ok({
@@ -738,6 +757,23 @@ export function taskHistory(
     // Nothing follows a tail page; a forward page stops early on the limit or the byte cap.
     more: !tail && kept.length < rows.length,
   });
+}
+
+/**
+ * What the command behind an event said about itself (007, T096): its request, reason, the deputy's
+ * turn and the trial's hypothesis and criterion; nothing when it said nothing.
+ */
+function commandFields(c: CommandRecord | null, redact: Redact): Record<string, unknown> {
+  if (c === null) return {};
+  const t = c.trial as { hypothesis?: unknown; expect?: unknown } | null;
+  return {
+    request_id: c.request_id,
+    ...(c.reason === null ? {} : { reason: redact(c.reason) }),
+    ...(c.turn_id === null ? {} : { turn_id: c.turn_id }),
+    ...(typeof t?.hypothesis === 'string' && typeof t.expect === 'string'
+      ? { trial: { hypothesis: redact(t.hypothesis), expect: redact(t.expect) } }
+      : {}),
+  };
 }
 
 /** Live tasks a FAILED or CANCELLED end of `id` cancels (#249), breadth first. */
@@ -772,6 +808,7 @@ export function taskExplain(
     readonly statusSince?: (s: TaskState) => number | null;
     readonly lastOutputAt?: (s: TaskState, attemptId: string) => number | null;
     readonly queuePause?: QueuePauseReader;
+    readonly redact?: Redact;
   } = {},
 ): Result<unknown, AppError> {
   const q = TaskQuerySchema.safeParse(body);
@@ -808,7 +845,8 @@ export function taskExplain(
       },
     ),
     ...liveTurn(store, s.id),
-    ...loopView(store, s),
+    ...loopView(store, s, live.redact),
+    deputy_decisions: taskDecisions(store, s, live.redact),
     // FR-092: what the daemon found at the last checkpoints; information only.
     branch_conflicts: store.conflicts.of(s.id),
   });

@@ -114,6 +114,24 @@ export function readGoalEvents(db: Database, goalId: string): GoalEvent[] {
   );
 }
 
+/** The goal's events with the dedup key that caused each: `cmd:<request_id>:goal` for a command. */
+export function readGoalEventCauses(
+  db: Database,
+  goalId: string,
+): { dedup_key: string | null; event: GoalEvent }[] {
+  const keys = new Map(
+    (
+      db
+        .prepare("SELECT global_seq, dedup_key FROM events WHERE task_id = ? AND stream = 'goal'")
+        .all(goalId) as { global_seq: number; dedup_key: string | null }[]
+    ).map((r) => [r.global_seq, r.dedup_key]),
+  );
+  return readGoalEvents(db, goalId).map((event) => ({
+    dedup_key: keys.get(event.global_seq) ?? null,
+    event,
+  }));
+}
+
 export type GoalTaskRow = {
   readonly goal_id: string;
   readonly task_id: string;
@@ -324,6 +342,10 @@ export class GoalRecords {
   }
   events(goalId: string): GoalEvent[] {
     return readGoalEvents(this.#db, goalId);
+  }
+  /** Events with the dedup key behind each, to join a command of the ledger (FR-110). */
+  causedEvents(goalId: string): { dedup_key: string | null; event: GoalEvent }[] {
+    return readGoalEventCauses(this.#db, goalId);
   }
   tasks(goalId: string): GoalTaskRow[] {
     return goalTasks(this.#db, goalId);

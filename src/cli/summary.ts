@@ -130,6 +130,34 @@ export function explainSummary(data: unknown): unknown {
     cancellation: data['cancellation'],
     paused: data['paused'] ?? null,
     queue_paused: data['queue_paused'] ?? null,
+    // 007 (T053, FR-110): what the loop guard sees, waivers as waived and the deputy's decisions.
+    loop_signals: clip(data['loop_signals'] ?? []),
+    signature: data['signature'] ?? null,
+    waivers: list(data['waivers']).map((w) =>
+      clip(compact(pick(record(w), ['status', 'target', 'by', 'turn_id', 'reason', 'at']))),
+    ),
+    deputy: data['deputy'] ?? null,
+    deputy_decisions: list(data['deputy_decisions']).map((d) =>
+      clip(
+        compact(
+          pick(record(d), [
+            'at',
+            'actor',
+            'action',
+            'turn_id',
+            'incident',
+            'detail',
+            'reason',
+            'hypothesis',
+            'expect',
+            'applied',
+            'failure',
+            'result',
+          ]),
+        ),
+      ),
+    ),
+    branch_conflicts: clip(data['branch_conflicts'] ?? []),
     allowed_actions: data['allowed_actions'],
     details: `cusr task explain ${id} --full`,
   });
@@ -232,7 +260,19 @@ export function historySummary(data: unknown): unknown {
   return {
     ...data,
     events: data['events'].map((e) =>
-      compact(pick(record(e), ['seq', 'type', 'revision', 'actor', 'at'])),
+      compact(
+        pick(record(e), [
+          'seq',
+          'type',
+          'revision',
+          'actor',
+          'at',
+          'request_id',
+          'reason',
+          'turn_id',
+          'trial',
+        ]),
+      ),
     ),
     details: `cusr task history ${String(data['task_id'])} --full`,
   };

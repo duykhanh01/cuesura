@@ -541,7 +541,7 @@ describe('production task surface', () => {
       'stop_attempt',
       'update_pr_body',
     ]);
-    expect(missing.rounds).toBe(10); // 007 lát E adds the goal branch round, lát F branch conflicts
+    expect(missing.rounds).toBe(11); // 007 lát E adds the goal branch round, lát F branch conflicts, lát H decisions.md
     expect(JSON.stringify(missing.check)).toContain('pin.json does not exist');
     expect(missing.check?.status).toBe('fail');
 

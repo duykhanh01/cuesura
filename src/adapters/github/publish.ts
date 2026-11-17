@@ -466,6 +466,41 @@ export function withDeputyAssumptions(
 
 const oneLine = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
+/** One decision of the deputy that shaped the content of this PR (007, FR-111, R-14). */
+export type DeputyContentDecision = {
+  readonly action: string;
+  readonly detail: string | null;
+  readonly reason: string | null;
+  readonly hypothesis: string | null;
+  readonly expect: string | null;
+};
+
+const DECISIONS_HEADING = '## Decisions made by the deputy';
+const SHOWN_DETAIL = 300;
+
+/**
+ * The body with the deputy's decisions as one fixed section, built by code at each publish; later
+ * decisions show only in `report`, `goal show` and the task's detail (FR-111).
+ */
+export function withDeputyDecisions(
+  body: string,
+  decisions: readonly DeputyContentDecision[],
+): string {
+  if (decisions.length === 0) return body;
+  const items = decisions.map((d) => {
+    const detail = d.detail === null ? '' : oneLine(d.detail);
+    const what =
+      detail === ''
+        ? `\`${d.action}\``
+        : `\`${d.action}\` ${detail.length > SHOWN_DETAIL ? `${detail.slice(0, SHOWN_DETAIL)}…` : detail}`;
+    const lines = [`- ${what}: ${oneLine(d.reason ?? 'no reason')}`];
+    if (d.hypothesis !== null)
+      lines.push(`  Hypothesis: ${oneLine(d.hypothesis)}; expected: ${oneLine(d.expect ?? '')}`);
+    return lines.join('\n');
+  });
+  return `${body.trimEnd()}\n\n${DECISIONS_HEADING}\n\n${items.join('\n')}\n`;
+}
+
 /** What the PR of a goal lists (007, FR-087), all read from committed state. */
 export type GoalPrInput = {
   readonly summary: string;
@@ -532,7 +567,7 @@ export function goalPrContent(g: GoalPrInput): {
   if (g.decisions.length > 0)
     sections.push(
       '',
-      '## Decisions made by the deputy',
+      DECISIONS_HEADING,
       '',
       ...g.decisions.map(
         (d) => `- ${d.unit === null ? 'goal' : `\`${cell(d.unit)}\``}: ${oneLine(d.decision)}`,

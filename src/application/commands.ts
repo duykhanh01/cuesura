@@ -226,7 +226,20 @@ export type CommandDeps = {
    * read by the daemon before admission. Absent: the task's own models only.
    */
   models?: readonly string[];
+  /** Masks secrets in the reason and trial before the ledger keeps them (constitution: Secret). */
+  redact?: (text: string) => string;
 };
+
+/** A trial's own words masked; the measured fields it carries stay as they are. */
+function maskTrial<T>(trial: T, redact: (text: string) => string): T {
+  if (typeof trial !== 'object' || trial === null) return trial;
+  const t = trial as Record<string, unknown>;
+  return {
+    ...t,
+    ...(typeof t['hypothesis'] === 'string' ? { hypothesis: redact(t['hypothesis']) } : {}),
+    ...(typeof t['expect'] === 'string' ? { expect: redact(t['expect']) } : {}),
+  } as T;
+}
 
 /**
  * A task command that names no project gets its task's, so a caller need not read the task first (#259).
@@ -378,6 +391,10 @@ export function admitCommand(
       stored = guarded.value ?? trial;
     }
   }
+  // The hash is of what was sent, so a replay still matches; what is kept and passed on is masked.
+  const redact = deps.redact ?? ((t: string): string => t);
+  const keptReason = reason === null ? null : redact(reason);
+  const keptTrial = maskTrial(trial, redact);
   // IDs are drawn even for a replay; only the first admission's IDs are ever stored and returned.
   const assigned = Array.from({ length: ASSIGNED_IDS }, () => deps.newId());
   const r = deps.store.admitCommand({
@@ -393,16 +410,16 @@ export function admitCommand(
         : (cmd.task_id ?? goalId),
     assigned_ids: kind === 'task_add' || kind === 'goal_add' ? assigned.slice(1) : assigned,
     now: deps.now(),
-    reason,
+    reason: keptReason,
     turn_id: turnId,
-    trial: stored,
+    trial: maskTrial(stored, redact),
     lease:
       actor === 'assistant' && GOAL_COMMANDS.includes(kind)
         ? ((caller as Caller).lease ?? null)
         : null,
   });
   if (!r.ok) return r;
-  return ok({ ...r.value, command_hash, reason, trial });
+  return ok({ ...r.value, command_hash, reason: keptReason, trial: keptTrial });
 }
 
 /** FR-051 for a new command of the deputy: its turn runs, the kind is its own, and it says why. */

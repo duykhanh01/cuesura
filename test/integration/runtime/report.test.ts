@@ -25,7 +25,9 @@ type Project = {
   finished: Section;
   needs_you: Section;
   running: Section;
-  decisions: Section;
+  deputy_decisions: Section;
+  waivers: Section;
+  goals: Section;
   usage: Record<string, unknown>;
 };
 type Report = { since: number; until: number; projects: Project[] };
@@ -200,10 +202,12 @@ describe('addToReport', () => {
       },
     ]);
     expect(r.usage).toEqual(r.finished.items[0]?.['usage']);
-    expect(r.decisions.items).toMatchObject([
+    expect(r.deputy_decisions.items).toMatchObject([
       {
+        actor: 'agent:decider',
+        action: 'answer',
         question: 'Which helper?',
-        answer: 'Use the existing helper.',
+        detail: 'Use the existing helper.',
         applied: true,
         at: 1_500,
       },
@@ -261,7 +265,7 @@ describe('addToReport', () => {
     const r = emptyReport('acme');
     addToReport(r, s, window, 900);
     expect(r.finished.items).toEqual([]);
-    expect(r.decisions.items).toMatchObject([{ answer: 'Go on.', at: 1_200 }]);
+    expect(r.deputy_decisions.items).toMatchObject([{ detail: 'Go on.', at: 1_200 }]);
   });
 
   it('lists open questions of a task that waits for the user', () => {

@@ -278,6 +278,51 @@ export class DeputyTurns {
     }));
   }
 
+  /**
+   * Tasks and goals with a command of the deputy, and those with a turn that handed off; a plan turn
+   * has no task and counts for its goal (FR-110).
+   */
+  decisionTasks(): string[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT task_id FROM command_ledger WHERE actor = 'deputy' AND task_id IS NOT NULL
+         UNION SELECT COALESCE(task_id, goal_id) FROM deputy_turns WHERE handoff_json IS NOT NULL`,
+      )
+      .all() as { task_id: string }[];
+    return rows.map((r) => r.task_id);
+  }
+
+  /**
+   * Tasks with an answer of the old decider (FR-122) or a waiver (FR-046) in events after `afterSeq`;
+   * a range on the log's key, so a caller that keeps its cursor reads only what is new.
+   */
+  noteEventTasks(afterSeq: number): string[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT DISTINCT task_id FROM events
+         WHERE global_seq > ? AND stream = 'task' AND type IN ('DeciderRan', 'Waived')`,
+      )
+      .all(afterSeq) as { task_id: string }[];
+    return rows.map((r) => r.task_id);
+  }
+
+  /** Changes whenever a decision is added or ends; with the log position it says when to note again. */
+  decisionMark(): string {
+    const c = this.#db
+      .prepare(
+        `SELECT COUNT(*) AS n, MAX(admitted_at) AS a, MAX(completed_at) AS c FROM command_ledger
+         WHERE actor = 'deputy'`,
+      )
+      .get() as { n: number; a: number | null; c: number | null };
+    const t = this.#db
+      .prepare(
+        `SELECT COUNT(*) AS n, MAX(ended_at) AS e, TOTAL(LENGTH(handoff_json)) AS l FROM deputy_turns
+         WHERE handoff_json IS NOT NULL`,
+      )
+      .get() as { n: number; e: number | null; l: number };
+    return `${c.n}:${c.a}:${c.c}:${t.n}:${t.e}:${t.l}`;
+  }
+
   /** Commands of the deputy are taken only while its turn runs (FR-051). */
   isRunningTurn(turnId: string): boolean {
     return this.turn(turnId)?.state === 'running';

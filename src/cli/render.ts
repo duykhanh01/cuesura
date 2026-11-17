@@ -13,6 +13,7 @@ import {
   type BoardRow,
   type TaskProgress,
 } from '../tui/client/schemas.ts';
+import { resultLine } from '../explain/trial-result.ts';
 import { sanitize, uiText } from '../tui/terminal/safe-text.ts';
 import { displayWidth, padEnd } from '../tui/terminal/width.ts';
 
@@ -174,6 +175,9 @@ const HistorySchema = z.object({
       revision: z.number(),
       actor: z.unknown(),
       at: z.string().optional(),
+      reason: z.string().optional(),
+      turn_id: z.string().optional(),
+      trial: z.object({ hypothesis: z.string(), expect: z.string() }).optional(),
     }),
   ),
   next_cursor: z.number(),
@@ -198,6 +202,15 @@ export const renderHistory: Render = (data) => {
             sanitize(e.type),
           ]),
         );
+  // 007 (T096): why a command was sent, by which deputy turn, and what it was to show.
+  for (const e of events) {
+    if (e.turn_id !== undefined) lines.push(`  ${e.seq} turn: ${sanitize(e.turn_id)}`);
+    if (e.reason !== undefined) lines.push(`  ${e.seq} why: ${oneLine(e.reason)}`);
+    if (e.trial !== undefined)
+      lines.push(
+        `  ${e.seq} trial: ${oneLine(e.trial.hypothesis)}; expect: ${oneLine(e.trial.expect)}`,
+      );
+  }
   if (more)
     lines.push(
       '',
@@ -371,17 +384,52 @@ const ReportSchema = z.object({
           wait_code: z.string().nullable(),
         }),
       ),
-      decisions: ReportSection(
+      deputy_decisions: ReportSection(
+        z.object({
+          task_id: z.string().nullable(),
+          title: z.string(),
+          actor: z.string(),
+          goal_id: z.string(),
+          unit_key: z.string().nullable(),
+          turn_id: z.string().nullable(),
+          incident: z.string().nullable(),
+          action: z.string(),
+          detail: z.string().nullable(),
+          question: z.string().nullable(),
+          reason: z.string().nullable(),
+          hypothesis: z.string().nullable(),
+          expect: z.string().nullable(),
+          applied: z.boolean(),
+          failure: z.string().nullable(),
+          result: z
+            .object({
+              signature_changed: z.boolean(),
+              errors_delta: z.number(),
+              tree_changed: z.boolean(),
+              progressed: z.boolean(),
+            })
+            .nullable(),
+        }),
+      ).default({ items: [], truncated: false }),
+      waivers: ReportSection(
         z.object({
           task_id: z.string(),
           title: z.string(),
-          question: z.string().nullable(),
-          answer: z.string().nullable(),
+          target: z.object({ kind: z.string(), key: z.string() }),
+          by: z.string(),
           reason: z.string().nullable(),
-          applied: z.boolean(),
-          failure: z.string().nullable(),
+          evidence: z.string(),
         }),
-      ),
+      ).default({ items: [], truncated: false }),
+      goals: ReportSection(
+        z.object({
+          goal_id: z.string(),
+          status: z.string(),
+          summary: z.string().nullable(),
+          units: z.number(),
+          done: z.number(),
+        }),
+      ).default({ items: [], truncated: false }),
       usage: ReportUsage,
     }),
   ),
@@ -406,7 +454,7 @@ export const renderReport: Render = (data) => {
   if (projects.length === 0) lines.push('', 'Nothing to report.');
   for (const p of projects) {
     lines.push('', `Project ${sanitize(p.project)}`);
-    const { finished, needs_you, running, decisions, usage } = p;
+    const { finished, needs_you, running, deputy_decisions: decisions, waivers, goals, usage } = p;
     if (finished.items.length > 0)
       lines.push(
         heading('Finished', finished),
@@ -459,17 +507,56 @@ export const renderReport: Render = (data) => {
           ]),
         ),
       );
+    if (goals.items.length > 0)
+      lines.push(
+        heading('Goals', goals),
+        ...table(
+          ['GOAL', 'STATUS', 'UNITS DONE', 'SUMMARY'],
+          goals.items.map((g) => [
+            sanitize(g.goal_id),
+            sanitize(g.status),
+            `${g.done}/${g.units}`,
+            oneLine(g.summary ?? '-'),
+          ]),
+        ),
+      );
     if (decisions.items.length > 0)
       lines.push(
-        heading('Decider answers', decisions),
-        ...decisions.items.flatMap((d) => [
-          `- ${d.task_id} ${oneLine(d.title)}`,
-          ...(d.question === null ? [] : [`  Q: ${oneLine(d.question)}`]),
-          ...(d.answer === null ? [] : [`  A: ${oneLine(d.answer)}`]),
-          ...(d.reason === null ? [] : [`  Why: ${oneLine(d.reason)}`]),
-          d.applied
-            ? '  Applied.'
-            : `  Not applied${d.failure === null ? '' : `: ${oneLine(d.failure)}`}.`,
+        heading('Deputy decisions', decisions),
+        ...decisions.items.flatMap((d) => {
+          const where =
+            d.actor === 'deputy'
+              ? ` (goal ${sanitize(d.goal_id)}${d.unit_key === null ? '' : `, unit ${sanitize(d.unit_key)}`})`
+              : ` (${sanitize(d.actor)})`;
+          const result = resultLine(d.result, d.hypothesis);
+          return [
+            `- ${d.task_id ?? 'goal'} ${oneLine(d.title)}: ${sanitize(d.action)}${where}`,
+            ...(d.turn_id === null
+              ? []
+              : [
+                  `  Turn: ${sanitize(d.turn_id)}${d.incident === null ? '' : ` (incident ${sanitize(d.incident)})`}`,
+                ]),
+            ...(d.question === null ? [] : [`  Q: ${oneLine(d.question)}`]),
+            ...(d.detail === null
+              ? []
+              : [`  ${d.question === null ? 'What' : 'A'}: ${oneLine(d.detail)}`]),
+            ...(d.reason === null ? [] : [`  Why: ${oneLine(d.reason)}`]),
+            ...(d.hypothesis === null
+              ? []
+              : [`  Hypothesis: ${oneLine(d.hypothesis)}; expect: ${oneLine(d.expect ?? '')}`]),
+            ...(result === null ? [] : [`  Result: ${result}`]),
+            d.applied
+              ? '  Applied.'
+              : `  Not applied${d.failure === null ? '' : `: ${oneLine(d.failure)}`}.`,
+          ];
+        }),
+      );
+    if (waivers.items.length > 0)
+      lines.push(
+        heading('Waivers', waivers),
+        ...waivers.items.flatMap((w) => [
+          `- ${w.task_id} waived ${sanitize(w.target.kind)} ${sanitize(w.target.key)} by ${sanitize(w.by)}: ${oneLine(w.reason ?? 'no reason')}`,
+          `  Evidence: ${oneLine(w.evidence)}`,
         ]),
       );
     if (finished.items.length > 0) lines.push(usageLine(usage));
