@@ -1,109 +1,61 @@
-# The review loop
+# Review and re-check
 
-```text
-reviewer: review the PR
-  no findings                 -> ready
-  findings -> lead triages
-    fix                       -> same coder fixes -> same reviewer re-checks -> repeat
-    fix without re-check      -> same coder fixes -> ready
-    defer / reject            -> ledger -> ready
-```
+The first reviewer is independent of the coder's reasoning. Supply source requirements, PR/full
+head/base and owned scope; do not prefill the review with the coder's justification. Use the repo's
+review skill and comment format when available. Only authorize reviewer subagents explicitly,
+within the run's total limit and harness rules; otherwise review axes sequentially.
 
 ## Triage
 
-Wait until the reviewer has finished, then judge every finding in one pass. Triage as findings
-trickle in and some get forgotten.
+After the complete review, settle every stable finding ID with evidence and a route:
 
-Judge each finding on its own evidence:
+| Route | Evidence and result |
+| --- | --- |
+| Fix | Real defect within the PR's responsibility; coder fixes and reviewer re-checks. |
+| Fix without re-check | Unambiguous low-impact correction with sufficient automated evidence; record why. |
+| Defer | Outside scope or explicitly accepted nonblocking cost; record reason, tracking link and revisit condition. |
+| Reject | Wrong or unnecessary for the goal; record evidence and ruling. |
 
-- A finding needs the line of code it is about and a concrete failing scenario. One that has
-  neither goes back to the reviewer once for evidence, and is rejected if none comes.
-- Read only the lines in question to settle a doubt.
-- A reviewer's severity label is advice. The route is your call.
-
-| Route | When | What happens |
-| --- | --- | --- |
-| **Fix** | A real defect this change introduced, in the intended case. | Coder fixes; reviewer re-checks. A defect this change caused is never deferred. |
-| **Fix without re-check** | Real, small, and the fix is unambiguous: it adds no public surface and guards no state nobody demonstrated. | Coder fixes; CI is the check. |
-| **Defer** | Real, but outside this change: another path, a rare case, a small cost, code that was already there. | One checklist line in the PR description, and a line under Deferred in the ledger. |
-| **Reject** | Wrong, or it asks for something the goal does not need. | A ruling in the ledger with the reason. |
-
-Anything that weakens a test or a CI gate goes to the user, whatever the route: removed or skipped
-tests, loosened assertions, raised thresholds, regenerated snapshots.
+A finding names file/line, quoted code, a concrete failing scenario, impact and suggested fix. Ask
+for missing evidence rather than accepting a label. A new serious defect attributable to the PR
+must be triaged even outside the latest edited lines. Never demote a blocker merely to finish.
+Existing unrelated defects need not expand this task. Tests/gates must not be weakened without
+user authority; updating an expected snapshot for approved behavior is not automatically weakening.
 
 ## Fix rounds
 
-A round is one fix by the coder plus one re-check by the reviewer.
+Resume the same coder and reviewer by default; useful context avoids rediscovering settled work.
+Re-check open findings and related impact of the fix, not new product features, speculative
+hardening or unrelated refactors. Settled points reopen only for new evidence or a change that
+invalidates the decision. Coder objections with tests/paths are valid; lead rules after the exchange.
 
-- **Rounds 1–3: the same coder and the same reviewer,** both resumed. The coder knows the task and
-  its own reasons; the reviewer knows its own findings.
-- **The re-check is narrow.** For each open finding the reviewer answers ADDRESSED or NOT
-  ADDRESSED, and it looks for breakage only in the lines the fix touched. Anything new outside
-  those lines goes under Deferred and never extends the loop.
-- **The coder may disagree.** A pushback with evidence (file and line, a test, command output) is a
-  valid answer. You settle the dispute after one exchange; the same argument does not go round
-  twice.
-- **Keep the PR the size of the goal.** Take the fix that deletes or narrows code over a new guard,
-  helper or option. If review grew the diff, cut before the next round.
-- After each round, write the ledger: round number, what was addressed, what is open.
+Before re-check, resolve queued requests affecting the result, finish pushes and name an exact
+full SHA, prior reviewed SHA and fix range. Use the follow-up template. Record each finding's
+route/evidence and reviewed SHA in the reviewer report, with current status first. A review of an
+old revision/head cannot close newly changed criteria without assessing their impact.
 
-The cap is three rounds. A high-risk task may run rounds 4 and 5, on a stronger model.
+There is no round or line-count exemption. Two rounds without progress signal diagnosis: group by
+root decision, clarify the brief or ask the advisor within its authority. Missing access or quota
+blocks the current phase with a resume condition. Escalate models only within the grant.
 
-## When the loop does not converge
+Replace a reviewer when unavailable, unable to resume, context no longer useful, demonstrably
+stuck, or when a foundational change calls for an independent view. A replacement can continue a
+narrow re-check using open findings, settled decisions and fix range; new agent does not mean new
+whole-diff review. A fresh independent review is a lead judgment based on changed assumptions and
+impact, never a formula about diff size. Supply settled findings/rulings, but not the coder's
+reasoning. Record the reason for replacement. Higher-priority harness restrictions can require a
+new delegate for re-check; preserve the narrow scope and records instead of claiming an override.
 
-If the same finding survives two rounds, or round three ends with a blocker open, find the cause
-before sending another round:
+## Evidence and seams
 
-- **One root decision keeps producing findings.** Group the findings by the decision they come
-  from, settle that decision, then fix.
-- **The brief or the spec is unclear,** or coder and reviewer read it differently. Settle it with a
-  ruling, or re-brief.
-- **The reviewer raises new nits each round.** Look at what truly blocks, defer the rest, move on.
-- **The coder cannot see its own problem.** On a high-risk task, and if the user allows
-  escalation, rounds 4 and 5 go to a stronger model: change the model on the same agent where the
-  tool can, otherwise start a new coder that reads the report file first. On other tasks, rule at
-  the cap.
-- **The cause is outside the code:** a broken environment or toolchain, missing access, flaky
-  infrastructure, or a decision only the user can make. Mark the task `blocked`, leave the PR open,
-  record the evidence, and carry on with the other tasks.
+High-risk changes require behavioral evidence: a reproducing test or verification in a real
+environment, with command, result, commit and unverified limits. Diff statistics do not prove tests.
+For privacy/security, identify the relevant input class that can evade the guard, verify that class
+and ask the coder to try to break it; do not demand an unlimited scan of all Unicode/variants.
+Trust adequate checks; repeat them for an actual gap, contradiction or changed code.
 
-At the cap, stop dispatching and rule on each open finding yourself:
-
-- the reviewer is wrong, or the point is contestable: reject it, with the reason;
-- real, and nothing downstream builds on it: defer it;
-- real and load-bearing: rule on the smallest change that unblocks dependent work, or mark the task
-  `blocked`.
-
-Rule on findings only at triage or at the cap. Dropping one mid-loop to end the loop sooner is a
-silent discard.
-
-## Same agent or a new one
-
-Resume the same agent when the work continues what it already knows: a coder fixing its own code, a
-reviewer checking its own findings. Start a new one when:
-
-1. **The coder is stuck:** three rounds have not cleared the blockers.
-2. **The fix changed the approach:** most of the PR was rewritten, or a rebase resolved conflicts
-   in a high-risk area. The old reviewer's picture is stale; give the result a first review again.
-3. **The old context is a burden:** it is very large, it went down a wrong path, or the tool cannot
-   resume.
-
-The first review of any PR always goes to an agent that has seen none of the coder's reasoning.
-
-## After a conflict
-
-- Tell the coder which merge caused the conflict and which side wins. It rebases, compares the
-  series before and after with `git range-diff`, and pushes with `--force-with-lease`.
-- If the resolution combined two features in shared code, have the reviewer check the resolution
-  alone before the PR merges. Seam bugs appear only there.
-- If the base has moved so far that the PR no longer fits, choose before any rebase: update it,
-  rework it, or recommend closing it. Closing a PR needs the user's word.
-
-## Integration branch
-
-When tasks share one integration branch, each task still gets its own review by risk. After the
-last task lands on the branch:
-
-- one whole-branch review on the strongest model, pointed at the Deferred list in the ledger;
-- one fix agent that takes the complete findings list;
-- one narrow re-check of that fix. What remains after it goes to the user with the report.
+After conflicts, tell the coder which base change matters and the intended combined behavior.
+Compare before/after series (`git range-diff`); reviewer checks the resolution where features meet.
+Follow repo rules for rebases and force-with-lease. On an integration branch, review tasks by risk
+and review the whole integrated diff after the last task, with findings triaged by the same rules.
+Do not replace convergence with a fixed number of final rounds.

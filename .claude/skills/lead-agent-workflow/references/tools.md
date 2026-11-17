@@ -1,114 +1,67 @@
-# Tools
+# Tool cards
 
-The skill speaks in seven capabilities. Each tool provides them differently, and some not at all.
-Read the card for your tool before the first dispatch.
+Read the installed tool help before dispatch. These are capability pointers, not a replacement for
+current schemas. Higher-priority harness instructions govern calls and permissions; this skill
+cannot override them. Preserve allowed provider/model/profile/effort. Missing capability is not
+authority to switch backend, create replacement agents or configure the harness.
 
-| Capability | What you need from it | If the tool lacks it |
-| --- | --- | --- |
-| **Spawn** | start a worker with a model, an effort level, a working directory | run the vendor's CLI in a worktree |
-| **Resume** | send a follow-up to the same worker with its context intact | start a new worker that reads the report file and the ledger pointers |
-| **Finish notice** | be woken when a worker ends its turn | a timed check-in plus a status read |
-| **Timed wake** | wake yourself after a delay | a background command that sleeps and exits |
-| **Status** | list workers and see their state and last activity | read the PR and `git log` on the branch |
-| **PR watch** | be woken when checks finish, comments arrive, or a conflict appears | `scripts/pr-ci.sh <pr> --wait` in the background |
-| **Ask the user** | a question the user sees as waiting on them | start your final message with the question |
-
-## Whose rule wins
-
-A tool may ship its own orchestration instructions. They decide the **mechanics**: which call
-spawns, how to wait, what never to poll. This skill decides the **policy**: what to dispatch, the
-gates, how findings are settled, and whether a worker is resumed or replaced.
-
-Where a card below says "This skill replaces", the user chose this skill's policy over that line
-of the tool's instructions by invoking the skill. Everything else in the tool's instructions
-stands.
-
-## Paseo
-
-| Capability | How |
+| Capability | Required record / fallback |
 | --- | --- |
-| Spawn | `create_agent` with `title`, `provider` as `provider/model`, `initialPrompt`, `workspaceId`, and `settings` (`modeId` for permissions, `thinkingOptionId` for effort). `list_profiles`, `list_providers` and `list_models` give the valid values. CLI: `paseo run`. |
-| Workspace | `create_workspace` with `isolation: worktree` and `mode: branch-off`, `checkout-branch` or `checkout-pr`. |
-| Resume | `send_agent_prompt` with the `agentId`: same provider session, context kept. `update_agent` changes the model, mode or effort on the same agent. CLI: `paseo send`. |
-| Finish notice | `notifyOnFinish`, on by default when an agent creates or prompts another. It reports finished, errored, needs permission, closed. The message carries the last reply cut at 4000 characters, so ask for the report file. |
-| Timed wake | `create_heartbeat` with a five-field cron and a prompt; it lands in your own conversation. `delete_heartbeat` removes it; to change one, delete and recreate. Without a timezone the cron is UTC. |
-| Status | `list_agents`, `get_agent_status` (active turn, `backgroundWork.count`, `updatedAt`, `lastError`), `get_agent_activity`. |
-| PR watch | None. Use `gh` and `scripts/pr-ci.sh`. |
-| Ask the user | The question tool of the harness you run in. |
-
-Where it bites:
-
-- A lead that calls Paseo from outside (not as a Paseo agent) gets no finish notice. Wait with
-  `paseo wait <agent-id>` in the background, or a timed check-in.
-- Notices are at-least-once: one can repeat after a daemon restart, and one queued at an abrupt
-  crash can be lost. A lead that is archived receives none. Reconcile with `list_agents` on every
-  wake and keep a heartbeat as the fallback.
-- A heartbeat that fires while you are mid-turn is recorded as a failed run and is not queued. Set
-  the interval longer than your turns.
-- An agent can sit at `idle` looking healthy after its background work died. Compare
-  `backgroundWork.count` and `updatedAt` before you trust the status.
-- Archiving a workspace closes its agents. If another session archived a live one: back up the
-  session file, `paseo delete <agent>`, then `paseo import <sessionId> --provider claude --cwd
-  <worktree>` and reset its name, mode and effort with `update_agent`. A Codex reviewer cannot be
-  imported this way; start a new one with a delta brief.
-- Not verified: whether sending a prompt to an archived agent revives it.
+| Spawn/workspace | task/role, explicit target settings and actual workspace/base; use supported isolation |
+| Resume | Owner ID checked against task/role; if unavailable use an authorized replacement and current report |
+| Finish/status | supported completion plus actual state; notices can repeat or be intermediate |
+| Wait/PR watch | supported wake recorded before waiting; no untracked background or forbidden polling |
+| Ask | harness question tool, preserving prior grants; secrets through its secret facility |
 
 ## T3 Code
 
-| Capability | How |
-| --- | --- |
-| Spawn | `delegate_task` with `task`, plus `role`, `isolation: "worktree"`, `mode: "async"` and `target` (provider, model, options such as effort). Call `orchestrator_capabilities` once first for the valid targets. The child receives only `task`, with none of your history. |
-| Resume | `t3_thread_send` to the child's `childThreadId`, leaving `freshContext` unset. A send to a finished child starts a new tracked task on the same provider session and returns its `taskId`. |
-| Finish notice | Automatic. The result arrives as a message in your thread. End your turn after a dispatch. |
-| Timed wake | None for this purpose. T3 forbids `sleep`, polling `task_status`, Monitor and ScheduleWakeup while a delegate runs. |
-| Status | `task_status`, after the completion woke you. `task_cancel` stops a delegate. |
-| PR watch | `watch_pull_request`, then end your turn. It wakes you on failed checks, passed checks, checks awaiting approval, new remarks, a conflict, no checks after 15 minutes, and a closed PR. A merge ends the watch silently. `unwatch_pull_request` before you hand off or ask the user. Only the thread that owns the PR can watch; children cannot. |
-| Ask the user | The provider's own question tool. |
+- Discover `orchestrator_capabilities` before the first `delegate_task`; pass requested settings in
+  `target.options`, including permitted profile. Use native children only when current harness
+  instructions allow; separate checkouts use the tool's isolation, never shell-created substitutes.
+- `delegate_task` owns tracked async work; follow its returned `next`. Do not poll a running child.
+  Use `task_cancel` for obsolete delegates, rather than interrupting a child thread underneath it.
+- The tool exposes `t3_thread_send` for child continuation, with `childThreadId`; actual use depends
+  on current harness restrictions. Some harness versions require every review/re-check to be a new
+  `delegate_task`. In that case obey it and provide open findings, settled decisions and fix range
+  for a narrow re-check. The same-reviewer policy does not override higher-priority instructions.
+  Do not change external T3 configuration as part of running or editing this skill.
+- Record the actual child's ID in Owner, not the lead's ID. Check recipient role/task before send.
+  A completion may be intermediate; accept only a matching revision/output/head report. Continuation
+  and retained reviewer context have not been live-verified by this skill's offline tests.
+- Link created/pushed PRs with `link_pull_request`. A lead waiting on GitHub uses
+  `watch_pull_request`, then ends its turn; children never watch. Unwatch at handoff. Use pr-ci once
+  for a verdict, not `--wait`. Follow runtime rules about when PR watches are required.
+- Top-level thread creation is separate from delegation and requires a user request. Workspace
+  creation/branch names follow current tool settings; do not assume a child's default cwd matches
+  its intended repository. Verify remote and paths before editing.
 
-This skill replaces two lines of T3's orchestration instructions:
+## Paseo
 
-- T3 says every re-check is a new `delegate_task`, never a `t3_thread_send`. Under this skill, a
-  fix or a re-check goes to the same child with `t3_thread_send`, so it keeps its context. Record
-  each child's `childThreadId` in the ledger's Owner column. Send only after the child's completion
-  has woken you; a send to a running child steers its current turn.
-- T3 says to fix small review findings yourself. Under this skill the owning coder fixes them.
-
-Where it bites:
-
-- A follow-up runs on the model of the child's previous run. To move a task to a stronger model,
-  start a new `delegate_task` whose brief points at the report file.
-- Use `watch_pull_request` for waiting on CI. Run `scripts/pr-ci.sh` without `--wait` when you want
-  the verdict in one line.
-- Not verified in a live session: that a resumed child recalls its earlier work. On first use,
-  test it once with a small task.
+- Spawn with `create_agent` and a supported workspace; discover provider/model/profile and effort
+  from current list tools. `send_agent_prompt` resumes context; `update_agent` changes settings
+  only within the grant. Record the actual ID in Owner.
+- `notifyOnFinish` supplies completion when supported; an external CLI caller may need `paseo wait`
+  via a completion-aware facility. Notices can be duplicated/lost across restarts. Reconcile status
+  and recent activity; idle plus dead background work needs a continuation.
+- `create_heartbeat` provides timed wakes only where permitted; delete obsolete wakes. Archiving
+  a workspace closes its agents; preserve live work first. Resume/import behavior is provider-specific:
+  verify current support, and do not assume an archived agent revives on send.
 
 ## Claude Code
 
-| Capability | How |
-| --- | --- |
-| Spawn | The `Agent` tool with an explicit `model`; it runs in the background. `isolation: "worktree"` gives it its own checkout. |
-| Resume | `SendMessage` to the agent id; the context is kept. |
-| Finish notice | Automatic when a background agent ends. |
-| Timed wake | `ScheduleWakeup` or `CronCreate`. |
-| Status | The finish notice and the agent's final report. |
-| PR watch | `scripts/pr-ci.sh <pr> --wait` as a background shell command; its exit wakes you. Where the app offers its own PR monitor, bind the PR to it and let it wake you. |
-| Ask the user | `AskUserQuestion`. |
+- Use the current native Agent tool/model list for supported Claude children; its isolation and
+  foreground/background settings follow the installed harness. Do not assume all versions offer
+  the same modes. Explicitly name the model rather than inheriting an expensive default.
+- Resume through the tool's current continuation/message mechanism. Completion events are preferred;
+  scheduled wakes or tracked CI waiting are alternatives only if supported and permitted.
+- Another model family requires an already authorized cross-provider facility; never silently fall
+  back to a CLI or a different provider when the requested one is unavailable.
 
-Where it bites:
+## Unknown tool or Git host
 
-- Native subagents run Claude models only, so there is one provider. For a reviewer from another
-  family, drive that vendor's CLI or work through a tool that offers several providers; otherwise
-  the single-provider rule in SKILL.md applies.
-- An agent started without an explicit model inherits yours, which is usually the most expensive.
-
-## A tool with no card
-
-Probe the seven capabilities before the first dispatch: read the tool's own skill or help, then
-try each call once on a throwaway task. Work from the fallback column where one is missing. After
-the session, add a card here with what you found, marking anything you did not verify.
-
-## Git host
-
-The skill assumes GitHub through `gh`, and `scripts/pr-ci.sh` for verdicts. On another host, map
-five operations to its CLI: open a PR, read the head SHA and changed files, read check results,
-mark ready, merge. Keep the verdict names from `supervision.md`.
+Read help and verify only the capabilities needed for this run. Do not send test messages to live
+workers. A harmless isolated capability probe needs its own authority and scope. Add concise facts
+and mark unverified behavior; do not promote a single run's model selection to universal policy.
+On another Git host map PR creation, full-head reads, checks, ready and SHA-bound merge to that
+host's CLI/API while retaining the same verdicts and gates. Prefer an installed GitHub wrapper when
+it supports the operation; scripts use the authenticated `gh` CLI for its stable JSON interface.

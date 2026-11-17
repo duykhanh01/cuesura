@@ -12,248 +12,137 @@ description: >-
 
 # Lead agent workflow
 
-You are the lead. Workers write the code and the reviews; you decide who does what, move each task
-from one state to the next, and make the calls. The workflow below is the spine. Use judgement
-inside each step, and keep the steps and their gates.
+Lead the run: own scope, authority, task graph, dispatch, triage and merges. Coders implement;
+reviewers independently check; an optional advisor proposes solutions or decides within a recorded
+delegation. Talk in the user's language and carry language requirements into briefs.
 
-Talk to the user in their language. This skill is in English because English costs fewer tokens.
+Use one coder and a brief for a single small, low-risk task; verify its output and CI without a
+full ledger. Use the durable contracts below for multiple tasks or consequential work. Risk follows
+impact: a configuration change can be high risk. Tasks that cannot land green independently share
+an explicit integration branch and a final whole-branch review.
 
-## Five rules everything else follows from
+## Intake and preflight
 
-1. **The ledger is your memory.** Everything you know about the run lives in one file. After
-   compaction or a crash, trust the ledger and git over what you remember. A lead that lost its
-   place has re-dispatched whole finished task chains.
-2. **Contracts travel as files.** Briefs, reports and findings have fixed shapes
-   (`references/contracts.md`) and move as file paths and links. Whatever you paste into a prompt,
-   and whatever a worker prints back, you re-read on every later turn.
-3. **Evidence over testimony.** A worker's report is a claim. A task changes state only when a
-   condition you can check on the ground holds: the PR exists, the head SHA matches, CI is green on
-   that SHA.
-4. **You write no product code.** A fix you make yourself skips review and fills your context.
-   Send it to the worker that owns the task.
-5. **Every turn ends with a wake.** Before you end a turn, the ledger names what will wake you for
-   each live task. With no wake, you stay in the turn.
+Resolve this skill's installed directory from the `SKILL.md` location and use absolute paths for
+its helpers, regardless of the worker's current directory. In command examples, `/absolute/skill-dir`
+means that installed directory, not the target repository root.
 
-The tool you orchestrate with decides the mechanics: how to spawn, resume, wait and watch a PR.
-Read its card in `references/tools.md` before the first dispatch. This skill decides the policy:
-what to dispatch, which gates apply, how findings are settled.
+Read the request, repository rules and existing grants first. Record goal/source, `merge` or
+`stop-at-ready`, permitted providers/profiles/models/effort, escalation authority and the total
+agent limit. Ask once, in one batch, only for missing choices that affect execution. Preserve prior
+authorization; ask about stronger-model escalation if it has not been settled.
 
-## Size the work first
+If no advisor choice exists, ask: delegated decisions within a specified scope, advice only, or no
+advisor. Record scope, exclusions and revocation rules with the choice. Decision authority does not
+expand merge, deploy, access or product scope. Read [advisor.md](references/advisor.md) when using one.
 
-Running several agents costs many times the tokens of doing the work in one session, so match the
-machinery to the job:
+Preflight the actual repo/remote/base, CI and expected checks, draft/docs-only policy, PR templates
+and workspace lifecycle. Inspect existing configuration; investigate runners/access only when
+needed or contradictory. Missing setup grants no infrastructure authority. When new-repo setup is
+in scope: land CI on base, enable required checks, then start dependent PRs.
 
-- **One small, low-risk task:** one coder, one brief, no reviewer and no ledger. Still check the PR
-  and CI yourself before calling it done.
-- **Two or more tasks, or any task above low risk:** the full workflow.
-- **Tasks that cannot land green one by one** (a wide refactor, an expand–contract migration): the
-  full workflow on one integration branch, with one whole-branch review at the end.
+## Plan and dispatch
 
-## Task states
+1. Create the run outside disposable worktrees using [contracts.md](references/contracts.md).
+   Reuse an existing plan, or let the advisor propose one when planning is wanted; do not add a
+   separate mandatory planner.
+2. Give each parent an overall goal and integration criteria. Give each child a stable ID (`T4.1`),
+   owner, risk, owned files/interfaces, criteria source, dependencies and verifiable output. The
+   coder owns its implementation checklist; do not dispatch an agent per code/test/lint step.
+3. Check coverage and overlaps in the code. Assign a shared interface to one owner or order its
+   consumers. Prefer independently mergeable children. For an integration branch, record its target
+   and the verified integrated commit that satisfies each dependency.
+4. Before dispatch, verify dependencies, scope size, ownership, base, brief revision and allowed
+   profile. Prioritize unblocking, fixes and review over new work. The concurrency limit includes
+   coders, reviewers, advisors and authorized descendants; spare slots need not be filled.
+5. Read the current [tool card](references/tools.md). Use the harness's workspace and dispatch
+   mechanisms. Resume context that is still useful; start unrelated work separately. Validate
+   recipient task/role against its ID in Owner before sending; never probe a real worker with test
+   messages. Record branch, owner and a supported wake before waiting.
 
-```text
-queued -> coding -> reported -> reviewing <-> fixing -> ready -> merged
-any state -> blocked (reason and evidence in the ledger) -> queued once unblocked
-```
+A mid-flight split requires the coder to stop at a named checkpoint, preserve commits and unfinished
+work, and hand ownership to the lead before children start. The parent then tracks integration;
+it is not another concurrent implementation owner.
 
-| Move | Holds when |
-| --- | --- |
-| queued -> coding | every blocker is merged, the task has one owner, a wake is recorded |
-| coding -> reported | the PR exists and its head SHA equals the one the report names |
-| reported -> reviewing | a reviewer is dispatched; low-risk tasks skip to `ready` |
-| reviewing/fixing -> ready | no blocking finding is open (`references/review.md`) |
-| ready -> merged | the merge gate in step 6 passes and the grant allows merging |
+## Progress and reports
 
-## Workflow
+The implementation phases are `queued → coding → reported → reviewing ↔ fixing → ready`.
+Blocking is an overlay: keep Phase, record reason/evidence, unblock condition and exact resume step
+in Block/Next. Clear Block when resolved and continue that phase, rather than resetting to queued.
 
-### 1. Intake
+- A coder's DONE completes its assigned turn, usually a reported PR; verify PR, full head SHA,
+  owned scope, report revision and meaningful evidence. Old revisions cannot establish completion
+  against changed criteria. DONE_WITH_CONCERNS needs triage; NEEDS_CONTEXT needs context; BLOCKED
+  needs a changed condition before retrying. A missing PR without a blocker is unfinished work.
+- Reviewer and advisor turns finish with accepted reports, without needing PRs. Distinguish terminal
+  outcomes `merged`, `accepted`, `handed-off`, `cancelled`, `superseded`. A handed-off PR does not
+  satisfy a dependency requiring merge. A parent finishes after its children and integration
+  criteria are verified.
+- Update canonical briefs for changes to goal/scope/criteria, increment revision, and send a delta.
+  Before re-check, all queued requests affecting the result must be resolved and pushes settled.
+  Use [templates](references/contracts.md#briefs-and-revisions), not repeated prompt histories.
 
-Open a run directory and its ledger (`references/contracts.md`), then record:
+## Review, ready and merge
 
-- the goal in the user's words, and where the work comes from (tickets, a plan, a list);
-- the **grant**: `merge` or `stop-at-ready`, and what you may decide alone (reviewer and model
-  choice, task order, model escalation);
-- whether the user wants a planning pass, how many coders may run at once, which models.
+Use no reviewer only for genuinely low-risk work unless the user/repo requires one; ordinary logic
+gets one independent reviewer, consequential state/security/concurrency work the strongest allowed
+reviewer. Prefer another model family where authorized. Workers start no reviewers themselves.
+Follow [review.md](references/review.md): stable findings, bounded scope, same reviewer by default,
+evidence-based replacement, no round/line-count escape gate.
 
-Ask only what would change what you do, in one batch, with the harness's question tool. Take the
-rest from "Defaults" and say what you chose.
+Before ready: review complete, blockers resolved, evidence covers the diff, pushes settled. Keep
+PRs draft through review where required. Where CI skips drafts, mark ready before waiting for green;
+do not create a circular gate. Respect the repo/user's draft policy elsewhere.
 
-*Done when the ledger header holds the goal, the source, the grant and the worker settings.*
+Before merge, require all of:
 
-### 2. Task graph
+- the grant permits merge, findings are resolved and the report covers the exact full head;
+- current-head CI is GREEN through [scripts/pr-ci.sh](scripts/pr-ci.sh), including external checks
+  and expected checks from a reviewed policy; merge bound to that SHA (`gh pr merge --match-head-commit`);
+- no conflict; base changes since the verified base checkpoint have been assessed for shared files
+  and interfaces, updating/revalidating the branch when needed;
+- no unauthorized weakening of tests or gates. An approved snapshot behavior update is distinct
+  from hiding a regression.
 
-The graph comes from one of three places:
+Merge one PR at a time in dependency order. Under stop-at-ready, hand it back ready. After merge,
+fetch the base without pulling into another worker's shared checkout, update the ledger, recompute
+the frontier and take fresh verdicts on other open PRs. After an ambiguous merge error, read actual
+PR state before retrying. See [supervision.md](references/supervision.md) for CI and recovery.
 
-- **It already exists** (tickets with blockers, a plan with tasks): use it.
-- **The user wants planning:** dispatch a planner agent and tell it to use the planning skill that
-  is installed. With none installed, offer to install one (`to-tickets` from `mattpocock/skills`
-  fits one-PR-per-task work). Show the result to a user who is present; with authority, proceed.
-- **The user wants no planning:** take the tasks as given.
+## Supervise and close
 
-Then make it executable:
+On wake, read the ledger and reconcile workers, Git and open PRs through the harness's permitted
+mechanisms. A notice is a signal, not a verdict. Advance every step whose evidence is already
+available until genuinely waiting; do not artificially limit a wake to one state transition. Save
+the ledger and the supported continuation before waiting. Do not invent polling or a guaranteed
+future notice. Keep independent tasks moving while one is blocked.
 
-- Each task gets a name, acceptance criteria, its blockers, a risk level (low, normal, high) and
-  the files or area it owns. One task owns each file.
-- For every pair of tasks that share a file or an interface, either order them or name the one PR
-  that owns the shared piece, and record that as a ruling. Check dependencies in the code; a name
-  or a label is a guess.
-- Put prefactoring first. Fold several small edits of the same shape into one task.
-- Keep any order the user agreed to.
+Report outcomes/PRs, active decisions and their costs, deferred findings and unverified areas. Lead
+marks terminal outcomes; [scripts/task.sh](scripts/task.sh) mechanically creates/checks briefs and
+archives completed tasks by parent. It never dispatches, chooses models or declares work done.
+Preserve active decisions and stable report links. Clean up only when no worker needs the workspace
+and commits, untracked files and unfinished work are preserved; pushed is insufficient by itself.
+Cancel obsolete agents/wakes/watchers through the harness, and leave nothing running unaccounted.
 
-*Done when every task has criteria, blockers, risk and an owned area, and every overlap has a
-ruling.*
+Learn in this order: fix the cause, add a behavior check, give the reviewer a rule, then add a
+nonduplicated lesson to [pitfalls.md](references/pitfalls.md). New tool knowledge belongs in its card.
+Trust adequate evidence; repeat checks only for gaps or contradictions. Follow repo checks by change
+type, including docs-only exceptions and full-suite-on-CI policies.
 
-### 3. Dispatch
+## Decisions and defaults
 
-The **frontier** is the set of queued tasks whose blockers are all merged. Dispatch from it, up to
-the parallel limit:
+Within authority, decide and record a lead ruling (question, conclusion, evidence, cost if wrong).
+Route existing decisions first, then substantive questions within the advisor's grant; the advisor
+owns its decision record and the lead retains its reference. Ask the user for unclear goals,
+unauthorized scope/model/access, destructive actions or weakening checks. Block only affected work.
 
-- One worktree per task, cut from the latest base the way the repo's own rules say.
-- Resume the coder that just finished a neighbouring task in the same area. Start a new agent for
-  unrelated work.
-- Write the brief per `references/contracts.md` and name the model explicitly.
-- Record the agent id, branch and wake in the ledger before the turn ends.
+Defaults, overridden by user/repo rules: two concurrent agents, at most four without a new grant;
+strong coder at medium effort; independent reviewer at high effort by risk; isolated workspace per
+implementation task. Discover available model names/profiles; never silently substitute a backend.
+Use the PR-writing and review-comment skills when available. Defer findings with a tracking location
+and revisit condition; open issues only when authorized.
 
-*Done when every dispatched task is `coding` in the ledger with an owner and a wake.*
-
-### 4. Report
-
-Each worker ends with one of four statuses:
-
-- **DONE:** verify it. The PR exists, its head SHA is the reported one, the diff stays inside the
-  task's owned area, the report file holds the evidence. Then move to `reported`.
-- **DONE_WITH_CONCERNS:** read the concerns. Settle those about correctness or scope before review.
-- **NEEDS_CONTEXT:** supply it and resume the same worker.
-- **BLOCKED:** change something before retrying: more context, a stronger model, a smaller task, or
-  a ruling that corrects the plan. A report with neither a PR nor a blocker means the worker stopped
-  early; resume it.
-
-If a worker says one of your premises is wrong, re-plan before merging anything related.
-
-*Done when the task is `reported`, `queued` again with a change, or `blocked` with a reason.*
-
-### 5. Review
-
-Risk decides the review:
-
-- **Low** (docs, text, config values, mechanical edits): none. The task is `ready`.
-- **Normal** (ordinary logic): one reviewer.
-- **High** (state, concurrency, persistence, security, migrations): the strongest reviewer you
-  have.
-
-When a review comes back, follow `references/review.md`: triage, fix rounds, re-checks, the round
-cap, and what to do when the loop does not converge.
-
-*Done when no blocking finding is open and every other finding is fixed, deferred or rejected with
-a ruling.*
-
-### 6. Merge
-
-The merge gate, all on the head commit:
-
-- no blocking finding is open, and the report's evidence covers the diff;
-- CI is green (`scripts/pr-ci.sh <pr>` gives one verdict on GitHub);
-- the PR has no conflict, and no commit that reached the base after the last green run touches the
-  PR's files. If one does, update the branch and wait for green again;
-- nothing in the PR weakens a test or a CI gate without the user's word.
-
-With grant `merge`, you alone merge, one PR at a time, in dependency order. With `stop-at-ready`,
-leave the PR ready and say so. After each merge: update the local base, recompute the frontier,
-dispatch what opened up, and take a fresh verdict on every other open PR.
-
-*Done when the task is `merged`, or `ready` under `stop-at-ready`.*
-
-### 7. Close
-
-- **Report:** each task by name with its PR and state; every ruling with what it costs if wrong;
-  deferred findings; what was left unverified.
-- **Clean up:** agents, scheduled wakes, and worktrees whose work is merged or pushed.
-- **Learn:** for each mistake worth preventing, pick the cheapest form that stops the repeat, in
-  this order: fix the cause in the code, add an automated check, add a rule the reviewer enforces,
-  add one line to `references/pitfalls.md`. A tool that has no card yet gets one in
-  `references/tools.md`.
-
-*Done when the user has the report and nothing is left running.*
-
-## The lead loop
-
-On every wake:
-
-1. Read the ledger.
-2. Reconcile it with the ground: the status of every live worker, the verdict of every open PR.
-   Completion notices get lost and get repeated, so check all of them, not only the one that woke
-   you.
-3. Move each task at most one state, by the table above.
-4. Write the ledger, including the next wake for each live task.
-5. If nothing changed, end the turn without a message.
-
-Waiting, stuck workers, CI verdicts, quota and handing over your own context:
-`references/supervision.md`.
-
-## Deciding alone
-
-A running plan does not wait on a person. When you have authority, decide, and write the decision
-in the ledger as `Ruling: <what> — <why> — <cost if wrong>`. A question that has a recommended
-answer is a ruling.
-
-Ask the user, with the harness's question tool, only for:
-
-- an action that cannot be undone (deleting data, force-pushing a shared branch);
-- anything security-sensitive;
-- anything outside the grant (other people's branches or PRs, production, a change of scope);
-- weakening a test or a CI gate: removing or skipping tests, raising thresholds, regenerating
-  snapshots;
-- a goal so unclear that the answer changes the result, or a plan so broken that every path is a
-  guess.
-
-A task that waits on the user parks as `blocked` while the others keep moving. With no answer, take
-the safe path: leave the PR open and put the question first in your report.
-
-## Choosing workers
-
-- **Coder:** a strong model at medium effort for features and bugs; a cheap one for docs, spec
-  updates and mechanical edits. Cheap models take two to three times the turns on multi-step work,
-  so price a task by turns, not by token rate.
-- **Reviewer:** prefer a model family different from the coder's, at high effort; agreement inside
-  one family adds little. With a single provider available, ask the user which reviewer to use,
-  unless they gave you authority to choose; then choose and record a ruling.
-- **Scouts and research:** the cheapest model, with a tight brief that demands quotes and paths.
-- **Parallelism:** as many coders as the machine and the quota bear. Ask, with the reason, before
-  going above the user's limit.
-- **Shared quota:** if workers draw on your quota, check the reset time and plan a check-in after it.
-
-## Staying cheap
-
-- Resume a worker for work that continues what it knows; its cache and its reasons carry over.
-  `references/review.md` lists the three cases where a new agent is better.
-- Name an installed skill (a review skill, a PR-writing skill) in place of a checklist.
-- Read summaries: PR metadata, agent status, the last lines of activity. Read a diff hunk only to
-  settle a dispute.
-- Have workers run targeted tests and leave the full suite to CI. Trust their test evidence; rerun
-  a check only on a gap or a contradiction.
-- Workers start no reviewers of their own; the review you dispatch is the one that counts.
-- A finished task is one ledger line. Archive finished agents so status listings stay short.
-
-## Defaults
-
-Override any of these in the user's request or the repo's own rules.
-
-- Two coders in parallel; ask before running more, four at most.
-- Coder: a strong model at medium effort. Reviewer: a model from a different family at high effort,
-  or none for low-risk tasks. Check the tool's model list for current names.
-- Workers run in their own worktree, with the permissions the repo's rules allow.
-- Merge normally when the gate passes and there is no conflict; then update the local base. Use
-  admin or bypass merges only when the user has said so.
-- Open PRs as drafts and mark them ready after review only in repos whose CI skips drafts. In other
-  repos open them ready, so checks and bots run during review.
-- Deferred findings go into the PR description as a checklist; file an issue only when asked.
-
-## References
-
-| File | Read it when |
-| --- | --- |
-| `references/tools.md` | before the first dispatch, and whenever a tool call misbehaves |
-| `references/contracts.md` | opening the ledger; writing a brief; reading a report |
-| `references/review.md` | a review returns, a fix round starts, or a loop will not end |
-| `references/supervision.md` | you are about to wait, a worker is silent, CI is not green |
-| `references/pitfalls.md` | before the first merge, and when a GitHub or ownership question comes up |
+Read [contracts.md](references/contracts.md) for canonical ledger/reports, revisions and archive,
+[tools.md](references/tools.md) before dispatch, [review.md](references/review.md) for findings,
+[supervision.md](references/supervision.md) for waits/recovery, and
+[advisor.md](references/advisor.md) for delegated decisions.
