@@ -21,7 +21,8 @@ harness cần. Claude native trên Linux vẫn có thể cần `bwrap`/`socat` c
 
 ### User namespace và AppArmor của sandbox native
 
-Claude có sandbox bật trên Linux vẫn dùng bwrap; decider luôn cần sandbox dù worker chọn tắt hoặc full access. Trên host mới,
+Claude có sandbox bật trên Linux vẫn dùng bwrap; proof harness vẫn chạy một lượt cho role `decider` cũ trong ranh giới
+chỉ đọc có sandbox, dù worker chọn tắt hoặc full access. Trên host mới,
 cài `bubblewrap`/`socat` và kiểm tra bằng user chạy daemon:
 
 ```sh
@@ -78,8 +79,9 @@ Khi sandbox native bật, adapter thêm `sandbox.network.allowAllUnixSockets: tr
 `sandbox.network.allowAllUnixSockets: false` trong file settings để giữ chặn. Giá trị này nằm trong settings hash,
 nên release đổi nó cần chứng minh lại harness.
 
-Decider (trả lời câu hỏi thay owner) luôn giữ sandbox chỉ đọc. `bwrap`/`socat` vì vậy vẫn cần cho harness
-Claude. Reviewer chạy như fixer: được sửa file, chạy test và commit, xong daemon trả worktree về đúng trạng
+Deputy chạy cùng ranh giới với fixer, và daemon trả worktree của task về sau mỗi lượt ([Deputy](#autonomous)).
+Proof harness vẫn chạy role `decider` cũ trong ranh giới chỉ đọc có sandbox, nên `bwrap`/`socat` vẫn cần khi
+chứng minh harness Claude. Reviewer chạy như fixer: được sửa file, chạy test và commit, xong daemon trả worktree về đúng trạng
 thái trước review. Đây là quyền tool,
 không phải tự duyệt run config, review code hoặc merge. Khi đã bật sandbox, lỗi không tự chuyển sang
 tắt hoặc full access. Codex không nhận flag `--sandbox` này; chế độ sandbox Codex giữ theo permission mode.
@@ -259,9 +261,13 @@ Giá trị khác bị CLI từ chối ngay (exit 2, `actor_invalid`). Actor/role
 dụng; kiểm quyền chạy trước kiểm schema nên caller khai `actor: owner` trong body vẫn exit 5. Mọi lệnh được
 ghi kèm actor, nên lịch sử cho biết owner hay assistant đã xác nhận, hủy hay approve.
 
+Phiên deputy không dùng `CUSR_ACTOR`: runner đặt `CUSR_DEPUTY_TURN` và actor là `deputy` với quyền `read`,
+`operate` trong bảng quyền của deputy, chỉ khi lượt đó đang chạy ([Deputy](#autonomous)).
+
 **Assistant.** Skill `cusr` đặt `CUSR_ACTOR=assistant` cho mọi lệnh. Assistant được thêm task, đề xuất và
 xác nhận run config, trả lời câu hỏi, duyệt escalation, recheck và hủy; không duyệt nhận PR có sẵn và không
-dùng quyền admin.
+dùng quyền admin. Lệnh ghi lên goal (`cusr goal add/revise/note/propose/amend/confirm/cancel`) còn cần phiên đang giữ
+khóa assistant ([Goal](#goal)); thiếu thì `forbidden` với `lease_required`.
 
 **Ranh giới.** `CUSR_ACTOR` là rào chắn cho caller làm đúng quy ước, không phải ranh giới bảo mật: process
 cùng UID bỏ biến này là thành owner. Muốn tách quyền thật, chạy assistant bằng UID khác. Worker
@@ -445,54 +451,156 @@ Các policy/runtime snapshot của task đã chạy giữ nguyên giới hạn �
 xóa các trần trong user config và tạo lại pin/manifest theo mục bên dưới để task mới dùng cấu hình
 không giới hạn; không sửa tay snapshot hoặc manifest của task cũ.
 
-## Autonomous
+<a id="autonomous"></a>
 
-`autonomous: true` trong user config cho một agent cấp cao trả lời thay khi bạn vắng mặt, ví dụ lúc đi ngủ.
-Giống yolo, khóa này không bật được qua `cusr.yaml` và được đọc lại lúc chạy (chậm nhất 30 giây sau khi đổi),
-không cần restart. Hai cờ độc lập: decider không merge, yolo không trả lời câu hỏi.
+## Deputy và autonomous
+
+Deputy là agent làm thay bạn khi task kẹt ở chỗ cần phán đoán (hết lượt thử ở mọi nấc, vòng review/sửa không tiến
+triển, hết hạn, lỗi chưa phân loại…) và khi một goal cần lập hay sửa kế hoạch ([Goal](#goal)). Nó thay hẳn decider cũ.
+Deputy bật khi user config có role `deputy`; cờ `autonomous` chỉ quyết định thêm câu hỏi của worker có tới deputy hay
+không. Cả hai không bật được qua `cusr.yaml` và được đọc lại mỗi vòng, không cần restart. Deputy không merge và không
+bật yolo; yolo không trả lời câu hỏi.
 
 ```yaml
-autonomous: true
+autonomous: true # câu hỏi của worker tới deputy; bỏ hoặc false thì tới bạn
 roles:
-  decider:
+  deputy:
     binding:
       - { model: opus, effort: high }
+    limits:
+      max_turns: null # chỉ Claude, như mọi role
+      stall_timeout: 10m # không có mặc định: bỏ khóa thì phiên treo không được phát hiện
+      wall_timeout: null # mặc định không có trần thời gian cho một lượt
+      infra_retries: null # mặc định retry lỗi hạ tầng không trần, theo backoff `infra` của task
+      context_bytes: 16384 # ngân sách context do code dựng (mặc định 16384 byte)
 ```
 
-Decider dùng binding đầu tiên của role `decider`, thiếu role này thì config bị từ chối. Nó chạy phiên mới, chỉ
-đọc, trong ranh giới read-only riêng (các worker khác đều ghi được). Role mới cần một lần `prove-harness` và `record-manifest` (mỗi lần chứng
-minh giờ tốn 4 lượt thay vì 3). Manifest cũ vẫn chạy được coder, fixer, reviewer; khi đó decider báo
-`capability_missing` trong log và câu hỏi vẫn mở.
+- Lượt dùng binding đầu tiên của role; `prompt` và `context` của role không được dùng vì văn bản vai trò cố định trong
+  code. `infra_retries` và `context_bytes` chỉ có tác dụng ở role `deputy`.
+- `autonomous: true` mà không có role `deputy` (hay `decider`) thì config bị từ chối.
+- Role `decider` cũ được đọc như `deputy`; daemon ghi log `role 'decider' is read as 'deputy'` một lần và
+  `cusr doctor` cũng báo. Đổi tên khi tiện.
+- Role `deputy` cần một lần `prove-harness` và `record-manifest` (hoặc `setup-harness`) sau khi nâng release: proof
+  chạy thêm một lượt cho role này, và `cusr doctor` báo lỗi khi manifest của harness chưa có bằng chứng cho deputy.
+- Phiên tương tác cần `runtime.terminal.backend` khác `background` ([Xem agent trong herdr](#xem-agent-trong-herdr)).
 
-- **Trả lời gì:** câu hỏi khiến task dừng ở `agent_question`, `agent_needs_context`, `agent_blocked`. Mọi câu hỏi
-  trong một kết quả của worker đi cùng một lượt. Approval, merge và các loại chờ khác vẫn thuộc về người.
-- **Không có trần số lần gọi,** nhưng không hỏi qua đáp lại: sau khi decider đã trả lời ở một step của một revision,
-  câu hỏi tiếp theo ở step đó chờ người. Task có nhãn `grill` được hỏi đáp nhiều lượt và không có điểm dừng tự động.
-- **Ghi lại:** event `DeciderRan` lưu câu trả lời, lý do và usage trong cùng giao dịch với `QuestionAnswered`
-  (`by: agent:decider`). `<data dir>/decisions.md` được sinh lại toàn bộ từ event nên không sửa tay; crash hoặc lỗi
-  ghi file không để lại mục dở.
-- **Usage:** mỗi lượt giữ một reservation của `budget.agent_runs` trước khi khởi chạy. Decider chỉ chạy khi task còn ít
-  nhất 2 lượt: một cho decider, một cho worker được resume. Task có trần mà còn ít hơn 2 lượt, hoặc deadline đã đóng
-  băng đã quá hạn, thì decider không chạy (`no_agent_runs_left`, `task_deadline_passed` trong log), câu hỏi chờ người. Lượt chạy không vượt quá deadline của task. Lượt đã gọi model được tính, kể cả khi lỗi, và hiện trong
-  `decider_runs` của `task explain`. Ngoại lệ: lượt mà người đã trả lời, hủy hoặc pause task trong lúc chạy thì bị dừng
-  ngay và được trả lại lượt; usage vẫn ghi trong `decider_runs`. Lượt do daemon trước để lại cũng vậy: daemon mới
-  dừng runner theo operation, rồi đọc kết quả; runner đã dừng mà không có kết quả thì lượt được ghi là `cancelled`. Lượt decider không phải attempt.
-- **Tắt cờ:** daemon đọc lại cờ ngay trước khi nhận kết quả. Lượt đang chạy vẫn chạy hết và được tính usage, nhưng
-  câu trả lời không được dùng và câu hỏi vẫn mở.
-- **Restart:** ID và input của lượt chạy nằm ở `<data dir>/decider/` trước khi khởi chạy. Daemon mới chờ runner cũ kết
-  thúc rồi đọc kết quả, không chạy lượt thứ hai cho cùng câu hỏi. Lượt chưa kịp khởi chạy thì bị bỏ, không khởi chạy khi
-  cờ đã tắt. Không kết luận được thì log một lần và câu hỏi chờ người.
-- **Khi lỗi:** câu hỏi vẫn mở, lý do nằm trong log, không gọi lại câu đó cho tới lần restart daemon. Một lượt không
-  khai `wall_timeout` dừng sau 30 phút. Người trả lời trước thì câu của người thắng.
-- **Pause:** decider không chạy trên task đang pause. Pause trong lúc decider đang chạy thì lượt đó bị dừng, câu hỏi
-  chờ người.
-- **Inbox:** câu hỏi decider đang hoặc sắp trả lời có `decider: true` trong `cusr inbox --json`. Người vẫn trả lời
-  được ngay.
-- **Đánh thức assistant:** khi cờ bật, câu hỏi decider sắp trả lời hoặc đang trả lời không đánh thức assistant. Assistant
-  chỉ được báo khi decider bỏ câu đó: lượt lỗi, câu trả lời không được dùng, không khởi chạy được hoặc chưa kết luận
-  được sau restart. Trong khoảng ngắn từ lúc daemon khởi động tới vòng decider đầu tiên đọc cờ, câu hỏi cũng chờ.
-- **Lật lại:** decider không hoàn tác được gì. Xem `decisions.md` rồi revert hoặc tạo task mới. Run directory
-  của decider không gắn với operation nào trong store nên retention không dọn.
+**Định tuyến.** Mỗi mã wait có đúng một nơi đến, theo bảng trong code (`src/engine/deputy-routing.ts`):
+
+| Nơi đến | Mã wait |
+| --- | --- |
+| Tự tiếp tục, không báo ai | `dependency_pending`, `checks_incomplete`, `effect_unknown`, `infra_backoff`, `rate_limited`, `execution_slot`, `merge_cleanup_pending`, `observation_unknown`, `cancel_reconcile` |
+| Bạn | Mọi mã PENDING trừ `dependency_pending`; `run_config_unconfirmed`, `paused`, `escalation_rejected`, `adopt_approval`, `merge`, `auth_config`, `harness_auth`, `refused`, `plan_amendment`; `effect_failed` do vi phạm ranh giới; `cancel_reconcile` đọc mãi không xong |
+| Deputy khi `autonomous: true`, bạn khi tắt | `agent_question`, `agent_needs_context`, `agent_blocked` |
+| Deputy | Mọi mã còn lại, và `effect_unknown` quá ngưỡng |
+
+Không khai role `deputy`: wait cạn trần `ladder_exhausted`/`rung_denied` được daemon kết thúc bằng `task fail`
+(actor `system:deputy-absent`, lý do `ladder_exhausted:<step>` hay `rung_denied:<step>:<nấc>`), mọi sự cố khác tới bạn
+như trước. Bật cờ `autonomous` khi câu hỏi đang chờ bạn thì câu đó được định tuyến lại cho deputy.
+
+**Lượt.** Mỗi sự cố mở một lượt: phiên harness mới, cwd là data dir, context do code dựng (vai trò; yêu cầu, chỉ thị và
+kế hoạch của goal; lịch sử, tín hiệu vòng lặp, bảng thử và bàn giao trước của task; trạng thái các đơn vị khác và xung
+đột nhánh; sự cố và lệnh khả dụng). Phiên đọc thêm log, diff và tài liệu khi cần, hành động bằng `cusr`, rồi kết thúc
+bằng `cusr deputy handoff`. Không có process deputy nào giữa các lượt ([ADR-0012](../docs/adr/0012-deputy-short-turns.md)).
+
+- Có terminal backend thì lần chạy đầu là phiên tương tác trong cửa sổ `deputy: <tiêu đề task>` (lượt kế hoạch:
+  `deputy: plan <tóm tắt>`); bạn xem và gõ vào được. Hook `Stop` do Cuesura cài báo hết lượt, runner dừng phiên sau
+  một khoảng ngắn. Không có tín hiệu trong `stall_timeout` thì phiên bị dừng và lượt chạy tiếp headless trên cùng phiên; không
+  khai `stall_timeout` thì không có phát hiện treo, vì vậy hãy khai nó khi dùng terminal backend. Không có
+  backend thì headless ngay từ đầu.
+- Mỗi task tối đa một lượt cùng lúc, mỗi goal tối đa một lượt kế hoạch; lượt của các task khác nhau chạy song song và
+  không làm chậm dispatch của task nào khác.
+- Lỗi của lượt không tính vào lượt agent, trần hay ngân sách nào của task: hạn mức hay quá tải thì chờ tới lúc reset hoặc theo backoff; auth,
+  refusal, thiếu capability hay harness thì sự cố tới bạn ngay; lỗi hạ tầng thì retry cùng lượt theo backoff `infra`
+  của task, có trần khi khai `infra_retries`.
+- Lượt kết thúc mà task vẫn ở đúng sự cố đó (hoặc bàn giao `handover`) thì sự cố tới bạn kèm bàn giao và tin nhắn
+  cuối. Lượt không có bàn giao được ghi `aborted` kèm danh sách lệnh nó đã chạy. Inbox đánh dấu `deputy: true` cho câu
+  hỏi deputy đang giữ và `handed_off` cho sự cố đã chuyển; bạn vẫn trả lời được ngay.
+- Daemon restart giữa lượt nhận lại lượt đó, không mở lượt thứ hai; task đã rời sự cố thì lượt được đóng.
+
+**Quyền.** Runner đặt `CUSR_DEPUTY_TURN=<turn_id>` cho phiên; `cusr` trong phiên chạy với actor `deputy`, bỏ qua
+`CUSR_ACTOR`, và `cusr assistant hook|session-start|register|wait` thoát 0 không làm gì. Daemon chỉ nhận lệnh của deputy
+khi ID lượt đang chạy, task hay goal đích thuộc goal của lượt, và lệnh nằm trong bảng quyền: trả lời câu hỏi,
+`continue`, `recheck`, duyệt escalation, `amend-policy`, `message`, `pause`/`resume`, `task fail`, `task waive`,
+`goal propose`/`amend`/`note`, `deputy handoff` và mọi lệnh đọc. Ngoài bảng (`task confirm`, `goal confirm`, hủy, adopt,
+admin) là `forbidden`. Mọi lệnh ghi của deputy phải có `--reason`; lệnh gia hạn (`continue`, `amend-policy`, `message`,
+`task waive`, duyệt escalation) còn phải có `--hypothesis` và `--expect`. Lệnh của bạn và assistant không bao giờ bị từ
+chối vì một lượt bắt đầu hay kết thúc; lệnh cũ của deputy bị từ chối theo version.
+
+**Chống lặp.** Không có trần số lượt deputy, nhưng daemon tính chữ ký lỗi của mỗi sự cố và ghi mỗi lệnh gia hạn vào bảng
+thử theo đơn vị:
+
+1. Cùng hành động, cùng tham số trên cùng chữ ký lỗi bị từ chối `repeat_without_evidence` khi chưa có bằng chứng mới
+   (tiến triển đo được, chỉ thị mới của bạn, hay kế hoạch mới bạn đã xác nhận chạm đơn vị đó).
+2. Mỗi loại hành động tự cạn: đổi model chỉ tới model chưa thử trên chữ ký đó và nằm trong `allow_models` của profile;
+   nới giới hạn và `message` lần sau cần bằng chứng mới; mỗi finding, gate hay check chỉ được miễn một lần.
+3. Mọi loại đã cạn thì chỉ còn `task fail` hay bàn giao `handover`. Lượt kết thúc trên chữ ký đã cạn mà không chọn thì
+   daemon kết thúc task (actor `system:loop-guard`, PR draft nếu có việc chưa publish).
+
+**Bản miễn.** `task waive --finding <khóa> | --gate <tên> | --check <tên> --evidence <text|@file>` cho một finding review,
+một gate hay một check CI không chặn bước tiếp, chỉ cho đúng chữ ký đã miễn: lỗi khác chặn lại như thường. Bản miễn
+được liệt kê trong mô tả PR (daemon cập nhật thân PR và chỉ merge khi thân đã có nó), `report`, `goal show` và chi tiết
+task, luôn ghi là `waived` (miễn), không phải đạt. Check của PR vào protected branch không miễn được.
+
+**Worktree.** Deputy chạy cùng ranh giới với fixer theo permission mode của pin. Trước lượt có worktree, daemon ghi bền
+mốc (HEAD và cây checkpoint); sau lượt, kể cả sau restart, worktree về đúng mốc như sau review. Trong lúc đó daemon không
+chạy việc nào ghi vào worktree của chính task đó; lệnh như `continue` có hiệu lực sau khi trả về xong. Với Claude, cấu
+hình phiên cấm `Edit`/`Write` trên `<data dir>/worktrees/**`; Codex không có luật theo đường dẫn nên chỉ có chỉ dẫn vai
+trò. Muốn đổi code, deputy giao việc cho worker bằng `message` hay `continue`.
+
+**Ghi lại và xem lại.** Mọi quyết định (lệnh, lý do, giả thuyết, tiêu chí, kết quả đo, sự cố, bàn giao) dựng bằng code
+từ command ledger, event và bản ghi lượt, hiện ở `cusr report` (`deputy_decisions`, `waivers`, `goals`), `goal show`,
+`task show`/`explain`/`history` và `<data dir>/decisions.md`. Daemon dựng lại `decisions.md` khi dữ liệu đổi, qua
+redactor; không sửa tay. Mô tả PR của task có mục quyết định của deputy và giả định deputy đã trả lời, dựng lại mỗi lần
+publish. Deputy không hoàn tác được gì: lật lại nghĩa là bạn thao tác tiếp, revert hoặc tạo task mới.
+
+**Nâng cấp từ decider.** Lần khởi động đầu, daemon đóng mỗi lượt decider còn dở bằng `decider_ran` lỗi `superseded`
+khi chứng minh được nó đã dừng; không chứng minh được thì task đó chưa có lượt deputy và daemon thử lại mỗi vòng. Câu
+trả lời `agent:decider` cũ vẫn hiện trong `decisions.md` và `report`. Quy tắc một câu trả lời mỗi step và nhãn `grill`
+không còn.
+
+## Goal
+
+Goal là đơn vị giao việc: một yêu cầu nguyên văn, deputy lập kế hoạch, bạn duyệt một lần theo hash.
+`cusr task add` vẫn chạy như trước; task của nó được coi là goal ẩn một đơn vị.
+
+```sh
+cusr goal add --project acme --base main --file request.md --json   # goal ở planning, lượt kế hoạch bắt đầu
+cusr goal show <id> --json                                            # kế hoạch, nhóm song song, version, hash
+cusr goal confirm <id> --expected-version <v> --plan-hash sha256:… --json
+```
+
+- Kế hoạch gồm tóm tắt, phạm vi, điều không làm và các đơn vị (khóa, tiêu đề, mô tả, chỉ dẫn, tiêu chí nghiệm thu,
+  scope, phụ thuộc theo khóa, run config); hợp đồng ở [contracts/goal.md](../specs/007-deputy/contracts/goal.md).
+  Xác nhận là xác nhận intake và run config của mọi đơn vị.
+- Không khai role `deputy`: `goal add` vẫn nhận, goal chờ một kế hoạch gửi bằng `cusr goal propose`.
+- Sau xác nhận, deputy được tự áp sửa thực thi (thứ tự, phụ thuộc, run config, chỉ dẫn, scope trong phạm vi goal, thay
+  đơn vị FAILED chưa cạn lỗi) bằng `goal amend`. Sửa phạm vi (thêm/bỏ đơn vị, tiêu đề, mô tả, tiêu chí, mục tiêu, nới
+  phạm vi) chờ bạn `goal confirm` bản sửa; đơn vị bị chạm dừng ở wait `plan_amendment`.
+- Đơn vị FAILED đưa goal vào `replan`: lượt kế hoạch sửa thực thi, gửi sửa phạm vi, hay chuyển cho bạn. Đơn vị phụ
+  thuộc chờ (`dependency_pending` có `detail.replan`), không bị hủy dây chuyền; đơn vị độc lập chạy tiếp.
+- `goal revise` đổi yêu cầu và lập lại kế hoạch; `goal note` ghi chỉ thị cho deputy; `goal cancel` hủy mọi task chưa
+  kết thúc của goal (nhánh goal và PR đã merge được giữ).
+
+**Nhánh goal** ([ADR-0013](../docs/adr/0013-goal-integration-branch.md)). Goal từ hai đơn vị có nhánh
+`goal/<8 ký tự đầu id>-<slug>` tạo từ đỉnh nhánh gốc. Mỗi đơn vị mở PR vào nhánh goal; khi gate, review theo chế độ,
+required check và bản miễn đều đạt và head chứa đỉnh nhánh goal, daemon merge PR bằng merge commit (approver
+`policy:goal`), không cần yolo và không chờ bạn. Mỗi nhánh goal có tối đa một merge đang bay; đơn vị tụt sau nhánh goal
+được cập nhật base như PR chờ merge. Khi mọi đơn vị DONE, task tổng (workflow `goal_final`, không có bước code) chạy
+gate, review toàn bộ diff của goal, CI và mở PR của goal vào nhánh gốc. PR đó merge như mọi PR vào nhánh gốc: bạn merge,
+hoặc yolo nếu bạn bật.
+
+- Goal nhiều đơn vị cần `ci.required_checks` khai trong `cusr.yaml` của nhánh gốc (check bắt buộc chỉ khai trên GitHub
+  không tính); không có thì kế hoạch bị từ chối `no_required_checks`. `cusr doctor --project` báo check
+  `required_checks:<project>`. Tên nhánh goal không được khớp `protected_branches`.
+- CI của repo phải chạy cho PR vào nhánh `goal/*`; workflow lọc `pull_request.branches` làm đơn vị đứng ở bước CI.
+- Nhánh goal chỉ daemon ghi. Push tay hay merge tay PR đơn vị trên GitHub làm đỉnh lệch khỏi các merge commit daemon đã
+  ghi: daemon không merge tiếp và goal vào `replan` với `goal_branch_drift`.
+
+**Assistant và lease.** Mọi phiên đọc được `goal list`, `goal show`, `task show/explain/history`, `report`. Lệnh ghi lên
+goal từ assistant (`goal add/revise/note/propose/amend/confirm/cancel`) phải đến từ phiên đang giữ khóa assistant (đăng
+ký bằng `cusr assistant register --take`); không thì `forbidden` với `lease_required`. Bạn gọi trực tiếp không cần
+lease. Tin của goal (`goal_needs_plan`, `goal_plan_awaiting_confirm`, `goal_amendment_pending`, `goal_pr_ready`) đi qua
+attention tới phiên giữ lease, dồn lại khi chưa có phiên nào.
 
 ## Auto-confirm intake
 
@@ -667,8 +775,8 @@ cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evid
 ```
 
 Để bật resume cho Claude hoặc Codex, thêm `--prove-resume` vào `setup-harness` (hoặc lệnh riêng `prove-harness`).
-Probe này cần thêm một invocation ngoài các role `coder`, `fixer`, `reviewer`, `decider` trong `PROOF_ROLES`:
-hiện là 5 lượt tổng cộng, thay vì 4 (dry-run hiển thị số cần). Probe thử tiếp tục bằng private home mới
+Probe này cần thêm một invocation ngoài các role `coder`, `fixer`, `reviewer`, `decider`, `deputy` trong `PROOF_ROLES`:
+hiện là 6 lượt tổng cộng, thay vì 5 (dry-run hiển thị số cần). Probe thử tiếp tục bằng private home mới
 và nhớ lại một nonce chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`;
 sau setup thành công, restart daemon. Resume chỉ mang dữ liệu của đúng session, không mang auth/settings
 của attempt cũ: với Claude là transcript và tool data trong `.claude/projects/`, với Codex là file rollout
@@ -759,7 +867,8 @@ Worker chạy như phiên owner tự mở, giống cách Orca chạy agent theo 
   `config.toml` của owner và bật mọi tính năng; cờ của cusr đè lên config đó.
 - Coder/fixer được commit trong worktree, trên nhánh của task; daemon commit phần còn lại, rồi push
   fast-forward và mở PR. Reviewer được sửa, chạy test và commit; xong lượt review daemon đưa nhánh và file
-  về như trước review (file bị gitignore giữ nguyên). Chỉ decider còn chỉ đọc.
+  về như trước review (file bị gitignore giữ nguyên). Deputy cũng vậy sau mỗi lượt. Không role nào đang chạy còn
+  chỉ đọc; ranh giới chỉ đọc chỉ còn cho lượt proof của role `decider` cũ.
 
 Process cùng UID có quyền đọc file host theo OS; home riêng không phải ranh giới bảo mật.
 

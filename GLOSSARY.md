@@ -101,11 +101,11 @@ Head SHA của PR mà Cuesura đã có đủ gate, CI và review nếu được 
 _Avoid_: Head hiện tại của PR, head mới nhất trên remote
 
 **Khóa assistant**:
-Dấu cho biết phiên assistant nào đang nhận tin về các task cần người để chuyển cho người dùng. Khóa chỉ định tuyến tin, không cấp quyền và không điều phối; mất khóa không mất sự thật nào vì việc cần người được dựng lại từ task.
+Dấu cho biết phiên assistant nào đang nhận tin về các task và goal cần người để chuyển cho người dùng. Khóa định tuyến tin và là điều kiện để assistant ghi lên goal, để tin của goal về đúng phiên đã ra lệnh; ngoài ra nó không cấp quyền và không điều phối. Mất khóa không mất sự thật nào vì việc cần người được dựng lại từ task và goal.
 _Avoid_: Primary, khóa quyền
 
 **Phiên assistant đã đăng ký**:
-Phiên giữ khóa assistant và được hook đánh thức khi có task cần người, không phải chạy `cusr assistant wait`. Đăng ký còn nguyên qua restart daemon, và cũng chỉ định tuyến tin, không cấp quyền.
+Phiên giữ khóa assistant và được hook đánh thức khi có task cần người, không phải chạy `cusr assistant wait`. Đăng ký còn nguyên qua restart daemon; như khóa assistant, nó không cấp quyền nào ngoài việc ghi lên goal.
 _Avoid_: Assistant chính, phiên điều phối
 
 **Thông báo logic**:
@@ -131,3 +131,81 @@ _Avoid_: Gửi lại thông báo, thông báo kết quả
 **Merge chưa chứng nhận**:
 Merge thủ công được xác nhận ở một head khác head đã kiểm, hoặc khi chưa có head đã kiểm. Task vẫn DONE vì merge đã xảy ra, nhưng Cuesura không chứng nhận chất lượng của head đã merge.
 _Avoid_: Merge lỗi, task thất bại, PR xanh
+
+### Deputy và goal
+
+**Deputy**:
+Vai trò agent làm thay chủ dự án khi task kẹt ở chỗ cần phán đoán hoặc khi goal cần lập hay sửa kế hoạch. Deputy chỉ hành động bằng lệnh có lý do, không xác nhận task hay kế hoạch, không merge, và thao tác của người luôn thắng thao tác của nó.
+_Avoid_: Decider, primary AI, phiên deputy sống lâu
+
+**Lượt deputy**:
+Một phiên harness mới mở cho đúng một sự cố của task hoặc một lần goal cần kế hoạch, kết thúc bằng bàn giao. Không có gì của deputy sống giữa hai lượt; trí nhớ của nó là dữ liệu đã ghi.
+_Avoid_: Phiên deputy, lượt agent của task, attempt
+
+**Sự cố**:
+Một lần task vào một wait cụ thể, phân biệt theo task, revision, mã wait và thời điểm vào wait. Cùng một lỗi lặp lại sau khi task đi tiếp là sự cố mới.
+_Avoid_: Lỗi, câu hỏi, task kẹt
+
+**Wait cạn trần**:
+Wait mà task vào khi đã dùng hết lượt thử, thang model hay giới hạn của bước. Đây là điểm đánh giá lại, không phải điểm dừng: deputy chọn cách đi tiếp, không có deputy thì task kết thúc.
+_Avoid_: Task thất bại, hết budget
+
+**Bàn giao**:
+Lời kết có cấu trúc của một lượt deputy: nguyên nhân, quyết định, các hướng đã loại và lượt sau nên xem gì. Lượt kết thúc không có bàn giao được ghi là bỏ dở.
+_Avoid_: Tin nhắn cuối, tóm tắt phiên
+
+**Chuyển cho người**:
+Việc đưa một sự cố mà deputy không gỡ được tới chủ dự án, kèm bàn giao và tin nhắn cuối của lượt. Sự cố đã chuyển không quay lại deputy.
+_Avoid_: Escalation, nâng model
+
+**Chữ ký lỗi**:
+Dấu do code tính từ mã wait, bước và bằng chứng lỗi đã chuẩn hóa của một sự cố, để biết hai sự cố có phải cùng một lỗi. Lời của agent không làm đổi chữ ký.
+_Avoid_: Thông báo lỗi, nguyên nhân
+
+**Bằng chứng mới**:
+Điều đã xảy ra từ lần thử trước cho phép deputy thử lại cùng hành động trên cùng chữ ký lỗi: tiến triển đo được, chỉ thị mới của chủ dự án, hay kế hoạch mới chủ dự án đã xác nhận có chạm đơn vị đó. Lời văn của deputy và sửa kế hoạch do chính deputy áp không bao giờ là bằng chứng mới.
+_Avoid_: Lý do mới, giả thuyết mới
+
+**Bản miễn**:
+Quyết định có bằng chứng của deputy cho một finding review, một gate hay một check CI cụ thể của task không chặn bước tiếp, chỉ trong phạm vi chữ ký lỗi đã miễn. Bản miễn luôn được báo là miễn, không bao giờ là đạt, và không áp cho required check của protected branch.
+_Avoid_: Bỏ qua, pass, override
+
+**Goal**:
+Một yêu cầu của chủ dự án, là đơn vị giao việc: một task nhỏ là goal một đơn vị, một feature nhiều bước là goal nhiều đơn vị có kế hoạch duyệt một lần.
+_Avoid_: Epic, group, dự án
+
+**Goal ẩn**:
+Cách đọc một task tạo trực tiếp (không qua kế hoạch) như một goal một đơn vị, để mọi task đều thuộc một goal. Goal ẩn không có kế hoạch, nhánh goal hay task tổng.
+_Avoid_: Goal mặc định, task không có goal
+
+**Kế hoạch**:
+Bản mô tả có version và hash của một goal: mục tiêu, phạm vi, điều không làm và các đơn vị. Chủ dự án xác nhận đúng một version theo hash; xác nhận đó thay cho xác nhận từng đơn vị.
+_Avoid_: Spec, danh sách task
+
+**Đơn vị**:
+Một phần việc của kế hoạch, mang một khóa không đổi qua các version, có tiêu chí nghiệm thu, phạm vi và phụ thuộc theo khóa. Mỗi lúc một khóa có tối đa một task chưa kết thúc; thay đơn vị thất bại là tạo task mới cùng khóa.
+_Avoid_: Task con, subtask, bước
+
+**Sửa thực thi**:
+Sửa kế hoạch chỉ đổi cách làm (thứ tự, phụ thuộc, model trong mức cho phép, chỉ dẫn, phạm vi đơn vị trong phạm vi goal, thay đơn vị thất bại chưa cạn lỗi) mà deputy được tự áp có lý do.
+_Avoid_: Sửa nhỏ, sửa không cần duyệt
+
+**Sửa phạm vi**:
+Sửa kế hoạch đổi điều chủ dự án đã duyệt (thêm hay bỏ đơn vị, đổi tiêu chí nghiệm thu hay mục tiêu, nới phạm vi goal, thay đơn vị đã thất bại vì cạn lỗi) và phải được chủ dự án duyệt lại; đơn vị bị chạm dừng chờ.
+_Avoid_: Amendment chung chung, sửa lớn
+
+**Nhánh goal**:
+Nhánh tích hợp Cuesura tạo cho một goal nhiều đơn vị, nhận PR của từng đơn vị bằng merge commit và chỉ do daemon ghi. Nhánh gốc chỉ nhận goal hoàn chỉnh qua PR của task tổng.
+_Avoid_: Integration branch tự đặt, feature branch, nhánh task
+
+**Task tổng**:
+Task của goal nhiều đơn vị chạy sau khi mọi đơn vị đã vào nhánh goal: không viết code mới, chạy gate, review toàn bộ diff của goal, CI và mở PR của goal vào nhánh gốc.
+_Avoid_: Task tích hợp, task cuối, đơn vị cuối
+
+**Sổ goal**:
+Cách nhìn do code dựng từ những gì đã ghi về một goal và các task của nó (lệnh, lý do, bàn giao, sự kiện), không phải bản lưu thứ hai. Chỉ lệnh tường minh vào sổ; trò chuyện với trợ lý thì không.
+_Avoid_: Trí nhớ của agent, transcript, ghi chú
+
+**Chỉ thị**:
+Mục trong sổ goal do chủ dự án hoặc trợ lý giữ khóa assistant ghi. Deputy phải theo chỉ thị; quan sát và quyết định của chính deputy không bao giờ được coi là chỉ thị.
+_Avoid_: Ghi chú của deputy, đề xuất

@@ -6,6 +6,10 @@
 
 **Status**: Draft
 
+> **Cập nhật 2026-11-17 theo feature 007** ([deputy và goal](../007-deputy/spec.md), hiến chương 11.0.0): deputy
+> thay decider. Các quy tắc riêng của decider trong Clarifications 2026-11-03 được thay bằng FR-021 viết lại; tin của goal
+> thêm ở FR-026. Kênh Telegram chưa được triển khai.
+
 **Input**: User description: "Feature 003: kênh thông báo hai chiều. Thông báo gửi qua outbox
 at-least-once; gửi trùng thì giữ cùng question/effect ID. Telegram gửi câu hỏi, yêu cầu duyệt và
 report, nhận trả lời và lệnh duyệt; map `chat_id` sang grant; trả lời ở một kênh thì kênh khác được
@@ -15,9 +19,9 @@ và giao việc qua Telegram thuộc feature 005; báo cáo gộp theo giờ h�
 ## Bối cảnh và phạm vi
 
 Sau feature 002 và 004, chủ dự án chỉ biết task cần mình khi ngồi trước máy chạy daemon: mở `cusr`,
-xem `cusr inbox`, rồi trả lời hoặc duyệt bằng CLI/TUI. Khi vắng mặt, chế độ `autonomous` (decider)
-chỉ gỡ được câu hỏi của worker. Duyệt nâng model, xác nhận task và mọi câu hỏi decider không trả lời
-được vẫn nằm chờ cho tới khi người dùng quay lại máy. `cusr report` cho biết chuyện đã xảy ra nhưng
+xem `cusr inbox`, rồi trả lời hoặc duyệt bằng CLI/TUI. Khi vắng mặt, deputy (feature 007) gỡ các chỗ kẹt
+về vận hành, và câu hỏi của worker khi `autonomous` bật. Xác nhận task và kế hoạch goal, credentials, merge
+và mọi sự cố deputy chuyển cho người vẫn nằm chờ cho tới khi người dùng quay lại máy. `cusr report` cho biết chuyện đã xảy ra nhưng
 cũng chỉ đọc được trên máy đó.
 
 Feature này thêm **kênh liên lạc mặc định** theo [docs/architecture.md §8.6b](../../docs/architecture.md):
@@ -66,7 +70,7 @@ quyết định retry, escalation hay trạng thái task, và lỗi của kênh 
   này chỉ là một nguồn sinh thông báo mới.
 - Q: Khi `autonomous` bật, câu hỏi của worker có được đẩy lên Telegram ngay không? → A: Không. Câu hỏi
   được đẩy khi nó chờ người: decider không chạy cho task đó, decider chạy hỏng, hoặc đã hết lượt decider
-  ở bước đó. Câu trả lời của decider xem được qua `/report`.
+  ở bước đó. Câu trả lời của decider xem được qua `/report`. *(Thay bằng FR-021 viết lại theo feature 007.)*
 - Q: Telegram có nút từ chối nâng model không? → A: Không. Trong lõi, từ chối escalation để task chờ
   không có đường tiếp tục; muốn chạy lại vẫn phải hủy và tạo task mới, nên nút từ chối không cho gì hơn
   việc không duyệt. Tin duyệt chỉ có nút "Duyệt" và ghi rõ lối ra khi không muốn nâng model. Không thêm
@@ -89,7 +93,7 @@ quyết định retry, escalation hay trạng thái task, và lỗi của kênh 
 - Q: Câu hỏi đã giao cho người thì decider có giành lại sau restart không? → A: Không. Câu hỏi có lần
   decider chạy hỏng đã ghi thì chờ người qua restart; decider chỉ xét câu hỏi tiếp theo theo quy tắc hiện
   hành. Bật `autonomous` sau khi câu hỏi đã gửi chỉ cho decider trả lời câu hỏi chưa có lần chạy hỏng nào
-  được ghi, và tin được cập nhật theo FR-022 (FR-021).
+  được ghi, và tin được cập nhật theo FR-022 (FR-021). *(Thay bằng FR-021 viết lại theo feature 007.)*
 - Q: Liên kết lại cùng chat có vô hiệu tin cũ không? → A: Có. Mỗi lần liên kết là một ranh giới hiệu lực.
   Reply/nút trên tin của liên kết trước, và tin nhận dưới liên kết trước mà chưa xử lý, bị từ chối là hết
   hiệu lực, không hưởng quyền mới; việc còn chờ được gửi lại theo FR-031. Tin mới gửi sau liên kết dùng
@@ -118,7 +122,7 @@ quyết định retry, escalation hay trạng thái task, và lỗi của kênh 
   được ghi cả hai hoặc không gì, kể cả khi process chết hay ghi lỗi giữa chừng; plan phải chứng minh ở
   tầng transaction, kiểm tra trước khi ghi là chưa đủ (FR-016).
 - Q: Tắt rồi bật lại `autonomous` có cho decider thử lại câu hỏi đã chạy hỏng không? → A: Không. Câu hỏi
-  có lần chạy hỏng đã ghi luôn chờ người (FR-021).
+  có lần chạy hỏng đã ghi luôn chờ người (FR-021). *(Thay bằng FR-021 viết lại theo feature 007.)*
 - Q: Sửa tin thành trạng thái cuối mà thất bại thì có được phục hồi không? → A: Có. Đồng bộ trạng thái cuối
   là nghĩa vụ riêng, được thử lại theo đợt hữu hạn khi kênh hồi phục dù câu hỏi/yêu cầu đã đóng. Đây không
   phải gửi lại thông báo thông tin (FR-022, FR-030).
@@ -132,7 +136,7 @@ quyết định retry, escalation hay trạng thái task, và lỗi của kênh 
   mọi mục; không chỉ báo bị cắt rồi buộc quay về máy tính. Cách phân trang do plan chốt (FR-024).
 - Q: Câu hỏi decider đang xử lý có hiện trong `/inbox` không? → A: Có, ghi rõ "decider đang xử lý", và người
   dùng trả lời được ngay; câu trả lời hợp lệ commit trước thắng. Việc hiện trong inbox không sinh thông báo
-  đẩy (FR-021, FR-024).
+  đẩy (FR-021, FR-024). *(Theo feature 007: áp cho mọi mục deputy đang giữ, ghi chú "deputy đang xử lý".)*
 - Q: Phản hồi thao tác có phải xếp sau tin cũ đang backoff? → A: Không. Phản hồi cho thao tác của người
   dùng được ưu tiên; tin hết hiệu lực được bỏ qua; thứ tự chỉ giữ giữa các thông báo nghiệp vụ còn hiệu
   lực của cùng task (FR-006).
@@ -207,7 +211,7 @@ Telegram, từ CLI, gửi lặp 2–5 lần và trả lời cạnh tranh giữa 
 2. **Given** tin câu hỏi trên Telegram, **When** người dùng reply bằng văn bản, **Then** câu trả lời được
    ghi cho đúng câu hỏi và revision qua cùng dịch vụ với `cusr answer`, actor là danh tính Telegram;
    task tiếp tục theo feature 002 và bot reply xác nhận đã ghi nhận.
-3. **Given** câu hỏi đã được trả lời bằng CLI/TUI hoặc decider, **When** việc trả lời được ghi, **Then**
+3. **Given** câu hỏi đã được trả lời bằng CLI/TUI hoặc deputy, **When** việc trả lời được ghi, **Then**
    các tin Telegram của câu hỏi đã lưu được tham chiếu được sửa thành "đã trả lời" kèm người trả lời,
    kênh và thời điểm (FR-022). Reply vào bất kỳ bản tin nào của câu hỏi đó sau này, kể cả bản trùng không
    sửa được, nhận phản hồi "đã trả lời", không ghi câu trả lời mới.
@@ -217,12 +221,13 @@ Telegram, từ CLI, gửi lặp 2–5 lần và trả lời cạnh tranh giữa 
    trả lời và chỉ có một tin xác nhận logic.
 6. **Given** câu hỏi thuộc revision cũ, hoặc task đã kết thúc, **When** người dùng reply, **Then** câu
    trả lời bị từ chối với lý do hết hiệu lực; không đưa vào context của revision mới.
-7. **Given** `autonomous` đang bật, **When** worker hỏi, **Then** không gửi tin nào trong lúc decider
-   đang xử lý; chỉ khi câu hỏi chuyển sang chờ người (decider không chạy, chạy hỏng hoặc hết lượt ở bước
-   đó) thì tin câu hỏi mới được gửi như kịch bản 1. Trong lúc đó, `/inbox` vẫn hiện câu hỏi với ghi chú
-   "decider đang xử lý" và người dùng trả lời được ngay; câu trả lời hợp lệ commit trước thắng.
-8. **Given** decider chạy hỏng và câu hỏi đã chuyển sang chờ người, **When** daemon restart, **Then**
-   decider không chạy lại cho câu hỏi đó; câu hỏi tiếp tục chờ người và không gửi tin thứ hai.
+7. **Given** `autonomous` đang bật, **When** worker hỏi, **Then** không gửi tin nào trong lúc deputy còn
+   có thể xử lý câu đó; chỉ khi câu hỏi được chuyển cho người (lượt kết thúc mà task vẫn ở câu đó, bàn giao
+   `handover`, hay lỗi không thuộc về deputy) thì tin câu hỏi mới được gửi như kịch bản 1, kèm tóm tắt bàn
+   giao. Trong lúc đó, `/inbox` vẫn hiện câu hỏi với ghi chú "deputy đang xử lý" và người dùng trả lời được
+   ngay; câu trả lời hợp lệ commit trước thắng.
+8. **Given** câu hỏi đã được deputy chuyển cho người, **When** daemon restart, **Then** câu hỏi không
+   quay lại deputy; nó tiếp tục chờ người và không gửi tin thứ hai.
 
 ---
 
@@ -458,12 +463,15 @@ chặn và tin nhận lặp.
 - **FR-020**: Với task từ CLI/assistant, câu hỏi, yêu cầu duyệt/xác nhận và thông báo chờ người MUST đi tới
   chat liên kết; mọi việc cần người vẫn có trong `cusr inbox` dù kênh lỗi hay chưa cấu hình. Định tuyến cho task
   từ GitHub issue thuộc feature 005.
-- **FR-021**: Khi `autonomous` bật, câu hỏi của worker MUST chỉ được thông báo khi nó chờ người (decider
-  không chạy cho task, chạy hỏng, hoặc hết lượt ở bước đó). Câu trả lời của decider MUST NOT sinh thông
-  báo riêng. Câu hỏi đã có lần decider chạy hỏng được ghi MUST tiếp tục chờ người qua restart và qua việc
-  tắt/bật lại `autonomous`; decider MUST NOT chạy lại cho câu hỏi đó và chỉ xét câu hỏi chưa có lần chạy
-  hỏng nào theo quy tắc hiện hành. Câu hỏi đang chờ decider vẫn MUST có trong inbox với ghi chú đang được
-  decider xử lý, và người dùng MUST trả lời được ngay; câu trả lời hợp lệ commit trước thắng.
+- **FR-021** *(viết lại theo feature 007)*: Sự cố mà bảng định tuyến của feature 007 giao cho deputy, gồm câu hỏi
+  của worker khi `autonomous` bật, MUST NOT được đẩy lên Telegram trong lúc deputy còn có thể xử lý nó. Sự cố
+  chỉ được thông báo khi chuyển cho người (lượt kết thúc mà task vẫn ở đúng sự cố, bàn giao `handover`, lỗi
+  auth/refusal/thiếu capability của lượt, hay chạm `infra_retries`), với tóm tắt bàn giao trong tin. Thao tác
+  của deputy MUST NOT sinh thông báo riêng; người dùng xem chúng qua `/report`. Sự cố đã chuyển cho người MUST
+  tiếp tục chờ người qua restart và qua việc tắt/bật lại `autonomous`, không quay lại deputy. Mục deputy đang
+  giữ vẫn MUST có trong inbox với ghi chú đang được deputy xử lý, và người dùng MUST thao tác được ngay; thao
+  tác hợp lệ commit trước thắng và lệnh cũ của deputy bị từ chối theo version. Không có role `deputy` thì mọi
+  sự cố tới người như trước feature 007.
 - **FR-022**: Khi câu hỏi, yêu cầu duyệt hay xác nhận được xử lý ở bất kỳ kênh nào hoặc hết hiệu lực, mọi
   tin Telegram tương ứng đã lưu được tham chiếu MUST được cập nhật thành trạng thái cuối (đã trả lời/duyệt/
   xác nhận/hết hiệu lực, kèm actor, kênh, thời điểm) và bỏ nút, qua outbox. Bản tin có kết quả gửi
@@ -481,10 +489,15 @@ chặn và tin nhận lặp.
   giữ các trường hiện có của `cusr inbox`. `/inbox` và `/report` MUST dùng cùng dịch vụ và cùng quyền với
   `cusr inbox` và `cusr report`; nội dung MUST khớp đầu ra CLI cùng thời điểm, chỉ khác cách trình bày và
   chia tin. Inbox MUST xem được hết mọi mục qua phân trang, cả trên CLI và Telegram, thay vì chỉ báo bị
-  cắt; trên Telegram, mọi mục thao tác được MUST mở được thẻ. Câu hỏi đang chờ decider MUST hiện với ghi
-  chú tương ứng; việc hiện trong inbox MUST NOT sinh thông báo đẩy.
+  cắt; trên Telegram, mọi mục thao tác được MUST mở được thẻ. Mục deputy đang giữ MUST hiện với ghi chú
+  tương ứng; việc hiện trong inbox MUST NOT sinh thông báo đẩy.
 - **FR-025**: Tin quá giới hạn độ dài MUST được rút gọn có đánh dấu hoặc chia thành nhiều tin có thứ tự,
   MUST NOT mất mã, phạm vi hay nút.
+- **FR-026** *(thêm theo feature 007)*: Việc cần người của goal (goal cần kế hoạch khi không deputy nào lập,
+  kế hoạch chờ duyệt, sửa phạm vi chờ duyệt, PR của goal sẵn sàng merge) MUST được thông báo như mọi việc cần
+  người, từ cùng nguồn với tin của goal cho phiên assistant giữ lease. Tin MUST tự đủ nghĩa theo FR-023: goal,
+  tóm tắt kế hoạch, version và hash khi có, và lệnh CLI tương ứng (`cusr goal show`, `cusr goal confirm
+  --plan-hash`). Merge PR đơn vị vào nhánh goal do daemon làm MUST NOT sinh thông báo.
 
 **Vận hành và quan sát**
 
@@ -580,10 +593,10 @@ Thông báo logic, đợt gửi, lượt gửi, bản tin và đồng bộ trạ
 ## Assumptions
 
 - Feature 001, 002, 004 là nền: inbox/answer, approve escalation, confirm/run config, `cusr report`,
-  decider, outbox, recovery và token/grant đã có. Feature 003 thêm kênh và ánh xạ vào các dịch vụ đó,
+  deputy và goal (feature 007), outbox, recovery và token/grant đã có. Feature 003 thêm kênh và ánh xạ vào các dịch vụ đó,
   không thêm năng lực lõi mới. Thay đổi hành vi mà người dùng thấy trên phần đã có: mở rộng `cusr inbox` thành mọi việc
-  cần người (FR-024), xác nhận task và cấu hình như một thao tác (FR-016), và decider không chạy lại câu hỏi đã chạy
-  hỏng (FR-021). Thay đổi nội bộ kèm theo (hook tạo thông báo trong transaction, mẫu che token, health và doctor) được
+  cần người (FR-024), xác nhận task và cấu hình như một thao tác (FR-016), và sự cố deputy đã chuyển cho người không
+  quay lại deputy (FR-021). Thay đổi nội bộ kèm theo (hook tạo thông báo trong transaction, mẫu che token, health và doctor) được
   liệt kê ở bảng "Thay đổi lên phần đã có" của [data model](data-model.md).
 - Một người dùng, một bot, một chat riêng (constitution, SPEC.md §2.1). Feature 005 dùng lại liên kết và
   đường nhận tin này.
@@ -593,7 +606,7 @@ Thông báo logic, đợt gửi, lượt gửi, bản tin và đồng bộ trạ
 - Câu hỏi hiện là văn bản tự do, chưa có danh sách lựa chọn, nên trả lời bằng reply văn bản; nút lựa
   chọn cho câu hỏi để sau khi lõi có câu hỏi dạng lựa chọn.
 - Thông báo chỉ cho: câu hỏi chờ người, yêu cầu duyệt/xác nhận, task chuyển sang chờ người dùng, task kết
-  thúc, và phản hồi thao tác. Không báo tiến độ thường (bắt đầu attempt, gate xanh).
+  thúc, việc cần người của goal (FR-026), và phản hồi thao tác. Không báo tiến độ thường (bắt đầu attempt, gate xanh).
 - Chu kỳ nhận tin, thời hạn mã liên kết, thời hạn và số lần gửi, trần backoff, độ dài mã ngắn và trần chia
   tin do plan chốt.
 - Cần một bot Telegram thử nghiệm và chat riêng cho smoke; nếu thiếu, tiêu chí thật tương ứng ghi chưa
