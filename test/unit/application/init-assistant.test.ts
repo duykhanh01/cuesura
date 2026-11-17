@@ -297,6 +297,7 @@ describe('cusr init: assistant', () => {
       ASSISTANT_SETTINGS_PATH,
       CODEX_HOOKS_PATH,
       PI_EXTENSION_PATH,
+      'cusr.yaml',
     ]);
     for (const r of CUSR_SKILL_ROOTS)
       for (const f of skill) expect(read(root, `${r}/${f.path}`)).toBe(f.content);
