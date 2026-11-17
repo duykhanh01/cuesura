@@ -330,6 +330,15 @@ export function taskLogs(
           break;
         }
       } catch (e) {
+        // A worker that ended before it wrote anything (e.g. blocked before invoking the model) has no
+        // run directory and nothing left to append: there is no gap to wait for.
+        if (
+          e instanceof RunnerFileError &&
+          e.code === 'not_found' &&
+          previous.cursor === null &&
+          !batches.some((b) => b.operation_id === previous.id)
+        )
+          continue;
         diagnostic = {
           op: previous,
           reason: `earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`,
@@ -457,6 +466,7 @@ export function taskLogs(
   }
   if (
     diagnostic !== null &&
+    (q.data.attempt_id === undefined || diagnostic.op.attempt_id === q.data.attempt_id) &&
     cursor >= total &&
     out.length < q.data.limit &&
     bytes < LOG_PAGE_BYTES
