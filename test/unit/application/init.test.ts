@@ -5,6 +5,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import {
   InitWriteError,
   PR_TEMPLATE_TARGET,
+  REPO_CONFIG_TARGET,
   WRITE_PR_SKILL_PATHS,
   existingPrTemplates,
   initItems,
@@ -45,7 +46,9 @@ describe('cusr init: write-pr (PR template and skill)', () => {
     ).toEqual([
       ...WRITE_PR_SKILL_PATHS.map((p) => [p, 'created']),
       [PR_TEMPLATE_TARGET, 'created'],
+      [REPO_CONFIG_TARGET, 'created'],
     ]);
+    expect(read(root, REPO_CONFIG_TARGET)).toBe('version: 1\n');
     expect(read(root, PR_TEMPLATE_TARGET)).toBe(INSTALLED_PR_TEMPLATE);
     expect(INSTALLED_PR_TEMPLATE).toContain(WRITE_PR_SKILL_PATH);
     for (const p of WRITE_PR_SKILL_PATHS) expect(read(root, p)).toBe(writePrSkill());
@@ -80,6 +83,21 @@ describe('cusr init: write-pr (PR template and skill)', () => {
       expect([a?.status, b?.status]).toEqual(['created', 'created']);
       expect(existingPrTemplates(root)).toHaveLength(1);
     }
+  });
+
+  it('starts a missing cusr.yaml at version 1 and never touches an existing one', () => {
+    const fresh = repo({});
+    expect(installInitItems(fresh, [], { force: false, dataDir: '/data' })).toEqual([
+      { path: REPO_CONFIG_TARGET, status: 'created' },
+    ]);
+    expect(read(fresh, REPO_CONFIG_TARGET)).toBe('version: 1\n');
+
+    const own = 'version: 1\nci:\n  required_checks: [test]\n';
+    const kept = repo({ [REPO_CONFIG_TARGET]: own });
+    expect(
+      installInitItems(kept, ['write-pr'], { force: true, dataDir: '/data' }).map((f) => f.path),
+    ).not.toContain(REPO_CONFIG_TARGET);
+    expect(read(kept, REPO_CONFIG_TARGET)).toBe(own);
   });
 
   it('keeps an edited skill file unless forced', () => {

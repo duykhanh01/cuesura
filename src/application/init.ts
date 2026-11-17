@@ -21,6 +21,9 @@ import {
 import { TEMPLATE_RE } from './run-config.ts';
 
 export const PR_TEMPLATE_TARGET = '.github/pull_request_template.md';
+export const REPO_CONFIG_TARGET = 'cusr.yaml';
+/** The smallest valid repo config: with no file at all, cusr reports a missing config instead of using defaults. */
+const REPO_CONFIG_STARTER = 'version: 1\n';
 /** Codex reads skills from `.agents/skills`, Claude Code from `.claude/skills`. */
 export const WRITE_PR_SKILL_PATHS = [
   WRITE_PR_SKILL_PATH,
@@ -245,5 +248,8 @@ export function installInitItems(
     attempt(exclude, () => hideLocalFiles(root, exclude, local));
     for (const p of plans) attempt(p.path, () => writeLocalFile(root, p));
   }
+  // Last, so the reports of the chosen items keep their order. Never replaces an existing file.
+  if (!existsSync(join(root, REPO_CONFIG_TARGET)))
+    write(REPO_CONFIG_TARGET, REPO_CONFIG_STARTER, false);
   return done;
 }
