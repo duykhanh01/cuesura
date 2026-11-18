@@ -426,3 +426,70 @@ dir dogfood; credential chỉ là đường dẫn tham chiếu. Không sửa con
   báo `manifest:codex ok`.
 - Câu hỏi được gợi bằng mô tả task yêu cầu agent hỏi trước khi sửa file, không phải câu hỏi tự phát của agent.
 - Phát hiện về UX, chưa sửa: task vừa tạo không được chọn ở Home nên người dùng phải tự di chuyển tới nó trước khi bấm `a`.
+
+## Đối chiếu nghiệm thu T083
+
+**T083 và T080 còn mở.** T078 được bỏ qua đợt này. SC-004 và SC-005 còn phần nghiệm thu người thật, và kịch bản quickstart 2–6 chưa chạy bằng tay. SC-012 thuộc mốc sau.
+
+Bảng ghi mốc chạy từng phép kiểm. "Tự chạy" là lượt đối chiếu T083 trên Ubuntu, Node 24.22.1, pnpm 12.15.0 ngày 2026-11-18. "Báo cáo" dẫn tới bằng chứng đã ghi trong PR tương ứng.
+
+### Bằng chứng
+
+| Nguồn | Mốc | Nội dung |
+| --- | --- | --- |
+| Tự chạy | `a4d183b6` | typecheck, lint, build sạch; `test/contract/tui` và `test/unit/tui` 897/897; ba file CLI cũ 102/102; `fuzz-confirm` 5/5 (5 màn, 10.000 phím, seed 20261106) |
+| Tự chạy | `7914904d` | `--project performance` 4/4 (SC-002, SC-003 20 mẫu, `idle-session` 30 giây); 7 file đối chiếu contract 149/149 |
+| Tự chạy | `a4d183b6` | Quickstart kịch bản 1 bước 3 bằng binary build: `cusr \| cat`, `cusr --json`, `TERM=dumb cusr` đều exit 2, không ESC, `--json` trả `not_available` |
+| Báo cáo, đã merge | #345 (`7914904d`) | Khôi phục phép đo SC-002/SC-003 của Home; số 649 ms (SC-002) và 892–1031 ms (SC-003, 20/20) là đo local của coder; CI xanh riêng |
+| Báo cáo, đã merge | #342 (`52aa46f0`, CI 44340456224) | T076, T077: host 37/37 trên `dca93e2b`; coder 63/63 test mặc định đổi, gồm 5 đường thoát runner và 4/4 smoke khởi động lại |
+| Báo cáo, đã merge | #347 (CI 44343711748) | `reconnect-window` 1/1, 425,9 giây trên `4971ad1e` |
+| Báo cáo, đã merge | #346 (`f422dd11`, CI 44349972073) | T079: 4 hành trình harness thật (Claude và Codex × 2 chế độ), PTY 7,8–9,8 giây chưa gồm merge, bốn PR sandbox build/test xanh và DONE; test mới chưa chạy lại bản trả phí |
+| Báo cáo, đã merge | #343 (`bca9cb90`, CI 44350632668) | 172 test nhắm đích trên `44715ed5`. Đã xác minh actor khác, kết quả bị từ chối và crash qua CLI. Hợp đồng tra cứu dùng actor theo ADR 0011. |
+
+Bộ `pnpm test` đầy đủ đạt trên CI #343 (run 44350632668). Chạy nhắm đích cho performance, reconnect, fuzz và smoke được ghi riêng. Hai phiên đo 1 giờ và 8 giờ được bỏ qua trong đợt này.
+
+**SC-006.** `git diff 5178b0a7..origin/main` cho ba file CLI không rỗng (do #111, #121, #225 và các feature khác); không PR 004 nào đổi chúng và chúng đạt 102/102. "Rỗng" ở Lát A là kết quả lịch sử tại T019 và T030. Hai test khác đã sửa trong #38 (`migration.test.ts`, `daemon-control.test.ts`) vì ghim schema.
+
+### Lượt thử T080 do agent (không thay SC-005)
+
+Agent Sonnet 5.5 medium, `a4d183b6`, PTY 80×24, daemon cục bộ 3 task giả, chỉ dùng gợi ý trên màn hình. Enter tới Logs 3,724 s; `d` tới Task detail 8,609 s; `l` về Logs 12,561 s; `?` mở Help 13,112 s; `q` thoát mã 0 ở 15,976 s; `stty` trước và sau trùng, không gửi thao tác ghi. Điểm vướng: Enter ở Home không nói đích là Logs; log mẫu trống; Help ở 80×24 bị cắt ở dòng `R`; bảng chú thích trạng thái ít nổi bật. Đây là bằng chứng khám phá được, không phải người chưa đọc tài liệu.
+
+### Bảng SC-001–SC-016
+
+| SC | Kết quả | Bằng chứng |
+| --- | --- | --- |
+| SC-001 | Một phần | `us2-detail` 21/21 (đủ `DetailCode`, đối chiếu `task explain`). Thiếu: "không chạy lệnh nào khác" ở người dùng thật |
+| SC-002 | Đạt | Tự chạy trên `7914904d`; #345 (649 ms là số của coder) |
+| SC-003 | Đạt | 20 mẫu tự chạy trên `7914904d`; #345 (892–1031 ms); cửa sổ kết nối lại theo #347 (báo cáo) |
+| SC-004 | Một phần | Giả lập: `journey` 2/2 tự chạy (T069 ghi 1,7 s và 1,8 s). Harness thật: bốn lượt với Claude/Codex × hai chế độ, xem T079. Chưa đo thao tác của người biết sản phẩm và merge thủ công |
+| SC-005 | Chưa xác nhận | Chỉ có lượt thử agent; cần người thật |
+| SC-006 | Đạt theo cách đọc ở trên | 102/102; 004 không sửa ba file |
+| SC-007 | Đạt (tự động) | `us4-actions` 34/34, `us4-unknown-result` 10/10, `operate` và `admin` qua daemon thật |
+| SC-008 | Đạt | `fuzz-confirm` 5/5 |
+| SC-009 | Chưa đạt | Chỉ có phiên rảnh 30 giây; T078 bỏ qua |
+| SC-010 | Đạt | `control-chars` 5/5 |
+| SC-011 | Đạt (tự động) | `terminal-restore` 15/15 tự chạy; T077 theo #342 (báo cáo) |
+| SC-012 | Mốc sau | Thuộc US6 |
+| SC-013 | Chưa đạt | T078 bỏ qua |
+| SC-014 | Đạt (tự động) | #343 kiểm mất phản hồi qua PTY, crash trước và sau khi ghi qua CLI, số task/event/attempt giữ nguyên khi tra, actor khác nhận cùng lỗi như ID không tồn tại. |
+| SC-015 | Đạt (tự động) | `us4-stale-lock` đạt, gồm ca #343 lỗi lần đọc task và khóa request mới tới lần đọc thành công. |
+| SC-016 | Đạt (tự động) | `us5-review` 14/14 (80×24) |
+
+"Đạt (tự động)" là test tự động đạt; chưa có người dùng thật xác nhận.
+
+### Quickstart
+
+Tự động hóa như bảng trên. Chỉ kịch bản 1 bước 3 được kiểm tay; kịch bản 2–6 chưa chạy bằng tay (không đụng daemon thật). Dòng trạng thái cũ ở đầu `quickstart.md` đã sửa trong PR này.
+
+### Đối chiếu contract và data model (đọc mã, `7914904d`)
+
+Đối chiếu tại mốc trên. #343 sau đó đồng bộ thông báo thoát và hợp đồng tra cứu theo actor.
+
+- `contracts/cli-daemon.md`: bảy lệnh và cờ có trong binary; handler ở `src/application/{projects,run-options,board,progress,requests}.ts`; test tương ứng đạt. Không thấy lệch. Chưa kiểm từng trường JSON và `question_show`.
+- `data-model.md`: bảng `needs_user` và `steps` khớp `src/explain/needs-user.ts`, `src/application/progress.ts`, trừ hai lệch: không nêu `cancel_reconcile` (`false`, thành `true` từ lần đọc PR thứ 5); dòng "chưa phải schema đã triển khai" đã cũ.
+- `contracts/tui.md` so với `src/tui/model/keymap.ts` và `src/tui`: phím chung khớp. Lệch: Logs có `Tab`/`Shift-Tab` và `[` `]` đọc log gate mà hợp đồng không nêu; `C` chỉ ở Home và Actions, form dùng `Ctrl-S`; hết trần hiện `Result unknown - could not be confirmed … Check again (C)`, không phải `Result still unknown`; ghi chú `Showing projects in this token's scope` không còn trong `src/tui`.
+
+### Còn thiếu để đóng T083
+
+- **Cần người:** SC-005; SC-004 theo chuẩn người biết sản phẩm; quyết định có chạy SC-009 và SC-013 (T078) hay giữ bỏ qua.
+- **Chưa chạy:** quickstart kịch bản 2–6 bằng tay; `pnpm test` đầy đủ chờ CI.

@@ -1,7 +1,7 @@
 # Validation guide: feature 004
 
-Hướng dẫn kiểm chứng sau khi triển khai. **Trạng thái 2026-11-01:** chưa có phần nào được triển khai; các lệnh dưới đây là kế hoạch,
-không phải bằng chứng. Tiêu chí chưa chạy phải được ghi là chưa đạt trong acceptance report.
+Hướng dẫn kiểm chứng sau khi triển khai. **Trạng thái 2026-11-18:** giao diện đã triển khai trừ US6 (mốc sau). Các lệnh dưới đây không tự là bằng chứng:
+kết quả thật nằm ở [acceptance report](acceptance-report.md#đối-chiếu-cuối-t083-bản-nháp). Tiêu chí chưa chạy phải được ghi là chưa đạt ở đó.
 
 ## Chuẩn bị
 
