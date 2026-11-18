@@ -335,7 +335,7 @@ tiếp theo; làm theo duy nhất các chỉ dẫn đó cho tới khi tạo đư
 - **EC-012 Thoát đột ngột**: Ctrl-C, SIGTERM, SIGHUP hoặc lỗi nội bộ đều trả terminal về trạng thái ban đầu. Ctrl-C
   không hủy task. Nếu còn thao tác chưa rõ kết quả, kể cả khi thoát thường, giao diện in ra stderr request ID và đúng
   lệnh tra cứu của FR-041 cho từng thao tác, sau khi đã trả terminal để dòng này không mất cùng màn hình toàn phần, và
-  kết thúc với exit 3. Khi không còn terminal để in (đứt SSH) hoặc process bị giết, người dùng đối chiếu bằng danh sách
+  kết thúc với exit 3; riêng lỗi nội bộ vẫn exit 1 theo [hợp đồng](contracts/tui.md#thoát-khi-còn-thao-tác-chưa-rõ). Khi không còn terminal để in (đứt SSH) hoặc process bị giết, người dùng đối chiếu bằng danh sách
   task và lịch sử task; giao diện không ghi payload ra file để bù (FR-038).
 - **EC-013 Task đổi trạng thái khi đang xem**: Mục đang chọn được giữ theo task, không theo vị trí dòng, nên
   việc sắp xếp lại không làm thao tác rơi nhầm task khác. Menu đã mở mà không còn hợp lệ thì được làm mới.
@@ -495,9 +495,9 @@ tiếp theo; làm theo duy nhất các chỉ dẫn đó cho tới khi tạo đư
 
   Task ID MUST chỉ xuất hiện khi task đó có thật: ID cấp sẵn lúc nhận `task_add` MUST NOT được trình bày như task đã
   tạo.
-- **FR-043**: Tra cứu MUST yêu cầu quyền read và chỉ trả request của đúng actor trong token, với project thuộc phạm vi
-  token đang hiệu lực. Actor khác, project ngoài phạm vi hoặc không xác định được project với token giới hạn project
-  MUST nhận đúng phản hồi của "không tìm thấy", không lộ request có tồn tại.
+- **FR-043**: Tra cứu MUST yêu cầu quyền read và chỉ trả request của đúng actor đã khai (`CUSR_ACTOR`,
+  [ADR 0011](../../docs/adr/0011-declared-actor-instead-of-tokens.md); không còn phạm vi project theo caller). Actor
+  khác MUST nhận đúng phản hồi của "không tìm thấy", không lộ request có tồn tại.
 
 **Thao tác khi dữ liệu cũ**
 
@@ -567,10 +567,10 @@ khi ghi khác. Không dùng kiểm thử dựng màn hình tách rời để tuy
 - **SC-013**: Phiên mở 8 giờ với log liên tục không treo phím, không tăng bộ nhớ liên tục và độ trễ phản hồi phím vẫn
   dưới 200 ms ở 95% lần bấm.
 - **SC-014**: Với các mẫu gây lỗi trên daemon thật (tạo task xong rồi mất phản hồi; thao tác bị từ chối rồi mất phản
-  hồi; daemon chết trước và sau khi ghi task nhưng trước khi lưu kết quả; request không tồn tại; actor khác; project
-  ngoài phạm vi), người dùng thoát giao diện rồi chạy nguyên văn lệnh đã in hoặc lệnh tra cứu với ID của mẫu: 100% mẫu
-  trả đúng trạng thái FR-042, số task, event và attempt không đổi sau khi tra, và hai mẫu về quyền không phân biệt được
-  với request không tồn tại.
+  hồi; daemon chết trước và sau khi ghi task nhưng trước khi lưu kết quả; request không tồn tại; actor khác), người
+  dùng thoát giao diện rồi chạy nguyên văn lệnh đã in hoặc lệnh tra cứu với ID của mẫu: 100% mẫu trả đúng trạng thái
+  FR-042, số task, event và attempt không đổi sau khi tra, và mẫu actor khác không phân biệt được với request không tồn
+  tại.
 - **SC-015**: Trong các mẫu mất kết nối và đọc lỗi khi đang soạn, không có request ID mới nào tới daemon trong lúc dữ
   liệu đang cũ hoặc trước lần đọc lại đầu tiên sau khi hồi phục. Ở 100% mẫu, nội dung đang nhập còn nguyên và không
   thao tác nào được gửi nếu người dùng chưa gửi lại.

@@ -98,14 +98,23 @@ describe('terminal restore through a real PTY', () => {
   it.each([
     ['an uncaught exception', 'x'],
     ['an unhandled rejection', 'r'],
-  ] as const)('exits 3 after %s while a result is unknown, with the notice', async (_n, key) => {
-    const { s } = await start({ PROBE_NOTICE: 'request ID: abc\n' });
-    s.send(key);
-    const exit = await s.waitForExit();
-    expect(exit.status).toBe(3);
-    expect(exit.sttyAfter).toBe(exit.sttyBefore);
-    expect(s.screenText()).toContain('request ID: abc');
-  });
+  ] as const)(
+    'exits 1 after %s even while a result is unknown, with the notice after the restore',
+    async (_n, key) => {
+      const notice = 'cusr: request abc (task_add): result unknown';
+      const { s } = await start({ PROBE_NOTICE: `${notice}\n` });
+      s.send(key);
+      const exit = await s.waitForExit();
+      expect(exit.status).toBe(1);
+      expect(exit.sttyAfter).toBe(exit.sttyBefore);
+      expect(s.screenText()).toContain('cusr: internal error: probe:');
+      expect(s.screenText()).toContain(notice);
+      const output = s.rawOutput();
+      const restored = output.lastIndexOf('\x1b[?1049l');
+      expect(restored).toBeGreaterThanOrEqual(0);
+      expect(output.indexOf(notice, restored)).toBeGreaterThan(restored);
+    },
+  );
 
   it('restores after a stdout write error', async () => {
     const { s } = await start();

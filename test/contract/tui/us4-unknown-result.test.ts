@@ -1,3 +1,5 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import { callDaemon } from '../../../src/cli/client.ts';
 import { createDaemonPort } from '../../../src/tui/client/daemon-port.ts';
@@ -8,7 +10,8 @@ import {
   type MutationCommand,
 } from '../../../src/tui/client/mutations.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
-import type { PtySession } from '../../support/pty.ts';
+import { uuidOf } from '../../support/builders.ts';
+import { CUSR_ENTRY, type PtySession } from '../../support/pty.ts';
 import {
   cliJson,
   daemonSocket,
@@ -16,6 +19,7 @@ import {
   recheckScene,
   sendRecheck,
   seedRunning,
+  storeCounts,
   useTui,
 } from '../../support/tui-fixtures.ts';
 
@@ -24,6 +28,7 @@ import {
 // to `/v1/command`, and a proxy plays the lost answers. The second runs the tracker alone against a real
 // daemon, which is the only way to spend the ceiling of 60 checks without waiting a minute.
 const tui = useTui();
+const execFileAsync = promisify(execFile);
 
 const recheckSetup = (): ReturnType<typeof recheckScene> => recheckScene(tui);
 
@@ -149,7 +154,9 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
         await checking(s);
         s.signal(signal, pid);
         expect((await s.waitForExit()).status).toBe(3);
-        expect(s.screenText()).toContain(`request ID: ${sent[0]?.id ?? ''}`);
+        expect(flat(s.screenText())).toContain(
+          `cusr: request ${sent[0]?.id ?? ''} (task_recheck): result unknown`,
+        );
       } finally {
         release();
       }
@@ -166,16 +173,61 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     expect(exit.status).toBe(3);
     expect(exit.sttyAfter).toBe(exit.sttyBefore);
     const id = sent[0]?.id ?? '';
-    expect(s.screenText()).toContain(`request ID: ${id}`);
-    const command = s.screenText().match(/look it up with: (cusr request show \S+)/)?.[1];
+    expect(flat(s.screenText())).toContain(`cusr: request ${id} (task_recheck): result unknown`);
+    const command = s.screenText().match(/cusr: check it with: (cusr request show \S+)/)?.[1];
     expect(command).toBe(`cusr request show ${id}`);
     const output = s.rawOutput();
     const restored = output.lastIndexOf('\x1b[?1049l');
     expect(restored).toBeGreaterThanOrEqual(0);
-    expect(output.indexOf(`request ID: ${id}`, restored)).toBeGreaterThan(restored);
+    expect(output.indexOf(`cusr: request ${id}`, restored)).toBeGreaterThan(restored);
     const found = await cliJson(sd, ...command!.split(' ').slice(1));
     expect(found.code).toBe(0);
     expect(found.envelope.data?.['state']).toBe('completed');
+  });
+  it('a refused Recheck whose answer is lost: exit 3, and the printed command says it was rejected (SC-014)', async () => {
+    const { sd, proxy, s, sent } = await recheckSetup();
+    const taskId = uuidOf(1);
+    // The task is cancelled before the Recheck reaches the daemon, which refuses it; the answer never comes back.
+    proxy.beforeForward = (request) =>
+      request.includes('"task_recheck"')
+        ? (async () => {
+            const shown = await sd.query('owner', { kind: 'task_show', task_id: taskId });
+            const cancelled = await sd.command('owner', {
+              request_id: '019a0000-0000-7000-8000-00000000c0c0',
+              kind: 'task_cancel',
+              project: 'acme',
+              task_id: taskId,
+              expected_version: shown.envelope.data?.['version'] as number,
+              payload: { reason: 'stop' },
+            });
+            expect(cancelled.envelope.ok).toBe(true);
+          })()
+        : undefined;
+    proxy.mode = 'drop_response';
+    await sendRecheck(s);
+    await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
+    s.send('q');
+    const exit = await s.waitForExit();
+    expect(exit.status).toBe(3);
+    const id = sent[0]?.id ?? '';
+    expect(ids(sent)).toEqual([id]);
+    const line = s.screenText().match(/cusr: check it with: (cusr request show \S+)/)?.[1] ?? '';
+    expect(line).toBe(`cusr request show ${id}`);
+
+    const before = storeCounts(sd);
+    // The printed line as a user would run it: `cusr` and its words, no flag added.
+    const run = await execFileAsync(process.execPath, [CUSR_ENTRY, ...line.split(' ').slice(1)], {
+      env: { ...process.env, CUSR_DATA_DIR: sd.dataDir, CUSR_ACTOR: undefined, NO_COLOR: '1' },
+    });
+    expect(run.stdout.split('\n')[0]).toBe('Request completed — operation rejected');
+    const found = await cliJson(sd, 'request', 'show', id);
+    expect(found.code).toBe(0);
+    expect(found.envelope.data).toMatchObject({
+      state: 'completed',
+      kind: 'task_recheck',
+      outcome: { ok: false },
+    });
+    expect(storeCounts(sd)).toEqual(before);
   });
 });
 

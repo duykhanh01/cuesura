@@ -233,13 +233,15 @@ function newDialog(
   > & { readonly known: Dialog['known'] },
 ): Reduced {
   const session = state.screenSession + 1;
+  // What was typed when this dialog last closed unsent comes back, never sent by itself (FR-044).
+  const draft = state.drafts.get(draftKey(o)) ?? '';
   const field =
     o.kind === 'answer'
-      ? textField('multi', 'Answer', '', ANSWER_MAX)
+      ? textField('multi', 'Answer', draft, ANSWER_MAX)
       : o.kind === 'cancel'
-        ? textField('multi', 'Reason', '', REASON_MAX)
+        ? textField('multi', 'Reason', draft, REASON_MAX)
         : withReason(o.kind)
-          ? textField('line', 'Reason', '', REASON_MAX)
+          ? textField('line', 'Reason', draft, REASON_MAX)
           : null;
   const dialog: Dialog = {
     ...o,
@@ -320,10 +322,61 @@ export function openQueueDialog(state: TuiState): Reduced {
   });
 }
 
+/** Where a draft is kept: the task (or queue) and the command, and for Answer the question it answers. */
+const keyOf = (target: string, kind: string, questionId: string | null): string =>
+  `${target}:${kind}${kind === 'answer' ? `:${questionId ?? ''}` : ''}`;
+
+const draftKey = (d: Pick<Dialog, 'taskId' | 'kind' | 'adopt' | 'known'>): string =>
+  keyOf(
+    d.taskId ?? QUEUE_TARGET,
+    d.kind === 'approve' && d.adopt ? 'approve_adopt' : COMMAND_KIND[d.kind],
+    d.known?.id ?? null,
+  );
+
+/**
+ * Drops the draft a write carried once the daemon took it; a refusal, or a result still unknown, keeps it for
+ * the dialog to open with again. A draft edited since is not this write's and stays.
+ */
+export function dropSentDraft(drafts: TuiState['drafts'], m: Mutation): TuiState['drafts'] {
+  if (m.state !== 'accepted') return drafts;
+  const p = (m.command.payload ?? {}) as {
+    answer?: unknown;
+    reason?: unknown;
+    question_id?: unknown;
+  };
+  const text = typeof p.answer === 'string' ? p.answer : p.reason;
+  const key = keyOf(
+    mutationTarget(m.command),
+    m.command.kind,
+    typeof p.question_id === 'string' ? p.question_id : null,
+  );
+  const draft = drafts.get(key);
+  // Compared as it would be sent: a draft that differs only by what sending trims is this write's.
+  if (typeof text !== 'string' || draft === undefined || sentText(m.command.kind, draft) !== text)
+    return drafts;
+  const next = new Map(drafts);
+  next.delete(key);
+  return next;
+}
+
+/** Closing keeps what was typed for the next dialog of the same kind on the task, sent or not. */
+function keepDraft(state: TuiState): TuiState['drafts'] {
+  const d = state.dialog;
+  if (d === null) return state.drafts;
+  const text = d.field?.text ?? '';
+  const key = draftKey(d);
+  if (text === '' && !state.drafts.has(key)) return state.drafts;
+  const drafts = new Map(state.drafts);
+  if (text === '') drafts.delete(key);
+  else drafts.set(key, text);
+  return drafts;
+}
+
 export function closeDialog(state: TuiState): TuiState {
   const at = state.screens.lastIndexOf('dialog');
   return {
     ...state,
+    drafts: keepDraft(state),
     dialog: null,
     screens: at < 0 ? state.screens : state.screens.slice(0, at),
   };
@@ -462,7 +515,11 @@ function onConfirmKey(state: TuiState, d: Dialog, key: Key): Reduced {
   }
 }
 
-const reasonOf = (d: Dialog): string => (d.field?.text ?? '').trimEnd();
+/** The text a command carries, from what was typed: a pause reason is one line, trimmed both ends. */
+const sentText = (kind: string, typed: string): string =>
+  kind === 'task_pause' || kind === 'queue_pause' ? typed.trim() : typed.trimEnd();
+
+const reasonOf = (d: Dialog): string => sentText(commandKind(d), d.field?.text ?? '');
 
 /** The payload of a task write, or why there is none yet. */
 function taskPayload(
@@ -521,13 +578,22 @@ function taskPayload(
       return { payload: target };
     }
     case 'pause': {
-      const reason = reasonOf(d).trim();
+      const reason = reasonOf(d);
       if (reason === '') return { problem: 'Nothing was sent: give a reason first.' };
       return { payload: { reason, ...(d.now ? { now: true } : {}) } };
     }
     default:
       return { payload: {} };
   }
+}
+
+/** A read this dialog sends from failed last; it is asked again (`dialogDue`) and unlocks once one answers. */
+function readFailed(d: Dialog, explain: TaskExplain): boolean {
+  if (d.inbox.error !== null || d.progress.error !== null) return true;
+  // `question_show` is asked only while the inbox does not list the question; a listed one is read there.
+  const id = questionView(d, explain).id;
+  const listed = d.inbox.data?.items.some((i) => i.question_id === id) ?? false;
+  return d.question.error !== null && !listed;
 }
 
 function buildTask(state: TuiState, d: Dialog): MutationCommand | string {
@@ -541,6 +607,8 @@ function buildTask(state: TuiState, d: Dialog): MutationCommand | string {
     return 'Nothing was sent: the task changed since this dialog opened. Press Esc and open it again to read what is new.';
   const blocked = writeBlock(state, menu);
   if (blocked !== null) return blocked;
+  if (readFailed(d, explain))
+    return 'Nothing was sent: what this dialog shows could not be read just now. It is read again before anything can be sent.';
   const built = taskPayload(d, explain);
   if ('problem' in built) return built.problem;
   return {
@@ -555,7 +623,7 @@ function buildTask(state: TuiState, d: Dialog): MutationCommand | string {
 function buildQueue(state: TuiState, d: Dialog): MutationCommand | string {
   if (d.unavailable !== null)
     return `Nothing was sent: ${d.kind === 'queue_pause' ? 'Pause the queue' : 'Resume the queue'} ${d.unavailable}.`;
-  const reason = reasonOf(d).trim();
+  const reason = reasonOf(d);
   if (d.field !== null && reason === '') return 'Nothing was sent: give a reason first.';
   const open = mutationLock(state, QUEUE_TARGET);
   if (open !== null)
@@ -705,11 +773,20 @@ export function onDialogRead(state: TuiState, m: DialogReadMessage): TuiState {
   switch (m.part) {
     case 'inbox': {
       const items = m.result.ok ? m.result.value.items : [];
+      const known = pin(d.known, items);
+      // The question is known only now: what was typed for it before comes back, if nothing is typed yet.
+      const draft =
+        d.known === null && known !== null && d.field !== null && d.field.text === ''
+          ? (state.drafts.get(draftKey({ ...d, known })) ?? '')
+          : '';
       return {
         ...state,
         dialog: {
           ...d,
-          known: pin(d.known, items),
+          ...(draft === '' || d.field === null
+            ? {}
+            : { field: { ...d.field, text: draft, cursor: graphemes(draft).length } }),
+          known,
           inbox: m.result.ok
             ? { data: m.result.value, error: null, attemptAt: m.askedAt, readAt: m.at }
             : failed(d.inbox, m.result.error.message),

@@ -48,7 +48,13 @@ import {
  * `incompatible` will not, so retrying them is pointless. `rejected` is the daemon's answer to this request.
  */
 export type PortError =
-  | { readonly kind: 'connection' | 'timeout'; readonly message: SafeText }
+  | {
+      readonly kind: 'connection';
+      readonly message: SafeText;
+      /** False when the request never reached the daemon (the socket did not connect). */
+      readonly reached?: boolean;
+    }
+  | { readonly kind: 'timeout'; readonly message: SafeText }
   | {
       readonly kind: 'actor' | 'unauthenticated' | 'incompatible';
       readonly message: SafeText;
@@ -176,7 +182,11 @@ export function createDaemonPort(deps: PortDeps = {}): DaemonPort {
       case 'actor':
         return err({ kind: 'actor', message });
       default:
-        return err({ kind: 'connection', message });
+        return err({
+          kind: 'connection',
+          message,
+          ...(r.error.reached === undefined ? {} : { reached: r.error.reached }),
+        });
     }
   };
 

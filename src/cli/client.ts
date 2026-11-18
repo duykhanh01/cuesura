@@ -43,6 +43,8 @@ const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 export type ClientError = {
   readonly code: 'connection' | 'timeout' | 'protocol' | 'actor' | 'too_large';
   readonly message: string;
+  /** `connection` only: false when the socket never connected, so the daemon cannot have seen the request. */
+  readonly reached?: boolean;
 };
 
 export type DaemonReply = {
@@ -250,6 +252,7 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
             err({
               code: 'connection',
               message: 'Daemon closed the connection before the response was complete',
+              reached: true,
             }),
           );
         res.on('aborted', cut);
@@ -274,11 +277,17 @@ export function callDaemon(opts: CallOptions): Promise<Result<DaemonReply, Clien
         });
       },
     );
+    let reached = false;
+    req.on('socket', (s) => {
+      if (!s.connecting) reached = true;
+      else s.once('connect', () => (reached = true));
+    });
     req.on('error', (e: NodeJS.ErrnoException) => {
       done(
         err({
           code: 'connection',
           message: `${e.code ?? 'error'}: ${e.message}`,
+          reached,
         }),
       );
     });

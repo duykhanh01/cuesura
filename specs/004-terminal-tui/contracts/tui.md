@@ -157,7 +157,9 @@ cusr: request 019a0000-0000-7000-8000-000000000001 (task_add): result unknown
 cusr: check it with: cusr request show 019a0000-0000-7000-8000-000000000001
 ```
 
-Exit code của lần thoát này là 3 nếu còn thao tác chưa rõ, ngược lại là 0. Lỗi nội bộ của giao diện là 1.
+Exit code của lần thoát này là 3 nếu còn thao tác chưa rõ, ngược lại là 0; thoát vì Ctrl-C, SIGTERM hay SIGHUP khi còn thao
+tác chưa rõ cũng là 3. Lỗi nội bộ của giao diện luôn là 1, kể cả khi còn thao tác chưa rõ: terminal vẫn được trả trước, rồi
+stderr in lỗi và các dòng trên.
 
 ## Hiển thị
 

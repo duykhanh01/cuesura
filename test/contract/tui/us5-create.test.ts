@@ -9,6 +9,7 @@ import {
   daemonSocket,
   flat,
   pressAction,
+  storeCounts,
   taskAdd,
   useTui,
 } from '../../support/tui-fixtures.ts';
@@ -367,7 +368,7 @@ describe('US5 scenarios 9 and 10: a create whose answer is lost', () => {
     await said(s, 'Quitting loses what you typed');
     s.send(KEY.ctrlC);
     expect((await s.waitForExit()).status).toBe(3);
-    const id = /request ID: (\S+)/.exec(s.screenText())?.[1] ?? '';
+    const id = /cusr: request (\S+) \(task_add\): result unknown/.exec(s.screenText())?.[1] ?? '';
     expect(s.screenText()).toContain(`cusr request show ${id}`);
     expect(trace.writes).toEqual([id]);
     const before = await tasks(sd);
@@ -375,6 +376,7 @@ describe('US5 scenarios 9 and 10: a create whose answer is lost', () => {
     expect(before).toHaveLength(2);
     expect(created).toBeDefined();
     expect(original).toMatchObject({ request_id: id, result: { task_id: created?.task_id } });
+    const counted = storeCounts(sd);
     const found = await cliJson(sd, 'request', 'show', id);
     expect(found.code).toBe(0);
     expect(found.envelope.data).toMatchObject({
@@ -385,6 +387,7 @@ describe('US5 scenarios 9 and 10: a create whose answer is lost', () => {
       outcome: { ok: true, value: original?.['result'] },
     });
     expect(await tasks(sd)).toEqual(before);
+    expect(storeCounts(sd)).toEqual(counted);
   });
 });
 

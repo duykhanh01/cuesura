@@ -25,7 +25,7 @@ cột mới trong `command_ledger`. Không thêm task status, event type hay l�
 | `filters` | Project và status. Mỗi lần mở đều bắt đầu không lọc (FR-008) |
 | `board` | Dữ liệu `task_board` mới nhất và `watermark`. Đổi `project`, `status`, `scope`, `limit`, `cursor` hoặc `order` thì bỏ `watermark` |
 | `mutations` | Danh sách thao tác đang gửi |
-| `drafts` | Nội dung đang nhập, chỉ trong bộ nhớ (FR-038) |
+| `drafts` | Nội dung đã gõ của hộp thoại khi đóng, theo task, loại lệnh và với Answer là question ID; mở lại thì nạp lại, không tự gửi. Kết quả chưa rõ hoặc bị từ chối thì giữ; daemon nhận thì bỏ nếu bản nháp, chuẩn hóa như lúc gửi (cắt khoảng trắng), trùng nội dung đã gửi. Chỉ trong bộ nhớ (FR-038, FR-044) |
 
 Chuyển trạng thái kết nối:
 
@@ -60,7 +60,12 @@ mọi trạng thái ──lỗi không tự hết──▶ stopped ──ngườ
 | `unknown`, `unresolved` | Người dùng thoát | In request ID và lệnh tra cứu ra stderr, exit 3 (EC-012) |
 
 Quy tắc: thao tác `unknown` hoặc `unresolved` chặn gửi thao tác ghi mới trên cùng task. Một thao tác logic chỉ có một request ID
-(FR-019). Lúc mất kết nối không tính `checks` và `resends`, vì đã có giới hạn lượt kết nối lại.
+(FR-019). Lúc mất kết nối không tính `checks` và `resends`, vì đã có giới hạn lượt kết nối lại. Một lượt `request_show` được
+tính khi daemon trả lời hoặc khi hết thời gian chờ, kể cả lúc Home đang kết nối lại. Lượt không kết nối được tới daemon
+thì không tính; lượt đã tới daemon rồi bị cắt giữa chừng chỉ tính khi Home vẫn đang kết nối, để daemon cứ cắt riêng lượt
+tra cứu vẫn chạm trần 60.
+Gửi lại chỉ diễn ra khi đang kết nối và luôn được tính, kể cả khi đường truyền rớt giữa chừng. Dữ liệu cũ không chặn
+`request_show` trong lúc đang kết nối lại (FR-044).
 
 ### Trạng thái log
 

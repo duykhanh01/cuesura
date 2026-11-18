@@ -108,8 +108,8 @@ export type TuiState = {
    */
   readonly recheck: ReadonlyMap<string, number>;
   /**
-   * What the user is typing, by task. Memory only (FR-038): nothing here is sent by itself, not even after
-   * the connection comes back.
+   * What was typed in a dialog closed unsent, by task (or the queue) and dialog kind, for when it opens again.
+   * Memory only (FR-038): nothing here is sent by itself, not even after the connection comes back.
    */
   readonly drafts: ReadonlyMap<string, string>;
   /** The latest write of each task and what is known of its result (FR-018, FR-019). */

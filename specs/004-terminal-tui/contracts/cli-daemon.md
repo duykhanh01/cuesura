@@ -221,8 +221,8 @@ Vào: `{ kind, request_id }`, `request_id` phải là UUID. Ra:
   những gì lần đầu đã ghi (#267); có task thì đọc task trước. Nguyên nhân là daemon dừng giữa chừng, hoặc handler ném lỗi trong lúc
   daemon vẫn chạy (lệnh khi đó nhận `internal` có `request_id`, ledger giữ hàng `admitted`). Daemon chỉ nhớ lỗi handler đến khi
   khởi động lại; sau đó `next_step` nói daemon đã dừng.
-- Không có hàng, actor khác, project ngoài phạm vi, hoặc hàng không xác định được project với token `limited`: lỗi `request_not_found`, exit
-  4, cùng message và details (FR-043). Thêm mã này vào danh sách `MISSING` của `errors.ts`.
+- Không có hàng, hoặc hàng của actor khác: lỗi `request_not_found`, exit 4, cùng message và details (FR-043). Không còn
+  phạm vi project theo caller ([ADR 0011](../../../docs/adr/0011-declared-actor-instead-of-tokens.md)). Thêm mã này vào danh sách `MISSING` của `errors.ts`.
 - Query không chạy handler, không gọi `admitCommand`, không gửi lại kết quả qua đường command.
 
 Vì sao có thể tin kết luận `not_found` ở mức nào: ledger ghi trước preflight nên `not_found` nghĩa là chưa được nhận tại lúc tra. Request vẫn có

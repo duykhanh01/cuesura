@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { BoardReply, Health } from '../../../src/tui/client/schemas.ts';
-import { MutationTracker, type MutationPort } from '../../../src/tui/client/mutations.ts';
+import {
+  COMMAND_TIMEOUT_MS,
+  MutationTracker,
+  type MutationCommand,
+  type MutationPort,
+} from '../../../src/tui/client/mutations.ts';
 import type { HomeRow } from '../../../src/tui/model/home-rows.ts';
 import { openDetail } from '../../../src/tui/model/detail-keys.ts';
 import { initialDetail } from '../../../src/tui/model/detail.ts';
@@ -9,12 +14,36 @@ import { reduce } from '../../../src/tui/model/reduce.ts';
 import { initialState, writeLock, type TuiState } from '../../../src/tui/model/state.ts';
 import { uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { actionsShowDue, openActions } from '../../../src/tui/model/actions.ts';
-import { flat, recheckScene, sendRecheck, useTui } from '../../support/tui-fixtures.ts';
+import {
+  chars,
+  explainOf,
+  inboxMessage,
+  key,
+  menu,
+  OWNER,
+  QUESTION,
+  TASK,
+  run,
+  sentCommand,
+  submits,
+  text,
+} from '../../support/tui-dialogs.ts';
+import { uuidOf } from '../../support/builders.ts';
+import { KEY } from '../../support/pty.ts';
+import {
+  flat,
+  pressAction,
+  recheckScene,
+  sendRecheck,
+  taskAdd,
+  useTui,
+} from '../../support/tui-fixtures.ts';
 
 // T056: no write goes out on stale data, and a draft survives it without being sent (US4 scenario 10,
 // SC-015, FR-044). The first block drives the Actions screen on a PTY, opened straight from Home; the second
 // checks the lock as a function of state, which is what the rest of the screens rely on.
 const tui = useTui();
+const ids = (sent: { id: string }[]): string[] => [...new Set(sent.map((x) => x.id))];
 const A = '019a0000-0000-7000-8000-000000000001';
 const B = '019a0000-0000-7000-8000-000000000002';
 const HEALTH: Health = { healthy: true, reason: null, slots: [], concurrency: 1, queue_length: 0 };
@@ -87,6 +116,77 @@ describe('US4 scenario 10: the Actions screen on stale data', () => {
     }
     await said('Done (request');
     expect(sent).toHaveLength(1);
+    expect(observed()).toBe(1);
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  }, 40_000);
+  it('on stale data keeps checking an unknown write to its end, keeps a typed reason, and sends nothing new', async () => {
+    const { sd, s, sent, control, holdDaemon, release, shows } = await recheckScene(tui);
+    const said = (text: string, ms = 10_000): Promise<void> =>
+      s.waitFor(() => flat(s.screenText()).includes(text), ms);
+    holdDaemon();
+    try {
+      // The daemon keeps the Recheck in progress: its answer times out and the write is unknown.
+      await sendRecheck(s);
+      await said('Result unknown - checking', COMMAND_TIMEOUT_MS + 5_000);
+      // Board reads fail while the daemon is still reachable: everything on screen is stale.
+      control.refuseBoard = true;
+      await said('Reconnecting');
+
+      // A reason typed for Cancel survives leaving and reopening the dialog, and is not sent.
+      await pressAction(s, 'Cancel task');
+      await s.waitForText('Reason');
+      s.send('keep this reason');
+      await s.waitForText('keep this reason');
+      s.send(KEY.esc);
+      await s.waitFor(() => !s.screenText().includes('keep this reason'));
+      await pressAction(s, 'Cancel task');
+      await s.waitForText('keep this reason');
+      s.send(KEY.tab);
+      s.send('cancel');
+      s.send(KEY.enter);
+      await said('Nothing was sent');
+      s.send(KEY.esc);
+    } finally {
+      release();
+    }
+    // Still stale, the lookup goes on and finds the stored result.
+    const before = shows();
+    await said('Done (request', 20_000);
+    expect(flat(s.screenText())).toContain('Reconnecting');
+    expect(shows()).toBeGreaterThan(before);
+    expect(ids(sent)).toHaveLength(1);
+    const history = await sd.query('owner', { kind: 'task_history', task_id: uuidOf(1) });
+    const events = history.envelope.data?.['events'] as { type: string }[];
+    expect(events.filter((e) => e.type === 'TaskCancelled')).toHaveLength(0);
+    control.refuseBoard = false;
+    s.send('q');
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  }, 60_000);
+});
+
+describe('US4 scenario 10: a failed task read while a dialog is open', () => {
+  it('sends nothing until task_explain answers again, then sends once', async () => {
+    const { sd, s, sent, control, observed } = await recheckScene(tui);
+    await pressAction(s, 'Recheck');
+    await s.waitForText('Ctrl-S sends');
+    // Anything new on the board makes the menu read task_explain again; that read fails, Home stays online.
+    control.refuseExplain = true;
+    await sd.command('owner', taskAdd(1, 'Another task'));
+    await s.waitFor(() => control.explainRefused > 0, 15_000);
+    s.send(KEY.ctrlS);
+    await s.waitFor(() => flat(s.screenText()).includes('could not be read just now'));
+    expect(flat(s.screenText())).not.toContain('Reconnecting');
+    expect(sent).toHaveLength(0);
+
+    control.refuseExplain = false;
+    for (let i = 0; i < 40 && sent.length === 0; i++) {
+      s.send(KEY.ctrlS);
+      await new Promise((r) => setTimeout(r, 300));
+    }
+    await s.waitFor(() => /Done \(request /.test(s.screenText()), 10_000);
+    expect(ids(sent)).toHaveLength(1);
     expect(observed()).toBe(1);
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
@@ -232,15 +332,203 @@ describe('US4 scenario 10: stale data locks writes', () => {
     expect(writeLock(s, A)).toBe('task_stale');
   });
 
-  it('keeps a draft in memory through stale and recovery without sending it', () => {
-    const base = withDetail(step(initialState({ cols: 100, rows: 30 }), succeeded).s, A);
-    const typed = reduce(base, { type: 'draft_changed', taskId: A, text: 'my answer' }).state;
-    const { s, effects } = step(typed, failed, succeeded);
-    expect(s.drafts.get(A)).toBe('my answer');
-    expect(effects.every((e) => (e as { type: string }).type !== 'send')).toBe(true);
-    expect(reduce(s, { type: 'draft_changed', taskId: A, text: null }).state.drafts.has(A)).toBe(
-      false,
-    );
+  it('keeps what was typed through stale data, a refusal, Esc and reopening, and never sends it alone', () => {
+    const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
+    const typed = run(open, ...chars('my reason')).state;
+
+    // Stale while typing: the text stays and confirming sends nothing.
+    const stale = run(typed, failed, key('tab'), ...chars('cancel'), key('enter'));
+    expect(submits(stale.effects)).toHaveLength(0);
+    expect(stale.state.dialog?.field?.text).toBe('my reason');
+    const back = run(stale.state, succeeded);
+    expect(submits(back.effects)).toHaveLength(0);
+    expect(back.state.dialog?.field?.text).toBe('my reason');
+
+    // Sent on fresh data, refused because the task moved: Esc and open again, as the dialog says.
+    const sent = run(typed, key('tab'), ...chars('cancel'), key('enter'));
+    const command = sentCommand(sent.effects);
+    const refused = run(sent.state, {
+      type: 'mutation_changed',
+      mutation: {
+        requestId: '019a0000-0000-7000-8000-0000000000dd',
+        command,
+        state: 'rejected',
+        result: { ok: false, code: 'conflict', message: 'stale_version' },
+        checks: 0,
+        resends: 0,
+      },
+    }).state;
+    expect(flat(text(refused))).toContain('Press Esc and open it again');
+    const reopened = run(refused, key('esc'), key('enter'));
+    expect(reopened.state.screens.at(-1)).toBe('dialog');
+    expect(reopened.state.dialog?.field?.text).toBe('my reason');
+    expect(reopened.state.dialog?.typed).toBe('');
+    expect(submits(reopened.effects)).toHaveLength(0);
+    // Memory only: the draft is not on any effect, so nothing writes it out.
+    expect(JSON.stringify(reopened.effects)).not.toContain('my reason');
+
+    // A write the daemon took drops the draft: the next dialog starts empty.
+    const again = run(reopened.state, key('tab'), ...chars('cancel'), key('enter'));
+    const accepted = run(again.state, {
+      type: 'mutation_changed',
+      mutation: {
+        requestId: '019a0000-0000-7000-8000-0000000000de',
+        command: sentCommand(again.effects),
+        state: 'accepted',
+        result: { ok: true, value: {} },
+        checks: 0,
+        resends: 0,
+      },
+    }).state;
+    expect(accepted.drafts.size).toBe(0);
+  });
+
+  it('a failed Actions read locks the write until a read asked after it answers, keeping the text', () => {
+    const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
+    const typed = run(open, ...chars('my reason')).state;
+    const session = typed.actions?.session ?? 0;
+    const explainRead = (ok: boolean, askedAt: number): Message => ({
+      type: 'actions_read',
+      taskId: TASK,
+      session,
+      askedAt,
+      at: askedAt + 1,
+      watermark: 7,
+      result: ok
+        ? { ok: true, value: explainOf({}, ['cancel']) }
+        : {
+            ok: false,
+            error: { kind: 'rejected', code: 'internal', message: uiText('x') } as never,
+          },
+    });
+    const failedRead = run(typed, explainRead(false, 30)).state;
+    expect(failedRead.connection.kind).toBe('online');
+    const tried = run(failedRead, key('tab'), ...chars('cancel'), key('enter'));
+    expect(submits(tried.effects)).toHaveLength(0);
+    expect(flat(text(tried.state))).toContain('could not be read just now');
+    expect(tried.state.dialog?.field?.text).toBe('my reason');
+    const sent = run(tried.state, explainRead(true, 40), key('enter'));
+    expect(sentCommand(sent.effects).payload).toEqual({ reason: 'my reason' });
+  });
+
+  it('a draft whose write turned unknown comes back when the lookup finds it refused, and goes when taken', () => {
+    const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
+    const sent = run(open, ...chars('my reason'), key('tab'), ...chars('cancel'), key('enter'));
+    const command = sentCommand(sent.effects);
+    const mutation = (state: 'unknown' | 'rejected' | 'accepted'): Message => ({
+      type: 'mutation_changed',
+      mutation: {
+        requestId: '019a0000-0000-7000-8000-0000000000df',
+        command,
+        state,
+        result:
+          state === 'unknown'
+            ? null
+            : state === 'accepted'
+              ? { ok: true, value: {} }
+              : { ok: false, code: 'conflict', message: 'stale_version' },
+        checks: 1,
+        resends: 0,
+      },
+    });
+    const lostAnswer = run(sent.state, mutation('unknown')).state;
+    expect(lostAnswer.dialog).toBeNull();
+    const refused = run(lostAnswer, mutation('rejected'));
+    const reopened = run(refused.state, key('enter'));
+    expect(reopened.state.dialog?.field?.text).toBe('my reason');
+    expect(submits([...refused.effects, ...reopened.effects])).toHaveLength(0);
+
+    const taken = run(run(sent.state, mutation('unknown')).state, mutation('accepted')).state;
+    expect(taken.drafts.size).toBe(0);
+  });
+
+  it.each([
+    ['taken at once', false],
+    ['taken after an unknown result', true],
+  ] as const)(
+    'drops a draft that differs from the sent text only by what sending trims, %s',
+    (_name, viaUnknown) => {
+      const accepted = (state: TuiState, command: MutationCommand, path: boolean): TuiState => {
+        const m = (st: 'unknown' | 'accepted'): Message => ({
+          type: 'mutation_changed',
+          mutation: {
+            requestId: '019a0000-0000-7000-8000-0000000000e1',
+            command,
+            state: st,
+            result: st === 'accepted' ? { ok: true, value: {} } : null,
+            checks: 0,
+            resends: 0,
+          },
+        });
+        return path
+          ? run(state, m('unknown'), m('accepted')).state
+          : run(state, m('accepted')).state;
+      };
+      const cancel = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
+      const sentCancel = run(
+        cancel,
+        ...chars('my reason  '),
+        key('tab'),
+        ...chars('cancel'),
+        key('enter'),
+      );
+      expect(sentCommand(sentCancel.effects).payload).toEqual({ reason: 'my reason' });
+      expect(
+        accepted(sentCancel.state, sentCommand(sentCancel.effects), viaUnknown).drafts.size,
+      ).toBe(0);
+
+      const pause = run(menu(OWNER, explainOf({}, ['pause'])), key('enter')).state;
+      const sentPause = run(pause, ...chars('  stop now '), key('ctrl_s'));
+      expect(sentCommand(sentPause.effects).payload).toEqual({ reason: 'stop now' });
+      expect(
+        accepted(sentPause.state, sentCommand(sentPause.effects), viaUnknown).drafts.size,
+      ).toBe(0);
+    },
+  );
+
+  it('keeps a draft edited after its write went out when that write is taken', () => {
+    const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
+    const sent = run(open, ...chars('first'), key('tab'), ...chars('cancel'), key('enter'));
+    const command = sentCommand(sent.effects);
+    const change = (st: 'unknown' | 'accepted'): Message => ({
+      type: 'mutation_changed',
+      mutation: {
+        requestId: '019a0000-0000-7000-8000-0000000000e2',
+        command,
+        state: st,
+        result: st === 'accepted' ? { ok: true, value: {} } : null,
+        checks: 0,
+        resends: 0,
+      },
+    });
+    const closed = run(sent.state, change('unknown')).state;
+    // The write is still unknown: reopened, the reason is edited into a new draft and closed again.
+    const edited = run(closed, key('enter'), ...chars(' and more'), key('esc')).state;
+    expect([...edited.drafts.values()]).toEqual(['first and more']);
+    expect([...run(edited, change('accepted')).state.drafts.values()]).toEqual(['first and more']);
+  });
+
+  it('an Answer draft belongs to its question, not to the next question on the task', () => {
+    const OTHER_Q = '019a0000-0000-7000-8000-0000000000ab';
+    const asking = (s: TuiState, id: string): Message => {
+      const m = structuredClone(inboxMessage(s)) as Extract<Message, { type: 'dialog_read' }>;
+      (m.result as { value: { items: { question_id: string }[] } }).value.items[0]!.question_id =
+        id;
+      return m;
+    };
+    const base = menu(OWNER, explainOf());
+    const first = run(base, key('enter')).state;
+    const typed = run(first, asking(first, QUESTION), ...chars('Use Postgres')).state;
+    const closed = run(typed, key('esc')).state;
+
+    const second = run(closed, key('enter')).state;
+    const onB = run(second, asking(second, OTHER_Q)).state;
+    expect(onB.dialog?.known?.id).toBe(OTHER_Q);
+    expect(onB.dialog?.field?.text).toBe('');
+
+    const third = run(run(onB, key('esc')).state, key('enter')).state;
+    const onA = run(third, asking(third, QUESTION)).state;
+    expect(onA.dialog?.field?.text).toBe('Use Postgres');
   });
 
   it('still reconciles an unknown write while data is stale', async () => {

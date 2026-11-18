@@ -5,7 +5,9 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { callDaemon } from '../../../src/cli/client.ts';
+import { CUSR_COMMANDS } from '../../../src/cli/commands.ts';
 import { CONTROL_SOCKET, ExitCode } from '../../../src/cli/output.ts';
+import { runCli } from '../../../src/cli/program.ts';
 import { startDaemon, STORE_FILE } from '../../../src/daemon/main.ts';
 import { taskControl } from '../../../src/daemon/task-control.ts';
 import type { TaskState } from '../../../src/domain/state.ts';
@@ -69,6 +71,8 @@ function counts(store: Store): Record<string, number> {
     events: n('events'),
     effects: n('effects'),
     commands: n('command_ledger'),
+    // An attempt is an operation the runner was given.
+    attempts: n('operations'),
   };
 }
 
@@ -268,6 +272,7 @@ describe('request_show', () => {
     async function crashAt(at: 'before_commit' | 'after_commit'): Promise<{
       query: (id: string) => Promise<Record<string, unknown>>;
       store: Store;
+      dataDir: string;
     }> {
       const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-req-crash-')));
       dirs.push(base);
@@ -323,6 +328,7 @@ describe('request_show', () => {
       running.push(stops);
       return {
         store: value.store,
+        dataDir,
         query: async (id) => {
           const r = await callDaemon({
             socketPath,
@@ -336,6 +342,30 @@ describe('request_show', () => {
         },
       };
     }
+
+    /** The lookup a user runs, as printed (`cusr request show <id>`), with no flag but the data dir. */
+    async function lookup(dataDir: string, id: string): Promise<{ code: number; out: string }> {
+      let out = '';
+      const code = await runCli(
+        { name: 'cusr', description: '', version: '0' },
+        ['request', 'show', id, '--data-dir', dataDir],
+        { stdout: (t) => (out += t), stderr: () => undefined },
+        CUSR_COMMANDS,
+      );
+      return { code, out };
+    }
+
+    it.each(['before_commit', 'after_commit'] as const)(
+      'crash %s: the printed lookup says interrupted, exits 0 and changes no task, event, attempt or command',
+      async (at) => {
+        const { store, dataDir } = await crashAt(at);
+        const before = counts(store);
+        const r = await lookup(dataDir, uuidOf(7));
+        expect(r.code).toBe(ExitCode.ok);
+        expect(r.out.split('\n')[0]).toBe('Request interrupted');
+        expect(counts(store)).toEqual(before);
+      },
+    );
 
     it('before the task was written: interrupted, the assigned ID is not presented as a task', async () => {
       const { query, store } = await crashAt('before_commit');

@@ -223,6 +223,9 @@ export function writeBlock(state: TuiState, menu: ActionsMenu): string | null {
   if (lock === 'task_stale')
     return 'Nothing was sent: this task is being read again after the connection came back.';
   if (menu.show.data === null) return 'Nothing was sent: this task is still being read.';
+  // The last read failed: what is on screen may be out of date until a read asked after it answers (FR-044).
+  if (menu.explain.error !== null || menu.show.error !== null)
+    return 'Nothing was sent: this task could not be read just now. It is read again before anything can be sent.';
   return null;
 }
 

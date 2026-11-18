@@ -18,6 +18,7 @@ import {
 import { onDetailRead } from './detail.ts';
 import {
   dialogHasText,
+  dropSentDraft,
   onDialogCommand,
   onDialogKey,
   onDialogMutation,
@@ -139,12 +140,6 @@ export function reduce(state: TuiState, message: Message): Reduced {
         stale: true,
         lastError: message.failure.message ?? state.lastError,
       });
-    case 'draft_changed': {
-      const drafts = new Map(state.drafts);
-      if (message.text === null || message.text === '') drafts.delete(message.taskId);
-      else drafts.set(message.taskId, message.text);
-      return same({ ...state, drafts });
-    }
     case 'detail_read':
       return same(onDetailRead(state, message));
     case 'logs_read':
@@ -170,8 +165,9 @@ export function reduce(state: TuiState, message: Message): Reduced {
       const dialog = onDialogMutation({ ...state, mutations }, m);
       const review = onReviewMutation(dialog.state, m);
       // A write that went through moved the task: read the board now instead of at the next tick.
+      const after = onRunConfigMutation(onNewTaskMutation(review.state, m), m);
       return {
-        state: onRunConfigMutation(onNewTaskMutation(review.state, m), m),
+        state: { ...after, drafts: dropSentDraft(after.drafts, m) },
         effects: [
           ...dialog.effects,
           ...review.effects,

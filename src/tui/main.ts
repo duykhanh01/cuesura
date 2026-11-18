@@ -38,8 +38,8 @@ function unknownResultNotice(mutations: Iterable<Mutation>): string | null {
     .filter((m) => m.state === 'sending' || m.state === 'unknown' || m.state === 'unresolved')
     .map(
       (m) =>
-        `cusr: the result of ${m.command.kind} ${m.command.kind === 'task_add' ? 'for a new task' : m.command.task_id === null ? 'on the queue' : `on task ${m.command.task_id}`} is not known.\n` +
-        `  request ID: ${m.requestId}\n  look it up with: cusr request show ${m.requestId}\n`,
+        `cusr: request ${m.requestId} (${m.command.kind}): result unknown\n` +
+        `cusr: check it with: cusr request show ${m.requestId}\n`,
     );
   return lines.length === 0 ? null : lines.join('');
 }
@@ -124,6 +124,8 @@ export function runTui(): void {
   const tracker = new MutationTracker({
     port,
     connected: () => state.connection.kind === 'online',
+    // Stale data locks new writes, not the lookup of one already sent; resends still wait for `online`.
+    mayCheck: () => state.connection.kind === 'online' || state.connection.kind === 'reconnecting',
     onChange(mutation) {
       known.set(mutation.requestId, mutation);
       dispatch({ type: 'mutation_changed', mutation });

@@ -23,7 +23,7 @@ export type TerminalOptions = {
   readonly onRedraw: () => void;
   /** Line printed on stderr after restoring, when a signal or failure ends the process. */
   readonly exitNotice?: () => string | null;
-  /** Exit status when a signal or internal failure ends the process while `exitNotice` has something to say (EC-012). */
+  /** Exit status when a signal ends the process while `exitNotice` has something to say (EC-012). */
   readonly exitNoticeCode?: number;
 };
 
@@ -67,15 +67,22 @@ export function openTerminal(options: TerminalOptions): Terminal {
     process.exit(code);
   };
 
-  /** A failure or signal: the session ends here, but pending notices must still reach the user. */
-  const abort = (code: number, message: string | null): never => {
+  /**
+   * A failure or signal: the session ends here, but pending notices must still reach the user. An internal
+   * failure keeps status 1 even then (contracts/tui.md); a signal takes `exitNoticeCode`.
+   */
+  const abort = (code: number, message: string | null, failure = false): never => {
     const extra = options.exitNotice?.() ?? null;
-    const status = extra !== null ? (options.exitNoticeCode ?? code) : code;
+    const status = extra !== null && !failure ? (options.exitNoticeCode ?? code) : code;
     return exit(status, `${message === null ? '' : `${message}\n`}${extra === null ? '' : extra}`);
   };
 
   const fail = (cause: unknown): never =>
-    abort(1, `cusr: internal error: ${cause instanceof Error ? cause.message : String(cause)}`);
+    abort(
+      1,
+      `cusr: internal error: ${cause instanceof Error ? cause.message : String(cause)}`,
+      true,
+    );
 
   for (const [signal, number] of Object.entries(SIGNAL_NUMBERS))
     process.on(signal, () => abort(128 + number, null));

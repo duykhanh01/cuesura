@@ -1208,7 +1208,10 @@ describe('US4 below the PTY: what a dialog sends', () => {
       resends: 0,
     };
     const notice = exitNotice(quit.state, [mutation]) ?? '';
-    expect(notice).toContain('request ID: 019a0000-0000-7000-8000-0000000000ee');
+    expect(notice).toContain(
+      'cusr: request 019a0000-0000-7000-8000-0000000000ee (task_cancel): result unknown\n' +
+        'cusr: check it with: cusr request show 019a0000-0000-7000-8000-0000000000ee\n',
+    );
     expect(notice).toContain(`what you typed in task_cancel on task ${TASK}`);
     expect(notice).toContain('  line one\n  two\n');
     // Nothing typed, or nothing on its way: no draft to keep.

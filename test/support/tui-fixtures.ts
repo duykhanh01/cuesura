@@ -238,6 +238,16 @@ export async function cliJson(sd: SeededDaemon, ...argv: string[]): Promise<CliR
   return { code, envelope: JSON.parse(out) as CliRun['envelope'] };
 }
 
+/** Tasks, events and attempts in the daemon's store: what a lookup must leave as it found (SC-014). */
+export function storeCounts(sd: SeededDaemon): Record<string, number> {
+  const store = sd.daemon?.store;
+  if (store === undefined) throw new Error('daemon not started');
+  const db = storeDb(store);
+  const n = (t: string): number =>
+    (db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get() as { n: number }).n;
+  return { tasks: n('tasks'), events: n('events'), attempts: n('operations') };
+}
+
 export async function watermark(sd: SeededDaemon): Promise<number> {
   const r = await sd.query('owner', { kind: 'task_board', limit: 1 });
   return r.envelope.data?.['watermark'] as number;
@@ -812,6 +822,12 @@ export async function recheckScene(tui: ReturnType<typeof useTui>) {
     refuseCommands: 0,
     refuseShows: false,
     refuseTaskShow: false,
+    /** Board reads fail while the daemon stays reachable: the screen is stale, lookups still answer. */
+    refuseBoard: false,
+    /** `task_explain` fails: the Actions menu's read of what the task allows. */
+    refuseExplain: false,
+    /** `task_explain` reads refused so far. */
+    explainRefused: 0,
     refuseAll: false,
     /** How many times each admitted `task_recheck` is delivered to the daemon again, once the first is in. */
     replays: 0,
@@ -833,10 +849,13 @@ export async function recheckScene(tui: ReturnType<typeof useTui>) {
         );
     }
     if (body.includes('"request_show"')) shows += 1;
+    if (control.refuseExplain && body.includes('"task_explain"')) control.explainRefused += 1;
     return (
       control.refuseAll ||
       (control.refuseShows && body.includes('"request_show"')) ||
-      (control.refuseTaskShow && body.includes('"task_show"'))
+      (control.refuseTaskShow && body.includes('"task_show"')) ||
+      (control.refuseBoard && body.includes('"task_board"')) ||
+      (control.refuseExplain && body.includes('"task_explain"'))
     );
   };
   const s = tui.cusr(proxy.dataDir);

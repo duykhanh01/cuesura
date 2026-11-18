@@ -62,8 +62,13 @@ export type MutationPort = {
 
 export type MutationDeps = {
   readonly port: MutationPort;
-  /** Checks and resends count only while the daemon is reachable; reconnecting has its own limit. */
+  /** Resends wait for this; reconnecting has its own limit. */
   readonly connected: () => boolean;
+  /**
+   * Whether an unknown write may be looked up now; defaults to `connected`. Looking up stays open on stale
+   * data (FR-044), and a look the daemon answered uses a turn whatever the board's state.
+   */
+  readonly mayCheck?: () => boolean;
   readonly newId?: () => string;
   readonly onChange?: (m: Mutation) => void;
 };
@@ -157,23 +162,23 @@ export class MutationTracker {
   /** One automatic step for an `unknown` write, meant for each refresh tick; a no-op otherwise. */
   async poll(requestId: string): Promise<Mutation | undefined> {
     const m = this.#all.get(requestId);
-    if (m === undefined || m.state !== 'unknown') return m;
-    if (!this.#deps.connected() || this.#busy.has(requestId)) return m;
+    if (m === undefined || m.state !== 'unknown' || this.#busy.has(requestId)) return m;
+    if (!(this.#deps.mayCheck ?? this.#deps.connected)()) return m;
     if (m.checks >= MAX_CHECKS) return this.#set({ ...m, state: 'unresolved' });
     this.#busy.add(requestId);
     try {
       const counted = this.#set({ ...m, checks: m.checks + 1 });
       const r = await this.#deps.port.requestShow(requestId, CHECK_TIMEOUT_MS);
-      // A check that went unanswered because the link dropped or it timed out says nothing: it does not use a turn.
-      if (!r.ok && (!this.#deps.connected() || r.error.kind === 'timeout'))
+      // A look that never reached the daemon, or was cut while the board too says the link is down, uses no
+      // turn. One cut after reaching a daemon that still serves the board counts, as does a timeout: the
+      // ceiling must end a round the daemon keeps failing (data-model.md).
+      if (
+        !r.ok &&
+        r.error.kind === 'connection' &&
+        (r.error.reached === false || !this.#deps.connected())
+      )
         return this.#set({ ...counted, checks: m.checks });
-      const after = await this.#afterCheck(counted, r);
-      if (this.#deps.connected()) return this.#capped(after);
-      // Offline, an answer that settles nothing does not use a turn and nothing is given up: the round resumes
-      // once the link is back.
-      return after.state === 'unknown'
-        ? this.#set({ ...after, checks: Math.min(after.checks, m.checks) })
-        : after;
+      return this.#capped(await this.#afterCheck(counted, r));
     } finally {
       this.#busy.delete(requestId);
     }
@@ -226,38 +231,26 @@ export class MutationTracker {
   }
 
   async #resend(m: Mutation): Promise<Mutation> {
-    // The link may have dropped while `request_show` was in flight: nothing is spent, the round resumes later.
-    if (!this.#deps.connected()) return this.#set({ ...m, checks: Math.max(0, m.checks - 1) });
+    // Resends wait for the connection; the answered look that asked for one keeps its turn.
+    if (!this.#deps.connected()) return m;
     if (m.resends >= MAX_RESENDS) return this.#set({ ...m, state: 'unresolved' });
     this.#resending.add(m.requestId);
     try {
-      let timedOut = false;
-      const sent = await this.#send(
-        this.#set({ ...m, state: 'sending', resends: m.resends + 1 }),
-        (kind) => (timedOut = kind === 'timeout'),
-        true,
-      );
-      if (sent.state !== 'unknown') return sent;
-      // Only the check that asked for the resend is given back when the link is down; the resend itself counts.
-      // A timeout gives back both, so a check at the ceiling does not end the round.
-      if (timedOut)
-        return this.#set({ ...sent, resends: m.resends, checks: Math.max(0, m.checks - 1) });
-      return this.#deps.connected()
-        ? sent
-        : this.#set({ ...sent, checks: Math.max(0, m.checks - 1) });
+      // Sent while connected, a resend uses its turn whatever became of it: the ceiling bounds a link that
+      // keeps dropping only this request.
+      return await this.#send(this.#set({ ...m, state: 'sending', resends: m.resends + 1 }), true);
     } finally {
       this.#resending.delete(m.requestId);
     }
   }
 
-  async #send(m: Mutation, onLost?: (kind: string) => void, resend = false): Promise<Mutation> {
+  async #send(m: Mutation, resend = false): Promise<Mutation> {
     const r = await this.#deps.port.command(
       { ...m.command, request_id: m.requestId },
       COMMAND_TIMEOUT_MS,
     );
     if (r.ok) return this.#set({ ...m, state: 'accepted', result: { ok: true, value: r.value } });
     if (lostAnswer(r.error) || (resend && notAdmitted(r.error))) {
-      onLost?.(r.error.kind);
       return this.#set({ ...m, state: 'unknown' });
     }
     return this.#set({

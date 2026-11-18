@@ -26,8 +26,6 @@ export type Message =
       readonly type: 'read_failed';
       readonly failure: Extract<ReadOutcome, { ok: false }>;
     }
-  /** The user typed in a task's input; `null` text drops the draft (sent, or given up). */
-  | { readonly type: 'draft_changed'; readonly taskId: string; readonly text: string | null }
   /** One frame of the animation went by. */
   | { readonly type: 'tick' }
   /** The tracker moved a write on: sent, lost, found, or given up on. */
