@@ -43,6 +43,13 @@ import {
   runConfigDirty,
   RUN_CONFIG_BOX_X,
 } from './run-config.ts';
+import {
+  onReviewCommand,
+  onReviewKey,
+  onReviewMutation,
+  onReviewRead,
+  reviewAfterRead,
+} from './review.ts';
 import { BOX_X } from '../views/form.ts';
 import type { Effect, Message } from './messages.ts';
 import {
@@ -96,6 +103,7 @@ export function reduce(state: TuiState, message: Message): Reduced {
             state.stale && state.runConfig !== null
               ? { ...state.runConfig, freshAfter: message.at }
               : state.runConfig,
+          review: reviewAfterRead(state, message.at, message.projects?.caller),
           connection: nextConnection(state.connection, { ok: true }),
           stale: false,
           queuePaused: message.board.queue_paused ?? null,
@@ -154,15 +162,19 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onNewTaskTasksRead(state, message));
     case 'run_config_read':
       return same(onRunConfigRead(state, message));
+    case 'review_read':
+      return same(onReviewRead(state, message));
     case 'mutation_changed': {
       const m = message.mutation;
       const mutations = new Map(state.mutations).set(mutationTarget(m.command), m);
       const dialog = onDialogMutation({ ...state, mutations }, m);
+      const review = onReviewMutation(dialog.state, m);
       // A write that went through moved the task: read the board now instead of at the next tick.
       return {
-        state: onRunConfigMutation(onNewTaskMutation(dialog.state, m), m),
+        state: onRunConfigMutation(onNewTaskMutation(review.state, m), m),
         effects: [
           ...dialog.effects,
+          ...review.effects,
           ...(m.state === 'accepted' && state.connection.kind === 'online'
             ? [{ type: 'refresh_now' as const }]
             : []),
@@ -217,6 +229,8 @@ function onKey(given: TuiState, key: Key): Reduced {
       return onNewTaskCommand(state, command) ?? same(state);
     case 'run_config':
       return onRunConfigCommand(state, command) ?? same(state);
+    case 'review':
+      return onReviewCommand(state, command) ?? same(state);
     case 'dialog':
       return onDialogCommand(state, command) ?? same(state);
   }
@@ -241,6 +255,7 @@ function onText(state: TuiState, key: Key): Reduced {
   if (screen === 'run_config')
     return onRunConfigKey(state, key, Math.max(1, state.size.cols - RUN_CONFIG_BOX_X - 1));
   if (screen === 'dialog') return onDialogKey(state, key);
+  if (screen === 'review') return onReviewKey(state, key);
   const draft = state.filterDraft;
   if (keyContext(state) !== 'filter_text' || draft === null) return same(state);
   const put = (query: string): Reduced =>

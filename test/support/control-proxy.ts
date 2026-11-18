@@ -31,6 +31,8 @@ export class ControlProxy {
   beforeForward: ((request: string) => Promise<void> | undefined) | null = null;
   /** Observes the complete upstream reply, including replies dropped by the proxy. */
   onReply: ((request: string, response: Buffer) => void) | null = null;
+  /** In `forward`, changes the body of each reply before the client sees it; `Content-Length` follows. */
+  rewrite: ((body: string) => string) | null = null;
   #target: string;
   readonly #server: Server;
   readonly #open = new Set<Socket>();
@@ -111,8 +113,25 @@ export class ControlProxy {
     }
     if (this.mode === 'forward') {
       upstream.on('data', (b: Buffer) => this.tap?.('response', b));
-      upstream.pipe(client);
-      upstream.on('close', () => client.destroy());
+      const rewrite = this.rewrite;
+      if (rewrite === null) upstream.pipe(client);
+      else {
+        const chunks: Buffer[] = [];
+        upstream.on('data', (b: Buffer) => chunks.push(b));
+        upstream.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          const split = raw.indexOf('\r\n\r\n');
+          const body = rewrite(raw.slice(split + 4));
+          const head = raw
+            .slice(0, split)
+            .replace(/content-length: \d+/i, `content-length: ${Buffer.byteLength(body)}`);
+          client.end(`${head}\r\n\r\n${body}`);
+        });
+      }
+      // A rewritten reply is ended by `client.end`; destroying here could drop it unwritten.
+      upstream.on('close', () => {
+        if (rewrite === null) client.destroy();
+      });
       return;
     }
     // Reads the whole response and throws it away; the client sees a connection that died.

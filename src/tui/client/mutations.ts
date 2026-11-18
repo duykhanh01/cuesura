@@ -4,7 +4,8 @@
  * daemon and can have only one effect.
  */
 import { v7 as uuidv7 } from 'uuid';
-import type { PortError, PortResult } from './daemon-port.ts';
+import { committedNote, type PortError, type PortResult } from './daemon-port.ts';
+import type { SafeText } from '../terminal/safe-text.ts';
 import type { CommandReply, RequestShow } from './schemas.ts';
 
 export const MAX_CHECKS = 60;
@@ -34,7 +35,13 @@ export type MutationState = 'sending' | 'accepted' | 'rejected' | 'unknown' | 'u
 
 export type MutationResult =
   | { readonly ok: true; readonly value: unknown }
-  | { readonly ok: false; readonly code: string; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly message: string;
+      /** What the refused command had already recorded. */
+      readonly committed?: SafeText;
+    };
 
 export type Mutation = {
   readonly requestId: string;
@@ -73,11 +80,29 @@ function deepFreeze<T>(v: T): T {
   return v;
 }
 
+const withCommitted = (c: SafeText | null): { committed?: SafeText } =>
+  c === null ? {} : { committed: c };
+
 const isOpen = (m: Mutation): boolean => m.state === 'unknown' || m.state === 'unresolved';
 
-/** A failure that says nothing about whether the daemon acted on the request. */
+/**
+ * A failure that says nothing about whether the daemon acted on the request. `internal` is the daemon
+ * saying its handler failed after it may have written part of it; `store_write_failed` may come after the
+ * handler wrote, when the ledger could not store its result. `request_show` tells which, and the same
+ * request ID finishes it.
+ */
 const lostAnswer = (e: PortError): boolean =>
-  e.kind === 'connection' || e.kind === 'timeout' || e.kind === 'incompatible';
+  e.kind === 'connection' ||
+  e.kind === 'timeout' ||
+  e.kind === 'incompatible' ||
+  (e.kind === 'rejected' && (e.code === 'internal' || e.code === 'store_write_failed'));
+
+/**
+ * Refused before admission. For a first send that is the answer; for a resend it says nothing about the
+ * attempt the ledger already holds, which stays unknown until the same ID can be finished.
+ */
+const notAdmitted = (e: PortError): boolean =>
+  e.kind === 'rejected' && e.code === 'store_unwritable';
 
 export class MutationTracker {
   readonly #deps: MutationDeps;
@@ -188,7 +213,12 @@ export class MutationTracker {
             : {
                 ...m,
                 state: 'rejected',
-                result: { ok: false, code: o.error.code, message: o.error.message },
+                result: {
+                  ok: false,
+                  code: o.error.code,
+                  message: o.error.message,
+                  ...withCommitted(committedNote(o.error['details'])),
+                },
               },
         );
       }
@@ -205,6 +235,7 @@ export class MutationTracker {
       const sent = await this.#send(
         this.#set({ ...m, state: 'sending', resends: m.resends + 1 }),
         (kind) => (timedOut = kind === 'timeout'),
+        true,
       );
       if (sent.state !== 'unknown') return sent;
       // Only the check that asked for the resend is given back when the link is down; the resend itself counts.
@@ -219,13 +250,13 @@ export class MutationTracker {
     }
   }
 
-  async #send(m: Mutation, onLost?: (kind: string) => void): Promise<Mutation> {
+  async #send(m: Mutation, onLost?: (kind: string) => void, resend = false): Promise<Mutation> {
     const r = await this.#deps.port.command(
       { ...m.command, request_id: m.requestId },
       COMMAND_TIMEOUT_MS,
     );
     if (r.ok) return this.#set({ ...m, state: 'accepted', result: { ok: true, value: r.value } });
-    if (lostAnswer(r.error)) {
+    if (lostAnswer(r.error) || (resend && notAdmitted(r.error))) {
       onLost?.(r.error.kind);
       return this.#set({ ...m, state: 'unknown' });
     }
@@ -236,6 +267,7 @@ export class MutationTracker {
         ok: false,
         code: r.error.kind === 'rejected' ? r.error.code : r.error.kind,
         message: r.error.message,
+        ...withCommitted(r.error.kind === 'rejected' ? (r.error.committed ?? null) : null),
       },
     });
   }

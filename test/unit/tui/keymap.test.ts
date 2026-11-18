@@ -1,3 +1,4 @@
+import { openReview } from '../../../src/tui/model/review.ts';
 import { openRunConfig } from '../../../src/tui/model/run-config.ts';
 import { describe, expect, it } from 'vitest';
 import type {
@@ -169,6 +170,7 @@ function contexts(): Record<Context, TuiState> {
     actions: menu,
     new_task: run(h, ch('n')),
     run_config: openRunConfig(menu, TASK(2), sanitize('Task')).state,
+    review: openReview(menu, TASK(2), sanitize('Task')).state,
     dialog_text: dialog('answer'),
     dialog_confirm: dialog('approve'),
     dialog_plain: dialog('recheck'),
@@ -189,6 +191,7 @@ const TYPING: readonly Context[] = [
   'dialog_confirm',
   'new_task',
   'run_config',
+  'review',
 ];
 
 describe('the keymap is the one source of keys, hints and Help (T050)', () => {

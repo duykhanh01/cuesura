@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
+import { admitCommand } from '../../../src/application/commands.ts';
 import { confirmTask, type ConfirmDeps } from '../../../src/application/confirm.ts';
 import { startTask, type StartDeps } from '../../../src/application/start.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
@@ -690,5 +691,262 @@ describe('start freezes one snapshot under the slot before RUNNING (T032, FR-002
       path: chosen,
       content: '# Detail\nKeep acceptance and tests.\n',
     });
+  });
+});
+
+// T4.2-R02: `task confirm --run-config` records the intake first and the run config second, under the keys and
+// versions every earlier daemon used, so a request one of them left `admitted` replays to what it recorded.
+describe('task confirm with a run config: what one request records, and its replay', () => {
+  async function proposed(d: StoreDriver) {
+    const t = fromAssistant({ id: uuidOf(1) });
+    d.must(t.id, { kind: 'create_task', task: t });
+    const selection = await configuredSelection(t, 'direct-pr');
+    d.must(t.id, { kind: 'propose_run_config', selection });
+    return { t, digest: selectionDigest(selection) };
+  }
+  const count = (d: StoreDriver, id: string, type: string) =>
+    d.store.readEvents(id as never).filter((e) => e.type === type).length;
+  /** What an earlier daemon stored for the intake step before it stopped. */
+  function intakeStep(d: StoreDriver, t: CanonicalTask, cmd: ReturnType<typeof confirmCmd>) {
+    return d.must(
+      t.id,
+      { kind: 'confirm_task' },
+      {
+        dedup_key: `cmd:${cmd.request_id}:confirm`,
+        expected_version: cmd.expected_version,
+        authz: ownerAuthz(),
+      },
+    );
+  }
+  /** What it stored for the run step, accepted or refused, at the version it read then. */
+  function runStep(d: StoreDriver, t: CanonicalTask, cmd: { request_id: string }, digest: string) {
+    const r = d.send(
+      t.id,
+      { kind: 'confirm_run_config', digest: digest as never },
+      {
+        dedup_key: `cmd:${cmd.request_id}:run`,
+        expected_version: d.task(t.id).version,
+        authz: ownerAuthz(),
+      },
+    );
+    expect(r.ok).toBe(true);
+  }
+
+  it('a wrong digest after the intake: says the intake was recorded, at which revision, and replays the same', async () => {
+    const { d, confirmDeps } = setup();
+    const { t } = await proposed(d);
+    const cmd = { ...confirmCmd(d, t, 1), run_config_digest: `sha256:${'0'.repeat(64)}` };
+    const first = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(first).toMatchObject({
+      ok: false,
+      error: {
+        code: 'rejected',
+        detail: { reason: 'run_config_digest_mismatch' },
+        committed: { intake: 'confirmed', revision: 1 },
+      },
+    });
+    expect(d.task(t.id)).toMatchObject({ confirmed: true, run: { confirmation: null } });
+    // The task moves on; the same request ID still answers exactly what it answered.
+    d.must(t.id, { kind: 'source_updated', task: { ...t, title: 'renamed' } });
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toEqual(first);
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+  });
+
+  it('an earlier daemon stopped after the intake: the replay records the run config once and reports both', async () => {
+    const { d, confirmDeps } = setup();
+    const { t, digest } = await proposed(d);
+    const cmd = { ...confirmCmd(d, t, 2), run_config_digest: digest };
+    intakeStep(d, t, cmd);
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r).toMatchObject({ ok: true, value: { run_config: 'confirmed' } });
+    expect(d.task(t.id)).toMatchObject({ confirmed: true, run: { confirmation: { digest } } });
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(1);
+  });
+
+  it('an earlier daemon stopped after both steps, then the task moved: the replay reports both, once', async () => {
+    const { d, confirmDeps } = setup();
+    const { t, digest } = await proposed(d);
+    const cmd = { ...confirmCmd(d, t, 3), run_config_digest: digest };
+    intakeStep(d, t, cmd);
+    runStep(d, t, cmd, digest);
+    d.must(t.id, { kind: 'source_updated', task: { ...t, priority: 7 } });
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r).toMatchObject({ ok: true, value: { run_config: 'confirmed' } });
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(1);
+  });
+
+  it('stopped after the intake, then the task moved: the replay says the intake alone was recorded', async () => {
+    const { d, confirmDeps } = setup();
+    const { t, digest } = await proposed(d);
+    const cmd = { ...confirmCmd(d, t, 4), run_config_digest: digest };
+    const intake = intakeStep(d, t, cmd);
+    d.must(t.id, { kind: 'source_updated', task: { ...t, priority: 5 } });
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r).toMatchObject({
+      ok: false,
+      error: {
+        code: 'conflict',
+        reason: 'stale_version',
+        committed: { intake: 'confirmed', revision: 1, task_version: intake.task_version },
+      },
+    });
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toEqual(r);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(0);
+  });
+
+  /** Admits `cmd` the way the daemon does, so the request ID is bound to this body and actor. */
+  function admitted(
+    d: StoreDriver,
+    cmd: ReturnType<typeof confirmCmd> & { run_config_digest: string },
+  ) {
+    let next = 7000;
+    const a = admitCommand(
+      { store: d.store, now: () => d.now, newId: () => uuidOf(next++) },
+      OWNER,
+      {
+        kind: 'task_confirm',
+        request_id: cmd.request_id,
+        project: cmd.project,
+        task_id: cmd.task_id,
+        expected_version: cmd.expected_version,
+        payload: { run_config_digest: cmd.run_config_digest },
+      },
+    );
+    expect(a.ok).toBe(true);
+    return cmd;
+  }
+  /** An earlier daemon replayed after the intake step, read a later version, and recorded the run step there. */
+  async function replayedByEarlierDaemon(n: number, move: 'preflight' | 'source' | 'cancel') {
+    const f = setup();
+    const { d, confirmDeps } = f;
+    const { t, digest } = await proposed(d);
+    const cmd = admitted(d, { ...confirmCmd(d, t, n), run_config_digest: digest });
+    const intake = intakeStep(d, t, cmd);
+    if (move === 'preflight') {
+      // An intake-only request at the intake's version runs the preflight and moves the version on.
+      const other = await confirmTask(confirmDeps(), OWNER, {
+        ...confirmCmd(d, t, n + 50),
+        expected_version: intake.task_version as number,
+      });
+      expect(other.ok).toBe(true);
+    } else if (move === 'cancel') d.must(t.id, { kind: 'cancel', reason: 'No longer needed' });
+    else d.must(t.id, { kind: 'source_updated', task: { ...t, priority: 5 } });
+    expect(d.task(t.id).version).toBeGreaterThan(intake.task_version as number);
+    runStep(d, t, cmd, digest);
+    return { ...f, t, cmd, intake };
+  }
+
+  it('an earlier daemon recorded the run step at a later version: the replay returns that confirmation', async () => {
+    const { d, confirmDeps, t, cmd } = await replayedByEarlierDaemon(6, 'preflight');
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r).toMatchObject({ ok: true, value: { run_config: 'confirmed' } });
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toMatchObject({ ok: true });
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(1);
+  });
+
+  it('an earlier daemon recorded a refusal of the run step at a later version: the replay returns that refusal', async () => {
+    const { d, confirmDeps, t, cmd, intake } = await replayedByEarlierDaemon(7, 'source');
+    const stored = d.store.priorTrigger(`cmd:${cmd.request_id}:run`)?.outcome.decision;
+    expect(stored?.kind).toBe('rejected');
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r).toMatchObject({
+      ok: false,
+      error: {
+        code: 'rejected',
+        reason: stored?.kind === 'rejected' ? stored.code : 'never',
+        committed: { intake: 'confirmed', revision: 1, task_version: intake.task_version },
+      },
+    });
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toEqual(r);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(0);
+  });
+
+  it('an earlier daemon logged the run step as ignored because the task ended: the replay says so, never confirmed', async () => {
+    const { d, confirmDeps, t, cmd, intake } = await replayedByEarlierDaemon(10, 'cancel');
+    expect(d.task(t.id).status).toBe('CANCELLED');
+    const stored = d.store.priorTrigger(`cmd:${cmd.request_id}:run`)?.outcome.decision;
+    expect(stored?.kind).toBe('accepted');
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r).toMatchObject({
+      ok: false,
+      error: {
+        code: 'rejected',
+        reason: 'task_terminal',
+        detail: { reason: 'terminal', trigger_kind: 'confirm_run_config' },
+        committed: { intake: 'confirmed', revision: 1, task_version: intake.task_version },
+      },
+    });
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toEqual(r);
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(0);
+    expect(d.task(t.id).run?.confirmation ?? null).toBeNull();
+  });
+
+  it("stopped after the intake, then the task ended: this daemon's replay never reports the run config confirmed", async () => {
+    const { d, confirmDeps } = setup();
+    const { t, digest } = await proposed(d);
+    const cmd = admitted(d, { ...confirmCmd(d, t, 11), run_config_digest: digest });
+    const intake = intakeStep(d, t, cmd);
+    d.must(t.id, { kind: 'cancel', reason: 'No longer needed' });
+    const r = await confirmTask(confirmDeps(), OWNER, cmd);
+    expect(r.ok).toBe(false);
+    expect(r).toMatchObject({
+      error: { committed: { intake: 'confirmed', revision: 1, task_version: intake.task_version } },
+    });
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toEqual(r);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(0);
+  });
+
+  it('a run step under the same key that this admitted request cannot have written keeps the hash mismatch', async () => {
+    const { d, confirmDeps } = setup();
+    const { t, digest } = await proposed(d);
+    // Not admitted: nothing binds this request ID to a body, so the stored step is not recovered.
+    const loose = { ...confirmCmd(d, t, 8), run_config_digest: digest };
+    intakeStep(d, t, loose);
+    d.must(t.id, { kind: 'source_updated', task: { ...t, priority: 5 } });
+    runStep(d, t, loose, digest);
+    expect(await confirmTask(confirmDeps(), OWNER, loose)).toMatchObject({
+      ok: false,
+      error: {
+        code: 'conflict',
+        reason: 'request_hash_mismatch',
+        committed: { intake: 'confirmed' },
+      },
+    });
+    // Admitted, but a different caller sends it: the stored actor is not theirs.
+    const cmd = admitted(d, { ...confirmCmd(d, t, 9), run_config_digest: digest });
+    const other: Caller = { ...OWNER, grant: { ...OWNER.grant, actor: 'someone-else' } };
+    expect((await confirmTask(confirmDeps(), other, cmd)).ok).toBe(false);
+  });
+
+  it('a store write that fails after the intake leaves the request to be finished, never completed as a refusal', async () => {
+    const { d, confirmDeps } = setup();
+    const { t, digest } = await proposed(d);
+    const cmd = { ...confirmCmd(d, t, 5), run_config_digest: digest };
+    const deps = confirmDeps();
+    const failing: ConfirmDeps = {
+      ...deps,
+      store: new Proxy(deps.store, {
+        get(target, prop, recv) {
+          if (prop !== 'accept') return Reflect.get(target, prop, recv) as unknown;
+          return (env: { dedup_key: string }) =>
+            env.dedup_key.endsWith(':run')
+              ? { ok: false, error: { code: 'write_failed', cause: 'disk_full' } }
+              : target.accept(env as never);
+        },
+      }),
+    };
+    await expect(confirmTask(failing, OWNER, cmd)).rejects.toThrow(/not stored after the intake/);
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+    // The daemon runs the same request again once the store writes.
+    expect(await confirmTask(confirmDeps(), OWNER, cmd)).toMatchObject({
+      ok: true,
+      value: { run_config: 'confirmed' },
+    });
+    expect(count(d, t.id, 'TaskConfirmed')).toBe(1);
+    expect(count(d, t.id, 'RunConfigConfirmed')).toBe(1);
   });
 });

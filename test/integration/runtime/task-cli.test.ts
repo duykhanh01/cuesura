@@ -339,11 +339,16 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
       '--run-config',
       `sha256:${'0'.repeat(64)}`,
     ]);
+    // The intake is recorded before the run config is checked: the refusal says so (T4.2-R02).
     expect(wrong.error).toMatchObject({
       details: {
         detail: { reason: 'run_config_digest_mismatch', current: digest },
+        committed: { intake: 'confirmed', revision: 1 },
       },
     });
+    expect((wrong.error as { details: { guidance: string } }).details.guidance).toContain(
+      'This request confirmed the intake (revision 1',
+    );
     const byBot = await cli(
       [
         'task',

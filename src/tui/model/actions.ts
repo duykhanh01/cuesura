@@ -14,6 +14,7 @@ import { DIALOG_ACTIONS, openDialog } from './dialog.ts';
 import type { Command } from './keymap.ts';
 import { openNewTask } from './new-task.ts';
 import { openRunConfig } from './run-config.ts';
+import { openReview } from './review.ts';
 import type { Effect } from './messages.ts';
 import { mutationLock, writeLock, type TuiState } from './state.ts';
 
@@ -82,6 +83,7 @@ export function leaveActions(state: TuiState): TuiState {
     screens: state.screens.slice(0, state.screens.lastIndexOf('actions')),
     actions: null,
     dialog: null,
+    review: null,
   };
 }
 
@@ -236,6 +238,7 @@ function openEntry(state: TuiState, menu: ActionsMenu, item: ActionItem): Reduce
   const ready = { ...state, actions: { ...menu, notice: null } };
   if (item.action === 'task_add') return openNewTask(ready);
   if (item.action === 'propose') return openRunConfig(ready, menu.taskId, menu.title);
+  if (item.action === 'confirm') return openReview(ready, menu.taskId, menu.title);
   if (kind === undefined) return note(enterNotice(item));
   const explain = menu.explain.data;
   const show = menu.show.data;

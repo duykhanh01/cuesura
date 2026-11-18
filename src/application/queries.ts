@@ -437,7 +437,14 @@ export async function taskConfirm(
   });
   if (!r.ok) {
     const e = r.error;
-    if (e.code === 'rejected') return err(engineRejection(e.reason, e.detail));
+    if (e.code === 'rejected') {
+      const mapped = engineRejection(e.reason, e.detail);
+      return err(
+        e.committed === undefined
+          ? mapped
+          : { ...mapped, details: { ...mapped.details, committed: e.committed } },
+      );
+    }
     return err({
       code: e.code === 'unknown_task' ? 'task_not_found' : e.code,
       message: e.code,

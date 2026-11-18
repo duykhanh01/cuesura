@@ -20,6 +20,32 @@ describe('withGuidance (issue #258)', () => {
     }
   });
 
+  it('says what a refused task confirm had already recorded, never that nothing changed (T4.2-R02)', () => {
+    const committed = { intake: 'confirmed', revision: 2, task_version: 5 };
+    const rejected = withGuidance(
+      {
+        ...engineRejection('invalid_trigger', { reason: 'run_config_digest_mismatch' }),
+        details: { reason: 'invalid_trigger', committed },
+      },
+      ctx,
+    );
+    expect(guidanceOf(rejected)).toMatch(
+      /^This request confirmed the intake \(revision 2, version 5\)/,
+    );
+    const stale = withGuidance(
+      { code: 'conflict', message: 'conflict', details: { reason: 'stale_version', committed } },
+      ctx,
+    );
+    expect((stale.details as Record<string, unknown>)['version']).toBe(7);
+    expect(guidanceOf(stale)).toContain('confirmed the intake (revision 2, version 5)');
+    expect(guidanceOf(stale)).not.toContain('nothing was changed');
+    // Only what this request did: another request may have confirmed the run config since.
+    for (const g of [guidanceOf(rejected), guidanceOf(stale)]) {
+      expect(g).toContain('so this request did not confirm the run config');
+      expect(g).not.toMatch(/the run config is not confirmed/);
+    }
+  });
+
   it('points a rejected command and a nothing_to_recheck at task explain', () => {
     const recheck = withGuidance(
       engineRejection('invalid_trigger', { reason: 'recheck_not_applicable', target: 'drain' }),

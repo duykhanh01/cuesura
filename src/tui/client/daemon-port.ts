@@ -57,6 +57,8 @@ export type PortError =
       readonly kind: 'rejected';
       readonly code: string;
       readonly message: SafeText;
+      /** What the refused command had already recorded (`details.committed` of `task_confirm`). */
+      readonly committed?: SafeText;
     };
 
 export type PortResult<T> = Result<T, PortError>;
@@ -121,11 +123,28 @@ const incompatible = (message: string): PortError => ({
   message: sanitize(message),
 });
 
-function fromEnvelopeError(e: { code: string; message: string }): PortError {
+/** A refused `task confirm` that had already confirmed the intake, in words; `null` for any other refusal. */
+export function committedNote(details: unknown): SafeText | null {
+  const c = (details as { committed?: unknown } | null | undefined)?.committed;
+  if (typeof c !== 'object' || c === null) return null;
+  const { intake, revision } = c as Record<string, unknown>;
+  if (intake !== 'confirmed') return null;
+  return sanitize(
+    `This request confirmed the intake of revision ${String(revision)}; its run config step was refused, so this request did not confirm the run config.`,
+  );
+}
+
+function fromEnvelopeError(e: { code: string; message: string; details?: unknown }): PortError {
   if (e.code === 'unauthenticated')
     return { kind: 'unauthenticated', message: sanitize(e.message) };
   if (INCOMPATIBLE_CODES.includes(e.code)) return incompatible(e.message);
-  return { kind: 'rejected', code: e.code, message: sanitize(e.message) };
+  const committed = committedNote(e.details);
+  return {
+    kind: 'rejected',
+    code: e.code,
+    message: sanitize(e.message),
+    ...(committed === null ? {} : { committed }),
+  };
 }
 
 export function createDaemonPort(deps: PortDeps = {}): DaemonPort {

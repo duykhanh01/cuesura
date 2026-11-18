@@ -6,6 +6,8 @@ import type { FrozenRuntimeContext } from '../domain/runtime.ts';
 import { replay } from '../engine/evolve.ts';
 import { orderQueue } from '../engine/execution-slot.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
+import type { TriggerEnvelope } from '../domain/trigger.ts';
+import type { AcceptOutcome } from './accept.ts';
 import type { EffectRow, TimerRow } from './projector.ts';
 
 export type EventRow = {
@@ -206,6 +208,22 @@ export function triggerTime(db: Database, dedupKey: string): number | null {
     )
     .get(dedupKey) as { now: unknown } | undefined;
   return typeof row?.now === 'number' ? row.now : null;
+}
+
+/** A trigger that ran to its commit: the envelope it carried and the outcome recorded for it. */
+export function priorTrigger(
+  db: Database,
+  dedupKey: string,
+): { readonly envelope: TriggerEnvelope; readonly outcome: AcceptOutcome } | null {
+  const row = db
+    .prepare('SELECT envelope_json, outcome_json FROM accepted_triggers WHERE dedup_key = ?')
+    .get(dedupKey) as { envelope_json: string; outcome_json: string } | undefined;
+  return row === undefined
+    ? null
+    : {
+        envelope: JSON.parse(row.envelope_json) as TriggerEnvelope,
+        outcome: { ...(JSON.parse(row.outcome_json) as AcceptOutcome), duplicate: true },
+      };
 }
 
 export function readTaskStatus(db: Database, taskId: string): TaskStatus | 'missing' {

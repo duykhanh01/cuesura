@@ -109,6 +109,7 @@ export interface Store {
   lastGlobalSeq(): number;
   terminalEventsAfter(globalSeq: number): read.TerminalEvent[];
   triggerTime(dedupKey: string): number | null;
+  priorTrigger(dedupKey: string): ReturnType<typeof read.priorTrigger>;
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[];
   readEventPage(
     taskId: Uuid,
@@ -246,6 +247,9 @@ export class SqliteStore implements Store {
   }
   triggerTime(dedupKey: string): number | null {
     return read.triggerTime(this.db, dedupKey);
+  }
+  priorTrigger(dedupKey: string): ReturnType<typeof read.priorTrigger> {
+    return read.priorTrigger(this.db, dedupKey);
   }
   readEvents(taskId: Uuid, fromSeq?: number): DomainEvent[] {
     return read.readEvents(this.db, taskId, fromSeq);

@@ -148,6 +148,33 @@ describe('daemon port', () => {
     });
   });
 
+  it('carries what a refused confirm had already recorded (T4.2-R02)', async () => {
+    const r = await port(
+      errorReply('rejected', 'run_config_digest_mismatch', {
+        committed: { intake: 'confirmed', revision: 2, task_version: 5 },
+      }),
+    ).port.command(
+      {
+        request_id: 'r',
+        kind: 'task_confirm',
+        project: 'acme',
+        task_id: TASK,
+        expected_version: 4,
+        payload: {},
+      },
+      1,
+    );
+    expect(r).toMatchObject({
+      ok: false,
+      error: {
+        kind: 'rejected',
+        committed: expect.stringContaining(
+          'This request confirmed the intake of revision 2; its run config step was refused',
+        ) as unknown,
+      },
+    });
+  });
+
   it('sanitizes error messages too', async () => {
     const r = await port(errorReply('conflict', 'bad\x1b[Kthing')).port.board({}, 1);
     expect(r).toMatchObject({

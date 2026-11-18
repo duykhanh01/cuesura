@@ -93,6 +93,120 @@ describe('MutationTracker', () => {
     expect(port.sent).toHaveLength(2);
   });
 
+  it('keeps the lock and looks the request up when the daemon failed inside the handler (internal)', async () => {
+    const { tracker, port } = make();
+    port.onCommand = () => ({
+      ok: false,
+      error: {
+        kind: 'rejected',
+        code: 'internal',
+        message: uiText('may have taken effect in part'),
+      },
+    });
+    const r = await tracker.submit(CMD);
+    expect(r.started && r.mutation.state).toBe('unknown');
+    expect((await tracker.submit(CMD)).started).toBe(false);
+    // The daemon reports the failed handler as interrupted: the same request ID and body go again.
+    port.onShow = () => good(shown('interrupted'));
+    port.onCommand = () => good({ v: 2 });
+    const m = await tracker.poll('id-1');
+    expect(port.shows).toEqual(['id-1']);
+    expect(port.sent.map((b) => b['request_id'])).toEqual(['id-1', 'id-1']);
+    expect(m?.state).toBe('accepted');
+  });
+
+  it('keeps the lock and looks the request up when the ledger could not store the result (store_write_failed)', async () => {
+    const { tracker, port } = make();
+    port.onCommand = () => ({
+      ok: false,
+      error: {
+        kind: 'rejected',
+        code: 'store_write_failed',
+        message: uiText('store write failed'),
+      },
+    });
+    const r = await tracker.submit(CMD);
+    expect(r.started && r.mutation.state).toBe('unknown');
+    port.onShow = () => good(shown('interrupted'));
+    port.onCommand = () => good({ v: 3 });
+    expect((await tracker.poll('id-1'))?.state).toBe('accepted');
+    expect(port.sent.map((b) => b['request_id'])).toEqual(['id-1', 'id-1']);
+  });
+
+  it('a resend refused before admission (store_unwritable) keeps the lock until the same ID finishes (T4.2-R02b)', async () => {
+    const { tracker, port } = make();
+    const unwritable = () =>
+      ({
+        ok: false,
+        error: { kind: 'rejected', code: 'store_unwritable', message: uiText('store unwritable') },
+      }) as const;
+    port.onCommand = () => ({
+      ok: false,
+      error: {
+        kind: 'rejected',
+        code: 'store_write_failed',
+        message: uiText('store write failed'),
+      },
+    });
+    expect((await tracker.submit(CMD)).started).toBe(true);
+    // The ledger could not complete the request and the daemon latched: the resend is turned away unadmitted.
+    port.onShow = () => good(shown('interrupted'));
+    port.onCommand = unwritable;
+    const held = await tracker.poll('id-1');
+    expect(held?.state).toBe('unknown');
+    expect(tracker.blocking(TASK)?.requestId).toBe('id-1');
+    expect((await tracker.submit(CMD)).started).toBe(false);
+    // Once the daemon writes again, the same request ID and body finish it.
+    port.onCommand = () => good({ v: 4 });
+    expect((await tracker.poll('id-1'))?.state).toBe('accepted');
+    expect(port.sent.map((b) => b['request_id'])).toEqual(['id-1', 'id-1', 'id-1']);
+    expect(tracker.blocking(TASK)).toBeUndefined();
+  });
+
+  it('a new request refused before admission (store_unwritable) is a refusal, not an unknown write', async () => {
+    const { tracker, port } = make();
+    port.onCommand = () => ({
+      ok: false,
+      error: { kind: 'rejected', code: 'store_unwritable', message: uiText('store unwritable') },
+    });
+    const r = await tracker.submit(CMD);
+    expect(r.started && r.mutation.state).toBe('rejected');
+    expect(tracker.blocking(TASK)).toBeUndefined();
+  });
+
+  it('keeps what a refusal had already recorded, from the reply and from request_show (T4.2-R02)', async () => {
+    const note = uiText('This request confirmed the intake of revision 2.');
+    const direct = make();
+    direct.port.onCommand = () => ({
+      ok: false,
+      error: { kind: 'rejected', code: 'rejected', message: uiText('digest'), committed: note },
+    });
+    const r = await direct.tracker.submit(CMD);
+    expect(r.started && r.mutation.result).toMatchObject({ ok: false, committed: note });
+
+    const looked = make();
+    looked.port.onCommand = lost;
+    await looked.tracker.submit(CMD);
+    looked.port.onShow = () =>
+      good(
+        shown('completed', {
+          outcome: {
+            ok: false,
+            error: {
+              code: uiText('rejected'),
+              message: uiText('digest'),
+              details: { committed: { intake: 'confirmed', revision: 2, task_version: 5 } },
+            },
+          },
+        } as never),
+      );
+    const m = await looked.tracker.poll('id-1');
+    expect(m?.state).toBe('rejected');
+    expect(String(m?.result?.ok === false ? m.result.committed : '')).toContain(
+      'This request confirmed the intake of revision 2',
+    );
+  });
+
   it('uses the stored result when request_show says completed', async () => {
     const { tracker, port } = make();
     port.onCommand = lost;

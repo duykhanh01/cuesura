@@ -8,6 +8,7 @@ import type { TaskDetail } from './detail.ts';
 import type { LogState } from './logs.ts';
 import type { NewTaskForm } from './new-task.ts';
 import type { RunConfigForm } from './run-config.ts';
+import type { Review } from './review.ts';
 
 /** Automatic reconnect attempts in one round; after these the session waits for the user (FR-009). */
 export const RECONNECT_ATTEMPTS = 30;
@@ -68,7 +69,8 @@ export type Screen =
   | 'actions'
   | 'dialog'
   | 'new_task'
-  | 'run_config';
+  | 'run_config'
+  | 'review';
 
 export type Filters = {
   readonly project: string | null;
@@ -118,6 +120,7 @@ export type TuiState = {
   readonly profiles: ProjectList['profiles'];
   readonly newTask: NewTaskForm | null;
   readonly runConfig: RunConfigForm | null;
+  readonly review: Review | null;
   readonly screens: readonly Screen[];
   /** Kept by task, not by row, so a reorder cannot move an action to another task (EC-013). */
   readonly selectedTaskId: string | null;
@@ -174,6 +177,7 @@ export function initialState(size: Size): TuiState {
     profiles: [],
     newTask: null,
     runConfig: null,
+    review: null,
     screens: ['home'],
     selectedTaskId: null,
     finishedSelected: false,

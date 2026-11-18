@@ -7,6 +7,7 @@ import type { DialogReadMessage } from './dialog.ts';
 import type { GatesMessage, LogsMessage } from './detail-keys.ts';
 import type { NewTaskTasksMessage } from './new-task.ts';
 import type { RunConfigReadMessage } from './run-config.ts';
+import type { ReviewReadMessage } from './review.ts';
 import type { ReadOutcome, Size } from './state.ts';
 
 export type Message =
@@ -38,7 +39,8 @@ export type Message =
   | ActionsShowMessage
   | DialogReadMessage
   | NewTaskTasksMessage
-  | RunConfigReadMessage;
+  | RunConfigReadMessage
+  | ReviewReadMessage;
 
 /** What the reducer asks the runtime to do; it does none of it itself. */
 export type Effect =

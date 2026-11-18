@@ -10,6 +10,7 @@ import { homeBody } from './home.ts';
 import type { Body } from './layout.ts';
 import { logsBody } from './logs.ts';
 import { newTaskBody } from './new-task.ts';
+import { reviewBody } from './review.ts';
 import { runConfigBody } from './run-config.ts';
 import { detailBody } from './task-detail.ts';
 
@@ -35,6 +36,8 @@ export function screenBody(s: TuiState, opts: { color: boolean }): Body {
         return newTaskBody(s);
       case 'run_config':
         return runConfigBody(s);
+      case 'review':
+        return reviewBody(s);
     }
   })();
   return withDisconnected(s, withQuitPrompt(s, body));

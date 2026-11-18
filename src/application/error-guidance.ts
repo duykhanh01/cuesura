@@ -36,18 +36,27 @@ export function forbiddenGuidance(reason: unknown, required: unknown): string {
   return 'This caller may not run this command. Do not retry it: give the command to the user to run.';
 }
 
+/** A refused `task confirm` that had already confirmed the intake says so before anything else. */
+function committedText(c: unknown): string | null {
+  if (typeof c !== 'object' || c === null) return null;
+  const { intake, revision, task_version } = c as Record<string, unknown>;
+  if (intake !== 'confirmed') return null;
+  return `This request confirmed the intake (revision ${String(revision)}, version ${String(task_version)}); its run config step was refused, so this request did not confirm the run config.`;
+}
+
 export function withGuidance<E extends ErrorShape>(e: E, ctx: GuidanceContext): E {
   if (typeof e.details['guidance'] === 'string') return e;
   const explain = ctx.taskId === null ? null : `cusr task explain ${ctx.taskId}`;
   const look = explain === null ? '' : ` See what the task allows now with: ${explain}.`;
   let guidance: string | null = null;
   const extra: Record<string, unknown> = {};
+  const kept = committedText(e.details['committed']);
   switch (e.code) {
     case 'conflict':
       if (isStale(e) && ctx.version !== null) {
         extra['version'] = ctx.version;
         guidance =
-          `The task is at version ${ctx.version} now, so nothing was changed.${look} If the command ` +
+          `The task is at version ${ctx.version} now, so ${kept === null ? 'nothing was changed' : 'this request changed nothing more'}.${look} If the command ` +
           `still applies, send it again with --expected-version ${ctx.version}.`;
       } else if (e.message === 'already_answered')
         guidance = `The question already has an answer, so this one was not taken.${look}`;
@@ -68,5 +77,6 @@ export function withGuidance<E extends ErrorShape>(e: E, ctx: GuidanceContext): 
       break;
   }
   if (guidance === null) return e;
+  if (kept !== null) guidance = `${kept} ${guidance}`;
   return { ...e, details: { ...e.details, ...extra, guidance } };
 }

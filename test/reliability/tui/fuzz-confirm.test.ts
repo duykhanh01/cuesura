@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
+import { selectionFor } from '../../support/runtime.ts';
 import {
   daemonSocket,
   flat,
@@ -18,7 +19,7 @@ import {
 // seed that reproduces the run (CUSR_SEED). The checks are the trace of what reached the daemon, that the
 // screen is still the dialog and still answers, that a dialog opens with an empty confirmation box, and that
 // quitting still works. The letter that would complete the confirmation word is never in the keys, and
-// pastes of the word are: nothing may confirm, whatever the sequence. T068 adds the Review screen here.
+// pastes of the word are: nothing may confirm, whatever the sequence. T068 adds the Review screen.
 const tui = useTui();
 const SEED = Number(process.env['CUSR_SEED'] ?? 20261106);
 // SC-008 asks for at least 10,000; a shorter run is for looking at a failure only.
@@ -89,6 +90,22 @@ const SCENES: readonly Scene[] = [
     setup: (sd) => void seedWorktreeChanged(sd, 1, 'Fuzz target'),
   },
   {
+    // T068: confirming a run config, from the Review screen.
+    name: 'Review',
+    title: 'Fuzz target',
+    action: 'Confirm',
+    marker: 'Review — Fuzz target',
+    word: 'confirm',
+    kind: 'task_confirm',
+    without: 'c',
+    setup: (sd) =>
+      sd.seed((d) => {
+        const t = buildTask({ id: uuidOf(1), title: 'Fuzz target' });
+        d.must(t.id, { kind: 'create_task', task: t });
+        d.must(t.id, { kind: 'propose_run_config', selection: selectionFor(t, 'direct-pr') });
+      }),
+  },
+  {
     name: 'Approve',
     title: 'Fuzz target',
     action: 'Approve',
@@ -104,7 +121,7 @@ const SCENES: readonly Scene[] = [
 const PRINTABLE = [
   ...'abdefghijklmnoqrstuvwxyz ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789?!@#$%^&*()-_=+[]{};:,.<>/\\|`~界👍é',
 ];
-const PASTES = ['cancel', 'accept', 'approve', 'a\nb', 'x', 'line one\r\nline two', ''];
+const PASTES = ['cancel', 'accept', 'approve', 'confirm', 'a\nb', 'x', 'line one\r\nline two', ''];
 
 type Step = { readonly bytes: string; readonly esc: boolean };
 

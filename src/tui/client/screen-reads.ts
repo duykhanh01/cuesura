@@ -16,6 +16,7 @@ import { gateLogDue, gatesDue } from '../model/gates.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
 import { newTaskTasksDue } from '../model/new-task.ts';
 import { runConfigDue } from '../model/run-config.ts';
+import { reviewDue } from '../model/review.ts';
 import type { Message } from '../model/messages.ts';
 import { currentScreen, PAGE_LIMIT, type TuiState } from '../model/state.ts';
 import type { DaemonPort } from './daemon-port.ts';
@@ -407,6 +408,26 @@ export function planScreenReads(
           }),
         });
       }
+      break;
+    }
+    case 'review': {
+      // The menu under keeps the version and the write lock current: a confirmation is checked against them.
+      reads.push(...actionsReads(s, port, clock, now));
+      const r = s.review;
+      const watermark = s.board?.watermark ?? null;
+      if (r !== null && reviewDue(r, watermark, now))
+        reads.push({
+          key: 'review:content',
+          run: async () => ({
+            type: 'review_read',
+            session: r.session,
+            generation: r.generation,
+            askedAt: now,
+            watermark,
+            result: await port.content(r.taskId, DETAIL_TIMEOUT_MS),
+            at: clock.now(),
+          }),
+        });
       break;
     }
     case 'dialog':

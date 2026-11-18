@@ -155,6 +155,27 @@ export function createGrantStart(
   return g.value.request_id;
 }
 
+/**
+ * queue → grant → start for a task whose run selection was confirmed through the daemon, as the scheduler
+ * would once a slot is free; the start freezes that selection.
+ */
+export function startConfirmed(
+  d: StoreDriver,
+  task: CanonicalTask,
+  mode: ExecutionMode,
+  capacity = MAX_CONCURRENCY,
+): void {
+  if (d.task(task.id).status === 'READY') d.must(task.id, { kind: 'request_execution' });
+  const g = d.store.grantNext(d.now as never, [], { capacity });
+  if (!g.ok || g.value.kind !== 'decided' || g.value.outcome.decision.kind !== 'accepted')
+    throw new Error(`grant failed: ${JSON.stringify(g)}`);
+  d.must(task.id, {
+    kind: 'start',
+    freeze: freezeOk(task, { limits: { max_wall_ms: 3_600_000 }, mode }),
+    runtime: confirmedRuntime(d, task),
+  });
+}
+
 export function asUuid(id: string): Uuid {
   return id as Uuid;
 }

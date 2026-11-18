@@ -75,8 +75,9 @@ export function useTui() {
     /** A stopped daemon to seed and start. Its clock reads now, so a time in status means something. */
     daemon(o: DaemonOptions = {}): SeededDaemon {
       const lines = ['acme', ...(o.projects ?? [])].map((id) => {
-        const path = id === 'acme' && o.runnable !== undefined ? REPO : `/srv/${id}`;
-        return `${id}: { base_branch: main, path: ${path}, repo: acme/${id} }`;
+        const runnable = id === 'acme' && o.runnable !== undefined;
+        // A runnable project is the fake Git's repo, whose origin is acme/app.
+        return `${id}: { base_branch: main, path: ${runnable ? REPO : `/srv/${id}`}, repo: acme/${runnable ? 'app' : id} }`;
       });
       // Seeded operations have no real runner unit; asking the host's systemd would make recovery depend
       // on whether a user bus is reachable.

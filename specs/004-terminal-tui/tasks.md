@@ -180,20 +180,28 @@
 ### Tests for User Story 5
 
 - [x] T066 [P] [US5] Test PTY tại `test/contract/tui/us5-create.test.ts`: US5 số 1, 2, 9, 10; lỗi theo trường; nội dung không mất khi bị từ chối; rời form còn nội dung thì hỏi lại; chọn profile và dependency không phải nhập ID; task tạo với profile đã chọn có `task.profile` đúng; `config_invalid` báo rõ, không đoán lựa chọn (FR-024, FR-025).
-- [ ] T067 [P] [US5] Test PTY tại `test/contract/tui/us5-review.test.ts`: US5 số 3–8, 11; đủ sáu hàng của [bảng phạm vi](data-model.md#phạm-vi-xác-nhận), gồm xác nhận intake khi `run_config` là `null`; SC-016 ở terminal 80×24; 0 xác nhận khi không đọc được nội dung hoặc revision đổi; digest đổi thì hiện khác biệt và xóa từ đã gõ; Run config không đổi được profile và mọi lựa chọn đưa ra đều chạy được tới bước bắt đầu với harness giả lập (FR-025, FR-026, FR-027, FR-028).
-- [ ] T068 [US5] Mở rộng `test/reliability/tui/fuzz-confirm.test.ts` cho màn Review và xác nhận cấu hình chạy; hết thời gian chờ, giá trị chọn sẵn, Enter với ô rỗng hoặc sai từ đều không xác nhận (SC-008, FR-027).
-- [ ] T069 [P] [US5] Test PTY tại `test/contract/tui/journey.test.ts`: SC-004 với harness giả lập ở cả hai chế độ, từ tạo task đến DONE sau merge thủ công, không dùng lệnh con; đo tổng thời gian thao tác.
+- [x] T067 [P] [US5] Test PTY tại `test/contract/tui/us5-review.test.ts`: US5 số 3–8, 11; đủ sáu hàng của [bảng phạm vi](data-model.md#phạm-vi-xác-nhận), gồm xác nhận intake khi `run_config` là `null`; SC-016 ở terminal 80×24; 0 xác nhận khi không đọc được nội dung hoặc revision đổi; digest đổi thì hiện khác biệt và xóa từ đã gõ; Run config không đổi được profile và mọi lựa chọn đưa ra đều chạy được tới bước bắt đầu với harness giả lập (FR-025, FR-026, FR-027, FR-028).
+- [x] T068 [US5] Mở rộng `test/reliability/tui/fuzz-confirm.test.ts` cho màn Review và xác nhận cấu hình chạy; hết thời gian chờ, giá trị chọn sẵn, Enter với ô rỗng hoặc sai từ đều không xác nhận (SC-008, FR-027).
+- [x] T069 [P] [US5] Test PTY tại `test/contract/tui/journey.test.ts`: SC-004 với harness giả lập ở cả hai chế độ, từ tạo task đến DONE sau merge thủ công, không dùng lệnh con; đo tổng thời gian thao tác.
 
 ### Implementation for User Story 5
 
 - [x] T070 [US5] Dựng form New task tại `src/tui/views/new-task.ts`: project từ `project_list`, tiêu đề, base branch, mô tả, tiêu chí nghiệm thu; tùy chọn priority, profile từ `project_list.profiles` với mặc định `Project default` ghi vào `task.profile`, và dependency chọn từ danh sách task bằng `task_board` chứ không nhập ID; lỗi tại trường; danh sách rỗng ở Home dẫn tới form này; gửi qua `MutationTracker` (FR-018, FR-024).
 - [x] T071 [US5] Dựng màn Run config tại `src/tui/views/run-config.ts`: đọc `run_options` theo task; profile chỉ hiển thị và gửi nguyên trong đề xuất; chỉ chọn chế độ, worker, reviewer, dự phòng từ danh sách, hiện `when_to_use`, không có nhập tự do; `direct-pr` không có reviewer; ô lý do tùy chọn, "max 2.000 ký tự"; không đọc được danh sách thì báo rõ; đề xuất qua `task_propose_run` (FR-017, FR-025).
-- [ ] T072 [US5] Tính phạm vi xác nhận tại `src/tui/model/confirm-scope.ts` theo [bảng trong data model](data-model.md#phạm-vi-xác-nhận): `intake_pending`, cấu hình cần xác nhận, `trusted_confirmer`; chỉ gửi digest khi phạm vi có cấu hình chạy. Test đủ sáu hàng tại `test/unit/tui/confirm-scope.test.ts`.
-- [ ] T073 [US5] Dựng màn Review tại `src/tui/views/review.ts`: mọi trường của FR-026 từ một lần đọc `task_content`, cuộn được; danh sách rỗng ghi `None`, khác `Could not read`; nguồn đề xuất và lý do; ô gõ `confirm` theo quy tắc ô xác nhận, rỗng khi mở, không hết giờ; gửi đúng `version` đã đọc (FR-026, FR-027).
-- [ ] T074 [US5] Xử lý từ chối do digest đổi và token không được phép tại `src/tui/views/review.ts`: hiện khác biệt, xóa từ đã gõ, xin xác nhận lại; nói rõ cần kênh tin cậy và không báo đã xác nhận; PENDING sau xác nhận hiện chẩn đoán và cho kiểm tra lại (FR-028, US5 số 7, 8).
-- [ ] T075 [US5] Nối Actions và trạng thái rỗng với New task, Run config, Review tại `src/tui/views/actions.ts` và `src/tui/views/home.ts`.
+- [x] T072 [US5] Tính phạm vi xác nhận tại `src/tui/model/confirm-scope.ts` theo [bảng trong data model](data-model.md#phạm-vi-xác-nhận): `intake_pending`, cấu hình cần xác nhận, `trusted_confirmer`; chỉ gửi digest khi phạm vi có cấu hình chạy. Test đủ sáu hàng tại `test/unit/tui/confirm-scope.test.ts`.
+- [x] T073 [US5] Dựng màn Review tại `src/tui/views/review.ts`: mọi trường của FR-026 từ một lần đọc `task_content`, cuộn được; danh sách rỗng ghi `None`, khác `Could not read`; nguồn đề xuất và lý do; ô gõ `confirm` theo quy tắc ô xác nhận, rỗng khi mở, không hết giờ; gửi đúng `version` đã đọc (FR-026, FR-027).
+- [x] T074 [US5] Xử lý từ chối do digest đổi và token không được phép tại `src/tui/views/review.ts`: hiện khác biệt, xóa từ đã gõ, xin xác nhận lại; nói rõ cần kênh tin cậy và không báo đã xác nhận; PENDING sau xác nhận hiện chẩn đoán và cho kiểm tra lại (FR-028, US5 số 7, 8).
+- [x] T075 [US5] Nối Actions và trạng thái rỗng với New task, Run config, Review tại `src/tui/views/actions.ts` và `src/tui/views/home.ts`.
 
 **Checkpoint**: Toàn bộ US1–US5 đạt với harness giả lập.
+
+Kết quả đo khi đóng T067–T069 (2026-11-18, máy dev): hành trình SC-004 giả lập hết 1,7 s (`direct-pr`) và 1,8 s
+(`full-review`) thời gian thao tác do script gõ, không phải thời gian người thật; fuzz Review 10.000 phím seed
+20261106 không gửi lệnh nào trước khi gõ đúng `confirm`. T067 kiểm cả revision đổi mà không trường nào nhìn thấy đổi,
+và sáu biến thể đi qua `startTask` thật với adapter giả tới `RUNNING`: đó là toàn bộ lựa chọn fixture đưa ra (một worker,
+tối đa một reviewer, một nấc dự phòng mỗi vai trò; `direct-pr` 0/1 dự phòng worker, `full-review` 0/0, 0/1, 1/0, 1/1).
+Chưa có bằng chứng start khi nhiều worker/reviewer cùng được đưa ra hoặc chọn vài nấc trên thang dài; hàng 6 của bảng phạm vi chỉ hiện trên PTY khi xác nhận xong ở nơi khác
+(Actions không còn mục `Confirm` khi không có gì cần xác nhận); hành trình với harness thật để Phase 8.
 
 ---
 

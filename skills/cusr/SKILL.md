@@ -119,9 +119,11 @@ cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" --expected-version "$VER
 - The proposal must match the summary the user approved; a change needs a new approval. A proposal does not start
   the task.
 - `task confirm` without `--run-config` confirms intake only; the task can be READY yet `run_config_unconfirmed`.
-  Confirm with the CURRENT version and digest; follow the user if they asked to review the settings first. A
-  confirm error may come after intake changed the version: reread, never reuse the stale version, never drop
-  `CUSR_ACTOR`.
+  Confirm with the CURRENT version and digest; follow the user if they asked to review the settings first. With
+  `--run-config` the intake is confirmed first: a refused run config may leave the intake confirmed, which the error
+  says in `details.committed` (`intake`, `revision`, `task_version`). Then reread and confirm the run config with a
+  NEW request at the current version and digest; never reuse the stale version, never drop `CUSR_ACTOR`. A new
+  ID is only for a refusal you got back; when the outcome is unknown, follow [Timeouts](#timeouts) with the same ID.
 
 ## Goals
 
@@ -210,9 +212,12 @@ with a new ID. confirm, cancel, recheck and approve `--kind adopt` wait up to 4 
 cusr request show "$REQUEST_ID" --json
 ```
 
+- The same goes for every outcome that does not say whether the daemon acted: `daemon_timeout`, `internal` and
+  `store_write_failed` (exit 1, they carry the request ID), a lasting `request_not_found`, `interrupted`, and a
+  same-ID resend refused with `store_unwritable` (the daemon needs `cusr doctor`/a restart; keep the ID for later).
 - Exit 0 even when the operation was rejected: read `data.state`. `completed`: `data.outcome` is the original
   result (`task_id` for add). `in_progress`: look again later. `interrupted`: follow `data.next_step`, then resend
-  the same command, ID and version. An `internal` error (exit 1) carries the request ID: retry it the same way.
+  the same command, ID and version.
 - `request_not_found` (exit 4): not admitted yet, it may still arrive. Follow `details.next_step`; check
   `task list` before re-adding. Only the same actor sees a request.
 

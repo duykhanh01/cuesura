@@ -58,6 +58,7 @@ export type Context =
   | 'actions'
   | 'new_task'
   | 'run_config'
+  | 'review'
   | 'filter_text'
   | 'filter_choice'
   | 'dialog_text'
@@ -574,6 +575,21 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       press: [],
     },
   ],
+  review: [
+    {
+      keys: 'Enter',
+      hint: 'confirm',
+      help: 'Confirm, when what is typed is exactly confirm; nothing else confirms, not even waiting',
+      press: [],
+    },
+    {
+      keys: '↑↓',
+      hint: 'scroll',
+      helpKeys: '↑ ↓ PgUp PgDn',
+      help: 'Read the whole task and run config; every letter key is typed in the box',
+      press: [],
+    },
+  ],
   help: [
     {
       keys: '↑↓',
@@ -598,7 +614,8 @@ const typing = (ctx: Context): boolean =>
   ctx === 'dialog_text' ||
   ctx === 'dialog_confirm' ||
   ctx === 'new_task' ||
-  ctx === 'run_config';
+  ctx === 'run_config' ||
+  ctx === 'review';
 
 const GLOBAL_LEAD: readonly Binding[] = [
   {
@@ -781,6 +798,7 @@ export function keyContext(s: TuiState): Context {
           : 'dialog_plain';
     case 'new_task':
     case 'run_config':
+    case 'review':
       return screen;
     case 'help':
       return 'help';
@@ -792,7 +810,10 @@ export function bindings(ctx: Context): readonly Binding[] {
   const formRetry =
     ctx === 'new_task' || ctx === 'run_config'
       ? [{ ...RETRY, when: (s: TuiState) => waiting(s) && !formTextFocused(s) }]
-      : [];
+      : // Nothing can be confirmed while disconnected, so R is Retry there, never text in the box.
+        ctx === 'review'
+        ? [RETRY]
+        : [];
   return [...GLOBAL_LEAD, ...KEYS[ctx], ...formRetry, ...(typing(ctx) ? TYPING_TAIL : GLOBAL_TAIL)];
 }
 
@@ -843,6 +864,7 @@ export const CONTEXT_TITLES: Readonly<Record<Context, string>> = {
   actions: 'Actions',
   new_task: 'New task',
   run_config: 'Run config',
+  review: 'Review',
   filter_choice: 'Filter',
   filter_text: 'Filter, typing a project name',
   dialog_text: 'Dialog, typing text',

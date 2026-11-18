@@ -16,11 +16,10 @@ import { clockTime } from './layout.ts';
 import { BAD_STRONG, NOTICE, WARN } from './theme.ts';
 
 /**
- * `dialog`: a dialog of its own before anything is sent. `later`: its dialog is not part of this version yet
- * (US5). `guide`: what to do outside Cuesura. `info`: a line to read. An action this version does not know is
- * shown as it came, as `info`.
+ * `dialog`: a dialog or screen of its own before anything is sent. `guide`: what to do outside Cuesura.
+ * `info`: a line to read. An action this version does not know is shown as it came, as `info`.
  */
-export type ActionKind = 'dialog' | 'later' | 'guide' | 'info';
+export type ActionKind = 'dialog' | 'guide' | 'info';
 
 type Known = {
   readonly label: string;
@@ -31,7 +30,7 @@ type Known = {
 
 const KNOWN: Readonly<Record<string, Known>> = {
   answer: { label: 'Answer the question', kind: 'dialog', role: 'operate' },
-  confirm: { label: 'Confirm', kind: 'later', role: 'operate' },
+  confirm: { label: 'Confirm', kind: 'dialog', role: 'operate' },
   propose: { label: 'Propose run', kind: 'dialog', role: 'operate' },
   approve: { label: 'Approve', kind: 'dialog', role: 'operate' },
   cancel: { label: 'Cancel task', kind: 'dialog', role: 'operate' },
@@ -117,8 +116,6 @@ export function actionItems(
 /** What Enter on `item` says. Nothing is ever sent from the menu itself. */
 export function enterNotice(item: ActionItem): string {
   if (item.unavailable !== null) return `Nothing was sent: ${item.label} ${item.unavailable}.`;
-  if (item.kind === 'later')
-    return `Nothing was sent: the ${item.label} dialog comes in a later version. The CLI command is listed with it.`;
   if (item.kind === 'dialog') return `Opening ${item.label}.`;
   if (item.guide.length > 0)
     return 'Nothing to send: merge it on GitHub with the method, title and message under it. PgUp/PgDn read a long message.';
@@ -131,8 +128,6 @@ type Row = {
   readonly item: number | null;
 };
 
-const LATER = ' · dialog in a later version';
-
 function itemRows(item: ActionItem, index: number, on: boolean, cols: number): Row[] {
   const dim = item.unavailable !== null;
   const indent = (t: SafeText, style: Style): Row[] =>
@@ -143,11 +138,7 @@ function itemRows(item: ActionItem, index: number, on: boolean, cols: number): R
     }));
   return [
     {
-      text: joinSafe([
-        uiText(on ? '› ' : '  '),
-        item.label,
-        uiText(item.kind === 'later' ? LATER : ''),
-      ]),
+      text: joinSafe([uiText(on ? '› ' : '  '), item.label]),
       style: {
         ...(on ? { inverse: true } : { bold: true }),
         ...(dim ? { dim: true } : {}),
@@ -192,11 +183,11 @@ export function mutationLine(m: Mutation | undefined): { text: string; style: St
       const r = m.result;
       if (r?.ok === false && r.code === 'conflict')
         return {
-          text: `Conflict: the daemon refused it because the task is not as the dialog saw it (${sanitize(r.message)}). Nothing was sent again (${id})`,
+          text: `Conflict: the daemon refused it because the task is not as the dialog saw it (${sanitize(r.message)}). Nothing was sent again (${id})${r.committed === undefined ? '' : ` ${r.committed}`}`,
           style: BAD_STRONG,
         };
       return {
-        text: `Rejected: ${r?.ok === false ? sanitize(`${r.code}: ${r.message}`) : ''} (${id})`,
+        text: `Rejected: ${r?.ok === false ? sanitize(`${r.code}: ${r.message}`) : ''} (${id})${r?.ok === false && r.committed !== undefined ? ` ${r.committed}` : ''}`,
         style: BAD_STRONG,
       };
     }
