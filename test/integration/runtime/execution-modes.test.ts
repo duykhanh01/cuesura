@@ -11,6 +11,8 @@ import { BASE_REPAIR_WAIT_MS } from '../../../src/engine/interpreter.ts';
 import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict, reviewOf } from '../../../src/engine/head-evidence.ts';
 import { mergeGuard } from '../../../src/engine/merge-guard.ts';
+import { readyOutcome } from '../../../src/daemon/handlers.ts';
+import { observation } from '../../support/observation.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
 import { authz, buildTask, freezeOk, ownerAuthz, uuidOf } from '../../support/builders.ts';
@@ -561,6 +563,230 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
     });
     expect(d.task(t.id).run.pr_ready_at).toBe(1_000);
     expect(d.pending(t.id, 'await_ci')).toHaveLength(1);
+  });
+
+  /** Up to the ready step of a full-review task whose reviewer approved A on draft PR acme#7. */
+  function toReadyStep(d: StoreDriver, t: CanonicalTask, maxWallMs?: number): void {
+    createGrantStart(
+      d,
+      t,
+      'full-review',
+      maxWallMs === undefined ? {} : { limits: { max_wall_ms: maxWallMs } },
+    );
+    toPublish(d, t, A);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    const input = currentReviewInput(d, t.id);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('approve', A, { input_digest: input }),
+    );
+    completePost(d, t.id);
+  }
+  const L = { s: { pr_ref: 'acme#7', head_sha: A } };
+  /** The data of a mark_ready result the handler reports as succeeded. */
+  const dataOf = (o: ReturnType<typeof readyOutcome>): Record<string, unknown> => {
+    if (o.outcome !== 'succeeded') throw new Error(`mark_ready ${o.outcome}`);
+    return o.data as Record<string, unknown>;
+  };
+  /** The CI wait of a PR open on the task's target and head that is still a draft. */
+  const draftCi = ciData(
+    A,
+    { build: 'success', test: 'success' },
+    { complete: false },
+    { pr_draft: true },
+  );
+
+  it.each([
+    ['retargeted', { kind: 'retargeted', base: 'release' }],
+    ['closed', { kind: 'closed' }],
+    // The branch went back to the reviewed head before the CI wait read it.
+    ['on another head', { kind: 'head_moved', head_sha: 'b'.repeat(40) }],
+  ] as const)(
+    'full-review: a PR the ready step found %s and left a draft is turned ready once it is back, before any CI counts',
+    (_, found) => {
+      const d = setup();
+      const t = buildTask();
+      toReadyStep(d, t);
+      const left = readyOutcome(L, found);
+      expect(left).toMatchObject({ outcome: 'succeeded', data: { ready_at: null } });
+      d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', dataOf(left));
+      expect(d.task(t.id).run.pr_ready_pending).toBe(true);
+      // Back on the target (or reopened), with the task's head, still a draft: green checks count for
+      // nothing and the ready step runs again.
+      d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', draftCi);
+      expect(d.pending(t.id, 'await_ci')).toEqual([]);
+      expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+      expect(d.task(t.id).current_step).toBe('ready');
+      const ready = readyOutcome(L, { kind: 'ready', ready_at: 2_000, head_sha: A, base: 'main' });
+      d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', dataOf(ready));
+      expect(d.task(t.id).run).toMatchObject({ pr_ready_at: 2_000, pr_ready_pending: false });
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'await_ci').id,
+        'succeeded',
+        ciData(A, { build: 'success', test: 'success' }),
+      );
+      expect(d.task(t.id).current_step).toBe('merge_gate');
+    },
+  );
+
+  it('full-review: reopened after its CI window ran out, a PR left a draft is turned ready from the observation', () => {
+    const d = setup();
+    const t = buildTask();
+    toReadyStep(d, t, 6 * 3_600_000);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'mark_ready').id,
+      'succeeded',
+      dataOf(readyOutcome(L, { kind: 'closed' })),
+    );
+    const code = () => d.task(t.id).wait?.detail.code;
+    for (let i = 0; i < 200 && code() !== 'ci_wait_exhausted'; i++) {
+      d.complete(
+        t.id,
+        d.pendingOne(t.id, 'await_ci').id,
+        'succeeded',
+        ciData(A, { build: 'success', test: 'pending' }),
+      );
+      if (code() === 'ci_wait_exhausted') break;
+      d.now += 60_000;
+      d.fire();
+    }
+    expect(code()).toBe('ci_wait_exhausted');
+    d.must(t.id, observation(d, t, 'open', A, { ci: draftCi }));
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(d.task(t.id).current_step).toBe('ready');
+  });
+
+  it('full-review: a PR the ready step found closed is turned ready from the observation once reopened', () => {
+    const d = setup();
+    const t = buildTask();
+    toReadyStep(d, t);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'mark_ready').id,
+      'succeeded',
+      dataOf(readyOutcome(L, { kind: 'closed' })),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', {
+      ...ciData(A, {}),
+      pr_state: 'closed',
+    });
+    expect(d.task(t.id).wait?.detail.code).toBe('pr_closed');
+    d.must(t.id, observation(d, t, 'open', A, { ci: draftCi }));
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(d.pending(t.id, 'await_ci')).toEqual([]);
+  });
+
+  it('legacy mark_ready data (no outcome) replays as before: not pending, nothing re-run', () => {
+    const d = setup();
+    const t = buildTask();
+    toReadyStep(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      ready_at: null,
+    });
+    expect(d.task(t.id).run.pr_ready_pending).toBe(false);
+    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', draftCi);
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+  });
+
+  // Review #330 R16: a red check of a draft must not open a CI repair, whose publish would turn the PR
+  // ready again over the person who made it a draft.
+  const redDraftCi = ciData(
+    A,
+    { build: 'success', test: 'failure' },
+    { complete: false },
+    { pr_draft: true },
+  );
+  const toGreenReady = (d: StoreDriver, t: CanonicalTask): void => {
+    toReadyStep(d, t);
+    const ready = readyOutcome(L, { kind: 'ready', ready_at: 1_000, head_sha: A, base: 'main' });
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', dataOf(ready));
+  };
+  const repairs = (d: StoreDriver, t: CanonicalTask) =>
+    d.pending(t.id, 'start_agent').length + d.pending(t.id, 'mark_ready').length;
+
+  it('full-review: green, then made a draft by a person: a red check seen by the observation opens no CI repair', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreenReady(d, t);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ciData(A, { build: 'success', test: 'success' }),
+    );
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    d.must(t.id, observation(d, t, 'open', A, { ci: redDraftCi }));
+    const s = d.task(t.id);
+    expect(s.current_step).not.toBe('ci_fix');
+    expect(repairs(d, t)).toBe(0);
+    expect(s.evidence.ci.at(-1)).toMatchObject({ pr_draft: true });
+    expect(s.wait?.detail.code).not.toBe('merge');
+  });
+
+  it('full-review: a red check of a draft read by the CI wait opens no CI repair; it waits', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreenReady(d, t);
+    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', redDraftCi);
+    expect(d.task(t.id)).toMatchObject({
+      current_step: 'ci',
+      wait: { detail: { code: 'checks_incomplete', complete: false, not_passed: ['test'] } },
+    });
+    expect(repairs(d, t)).toBe(0);
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+  });
+
+  it('full-review: a red check of a ready PR still opens the CI repair', () => {
+    const d = setup();
+    const t = buildTask();
+    toGreenReady(d, t);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ciData(A, { build: 'success', test: 'failure' }),
+    );
+    expect(d.task(t.id).current_step).toBe('ci_fix');
+  });
+
+  it('full-review: a draft the ready step left pending is turned ready again, red checks or not', () => {
+    const d = setup();
+    const t = buildTask();
+    toReadyStep(d, t);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'mark_ready').id,
+      'succeeded',
+      dataOf(readyOutcome(L, { kind: 'closed' })),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', redDraftCi);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(d.task(t.id).current_step).toBe('ready');
+  });
+
+  it('full-review: a PR turned ready and then back to a draft by a person waits; its CI never passes', () => {
+    const d = setup();
+    const t = buildTask();
+    toReadyStep(d, t);
+    const ready = readyOutcome(L, { kind: 'ready', ready_at: 1_000, head_sha: A, base: 'main' });
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', dataOf(ready));
+    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', draftCi);
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
+    expect(d.task(t.id)).toMatchObject({
+      current_step: 'ci',
+      wait: { detail: { code: 'checks_incomplete', complete: false } },
+    });
   });
 
   it('full-review: requested changes are posted and go to the fixer; the PR stays a draft', () => {
@@ -2169,6 +2395,38 @@ describe('CI repair of an approved head (full-review)', () => {
     );
     if (test === 'failure' && d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
   }
+
+  // Review #330 R16: CI read while the PR is a draft is never a fail, so it opens no CI repair whose
+  // carried approval and publish would turn the PR ready over the person who made it a draft.
+  it('approved A, CI fails, the fix commits B (carried), B green, made a draft: a red check opens no repair', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    repairTo(d, t, B);
+    expect(carried(d, t)).toHaveLength(1);
+    ciOn(d, t, B, 'success');
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    d.must(
+      t.id,
+      observation(d, t, 'open', B, {
+        ci: ciData(
+          B,
+          { build: 'skipped', test: 'failure' },
+          { complete: false },
+          { pr_draft: true },
+        ),
+      }),
+    );
+    const s = d.task(t.id);
+    expect(s.current_step).not.toBe('ci_fix');
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.pending(t.id, 'mark_ready')).toEqual([]);
+    expect(carried(d, t)).toHaveLength(1);
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(s.wait?.detail.code).not.toBe('merge');
+  });
 
   it('approved A, CI fails, the fix commits B, CI passes: B is approved without a reviewer run', () => {
     const d = setup();

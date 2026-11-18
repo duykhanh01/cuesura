@@ -58,18 +58,34 @@ function latest<T>(xs: readonly T[], ok: (x: T) => boolean): T | undefined {
   return undefined;
 }
 
-/** `ciVerdict` of a task's CI evidence, with the waivers on that head. */
+/**
+ * `ciVerdict` of a task's CI evidence, with the waivers on that head. CI read while the PR was a draft
+ * is `incomplete` whatever it shows: no pass, and no fail either, so a red check of a draft opens no CI
+ * repair; it is judged again on CI of the ready PR.
+ */
 export function taskCiVerdict(
   state: TaskState,
   policy: FrozenPolicy,
-  ci: { head_sha: string; required_set: RequiredSet; checks: readonly Check[] },
+  ci: {
+    head_sha: string;
+    required_set: RequiredSet;
+    checks: readonly Check[];
+    pr_draft?: true | undefined;
+  },
 ): CiVerdict {
-  return ciVerdict(
+  const v = ciVerdict(
     policy,
     ci.required_set,
     ci.checks,
     waivedChecks(state, policy, ci.head_sha, ci.checks),
   );
+  if (ci.pr_draft !== true || v.kind === 'incomplete') return v;
+  return {
+    kind: 'incomplete',
+    missing: [],
+    not_passed: v.kind === 'fail' ? v.failed : [],
+    complete: false,
+  };
 }
 
 export function latestCi(state: TaskState, head: string): Evidence['ci'][number] | undefined {
@@ -85,8 +101,18 @@ export function heldCi(
   ci: { head_sha: string; required_set: unknown; checks: unknown; required?: unknown },
 ): boolean {
   const prior = latestCi(state, ci.head_sha);
-  const view = (c: { required_set: unknown; checks: unknown; required?: unknown }) =>
-    canonicalJson({ r: c.required_set, c: c.checks, required: c.required ?? null });
+  const view = (c: {
+    required_set: unknown;
+    checks: unknown;
+    required?: unknown;
+    pr_draft?: unknown;
+  }) =>
+    canonicalJson({
+      r: c.required_set,
+      c: c.checks,
+      required: c.required ?? null,
+      draft: c.pr_draft ?? null,
+    });
   return prior !== undefined && view(prior) === view(ci);
 }
 

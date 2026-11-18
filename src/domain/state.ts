@@ -321,6 +321,8 @@ export type Evidence = {
     required_set: RequiredSet;
     checks: Check[];
     required?: RequiredCheckVerdict;
+    /** Read while the PR was a draft: its verdict is `incomplete` until CI of the ready PR. */
+    pr_draft?: true;
     valid: boolean;
   }[];
   base_relations: (BaseRelation & { revision: number; valid: boolean })[];
@@ -561,6 +563,11 @@ export type RunState = {
    * that finished before it: a draft run skipped by the repo's CI is not a result. Absent when never set.
    */
   pr_ready_at?: number | null;
+  /**
+   * The last mark_ready found the PR closed, retargeted or on another head and left it a draft: once a
+   * read sees it open on the task's target and head, still a draft, the ready step runs again.
+   */
+  pr_ready_pending?: boolean;
   /** Review attempt whose verdict the review step last routed on, recorded or reused. */
   verdict_attempt_id?: string;
   /** Review attempts posted on the PR, or sent with an outcome never confirmed: not sent again. */

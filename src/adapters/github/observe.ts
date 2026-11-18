@@ -6,9 +6,10 @@
  * switches to the merge branch. The adapter reports facts only; the engine decides what they mean.
  */
 import type { RequiredEvidence } from '../../domain/runtime.ts';
-import type { GitHubPort } from '../ports.ts';
+import type { GitHubFailure, GitHubPort } from '../ports.ts';
 import { readHeadChecks, type HeadChecks } from './checks.ts';
 import { listAll } from './gh-port.ts';
+import { readyEventAt } from './review.ts';
 import { pullFacts, readMergeEvidence, type MergeEvidence, type PullFacts } from './merge-proof.ts';
 import {
   normalizeRequirements,
@@ -24,8 +25,8 @@ export type ObserveTarget = {
   /** Known after the PR was created or recovered; null only before the first read. */
   readonly pr_id: string | null;
   readonly target: string;
-  /** When the task's draft PR was turned ready: skipped check runs that finished earlier are ignored. */
-  readonly skipped_before?: number | null;
+  /** The frozen policy's required checks: with GitHub's, the names a CI verdict is taken on. */
+  readonly required_checks?: readonly string[];
 };
 
 export type PullObservation =
@@ -40,6 +41,8 @@ export type PullObservation =
       readonly pull: PullFacts;
       readonly required: RequiredEvidence;
       readonly checks: HeadChecks | null;
+      /** Why `checks` is null when GitHub refused or failed the read, its rate limit included. */
+      readonly checks_error?: GitHubFailure;
       readonly reasons: readonly string[];
     }
   /**
@@ -107,6 +110,17 @@ export async function readRequirements(
   );
 }
 
+/** Names a CI verdict is taken on: the policy's and every one GitHub requires, as far as it was read. */
+function requiredNames(required: RequiredEvidence, policy: readonly string[]): string[] {
+  const ids = required.kind === 'unknown' ? required.partial : required.identities;
+  return [...new Set([...policy, ...ids.map((i) => i.name)])];
+}
+
+/** GitHub's rate limit: 429, or 403 with Retry-After (the secondary limit). */
+export function rateLimited(f: GitHubFailure): boolean {
+  return f.status === 429 || (f.status === 403 && f.retry_after_ms !== null);
+}
+
 function identityOk(p: PullFacts, t: ObserveTarget): boolean {
   return (
     String(p.base.repo_id) === t.immutable_repo_id &&
@@ -163,8 +177,23 @@ export async function observePull(
 
   const required = await readRequirements(port, t.repo, pull.base.ref, observedAt);
   const checks = /^[0-9a-f]{40}$/.test(pull.head.sha)
-    ? await readHeadChecks(port, t.repo, pull.head.sha, t.skipped_before ?? null)
+    ? await readHeadChecks(port, t.repo, pull.head.sha, {
+        draft: pull.draft !== false,
+        required: requiredNames(required, t.required_checks ?? []),
+        readyAt: () => readyEventAt(port, t.repo, t.pr_number),
+      })
     : null;
+  // GitHub's rate limit stops this read here: another call would only be refused too, and the
+  // caller needs the limit, not a later failure, to schedule the next read.
+  if (checks?.ok === false && rateLimited(checks.error))
+    return {
+      status: pull.state,
+      pull,
+      required,
+      checks: null,
+      checks_error: checks.error,
+      reasons: [`checks unreadable: ${checks.error.detail}`],
+    };
   const second = await port.request({
     method: 'GET',
     path,
@@ -209,12 +238,13 @@ export async function observePull(
     again.head.sha !== pull.head.sha ||
     again.base.ref !== pull.base.ref ||
     again.base.sha !== pull.base.sha ||
-    again.state !== pull.state
+    again.state !== pull.state ||
+    again.draft !== pull.draft
   ) {
     return {
       status: 'inconsistent',
       pull: again,
-      reasons: ['head/base/state changed between reads'],
+      reasons: ['head/base/state/draft changed between reads'],
     };
   }
   const checkReasons =
@@ -228,6 +258,7 @@ export async function observePull(
     pull,
     required,
     checks: checks?.ok === true ? checks.value : null,
+    ...(checks?.ok === false ? { checks_error: checks.error } : {}),
     reasons: checkReasons,
   };
 }

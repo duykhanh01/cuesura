@@ -40,6 +40,7 @@ async function requestBaseWithoutYolo(
               ? { ahead_by: 1 }
               : {
                   state: 'open',
+                  draft: false,
                   merged: false,
                   mergeable_state: 'dirty',
                   head: { sha: head },

@@ -17,9 +17,15 @@
  * there (or the base it was created at). Anything else on that branch is someone else's push: the goal
  * asks for a new plan (`goal_branch_drift`) and no unit merges.
  */
-import { readMergeReadiness, sendMerge, type MergeTarget } from '../adapters/github/merge.ts';
+import {
+  confirmPull,
+  readMergeReadiness,
+  sendMerge,
+  type MergeTarget,
+} from '../adapters/github/merge.ts';
 import { readHeadChecks } from '../adapters/github/checks.ts';
-import { readRequirements } from '../adapters/github/observe.ts';
+import { rateLimited, readRequirements } from '../adapters/github/observe.ts';
+import { readyEventAt } from '../adapters/github/review.ts';
 import type { Clock, GitHubPort, GitPort } from '../adapters/ports.ts';
 import type { PublishContent } from '../adapters/context.ts';
 import { submit } from '../application/triage.ts';
@@ -71,6 +77,10 @@ export type YoloOutcome =
   | 'goal_held';
 
 const NO_REQUIRED_CHECKS = 'no required CI checks; declare ci.required_checks in cusr.yaml';
+/** Waited after GitHub's rate limit when it names no time of its own. */
+const RATE_LIMIT_FALLBACK_MS = 60_000;
+// When GitHub's rate limit lets a task's merge pass read again, per store: until then no pass reads.
+const rateLimitedUntil = new WeakMap<Store, Map<string, number>>();
 // One warning per task in this daemon/store lifetime, rather than one on every observation poll.
 const emptyCheckWarnings = new WeakMap<Store, Set<string>>();
 
@@ -91,17 +101,25 @@ async function currentChecksProblem(
   policy: FrozenPolicy,
   t: MergeTarget,
   now: number,
-  skippedBefore: number | null,
   waivedOf: (checks: readonly Check[]) => ReadonlySet<string>,
   rulesOf: string,
-): Promise<string | null> {
+): Promise<string | { rate_limited: number } | null> {
   const required = await readRequirements(port, t.repo, rulesOf, now);
   const verdict = evaluateRequired(required, policy.ci.required_checks);
   if (verdict.kind !== 'covered') return `required checks ${verdict.kind}`;
   if (policy.ci.required_checks.length === 0 && verdict.github.length === 0)
     return NO_REQUIRED_CHECKS;
-  const checks = await readHeadChecks(port, t.repo, t.head_sha, skippedBefore);
-  if (!checks.ok) return `checks unreadable: ${checks.error.detail}`;
+  // The same rule as the CI wait: a skip counts only from a run of the PR's latest turn to ready,
+  // dated by GitHub's own ready event, never by the time the task recorded.
+  const checks = await readHeadChecks(port, t.repo, t.head_sha, {
+    draft: false,
+    required: [...new Set([...policy.ci.required_checks, ...verdict.github])],
+    readyAt: () => readyEventAt(port, t.repo, t.pr_number),
+  });
+  if (!checks.ok)
+    return rateLimited(checks.error)
+      ? { rate_limited: checks.error.retry_after_ms ?? RATE_LIMIT_FALLBACK_MS }
+      : `checks unreadable: ${checks.error.detail}`;
   const passed = checkPasser(checks.value.checks);
   const runs = checks.value.checks.map((c) => ({
     name: c.name,
@@ -173,6 +191,11 @@ async function advance(deps: YoloDeps, taskId: string): Promise<YoloOutcome> {
     target: s.task.base_branch,
     head_sha: s.head_sha as string,
   };
+  const retryAt = rateLimitedUntil.get(deps.store)?.get(taskId);
+  if (retryAt !== undefined) {
+    if (deps.clock.now() < retryAt) return 'not_ready';
+    rateLimitedUntil.get(deps.store)?.delete(taskId);
+  }
   const port = deps.github();
   const goal = mergingGoal(deps.store, s);
   // A goal that replans or ended neither merges into its branch nor brings units up to date on it:
@@ -293,22 +316,44 @@ async function advance(deps: YoloDeps, taskId: string): Promise<YoloOutcome> {
     policy,
     target,
     deps.clock.now(),
-    s.run.pr_ready_at ?? null,
     (runs) => waivedChecks(s, policy, target.head_sha, runs),
     rulesOf,
   );
-  if (problem !== null) return notReady(problem);
-  if (goal !== null) {
-    // The checks were read over the network, and someone may have pushed to the goal branch meanwhile:
-    // the branch is read once more, last, and from here to the send nothing is awaited.
-    const last = await readMergeReadiness(port, target);
-    if (last.tip !== undefined) {
-      const read = await readBranch();
-      const drift = judge(read, last.tip);
-      if (drift !== null) return drift;
-    }
-    if (!last.ready) return notReady(last.reason);
+  if (typeof problem === 'object' && problem !== null) {
+    let until = rateLimitedUntil.get(deps.store);
+    if (until === undefined) rateLimitedUntil.set(deps.store, (until = new Map<string, number>()));
+    until.set(taskId, deps.clock.now() + problem.rate_limited);
+    return notReady(`rate limited for ${problem.rate_limited} ms`);
   }
+  if (problem !== null) return notReady(problem);
+  // The checks were read over the network, and the base may have moved meanwhile: readiness is read
+  // once more, and for a goal unit the goal branch someone may have pushed to. Last, one GitHub answer
+  // gives the PR (open, not a draft, head, target) and its target's tip, so a change made during the
+  // earlier reads shows and none can slip between the two: from there to the approval only synchronous
+  // checks run, and GitHub's own merge check is the only one after them.
+  const last = await readMergeReadiness(port, target);
+  if (!last.ready && goal === null) return notReady(last.reason);
+  const read = goal !== null && last.tip !== undefined ? await readBranch() : undefined;
+  const pull = await confirmPull(port, target);
+  // A goal branch drift is recorded whatever the PR shows; it is judged now, nothing awaited since.
+  const drift = read === undefined ? null : judge(read, last.tip);
+  if (drift !== null) return drift;
+  // Unreadable, or no longer on the target: the answer says nothing about the target's tip.
+  if (!pull.ok && pull.tip === null) return notReady(pull.reason);
+  if (goal !== null && read !== undefined && read !== null) {
+    // `judge` saw the same merge mark: no merge of the daemon's moved the branch since it was read, so a
+    // tip GitHub now shows apart from the one checked was pushed from outside the daemon.
+    if (pull.tip === null) return 'goal_held';
+    if (pull.tip !== read.tip) {
+      deps.log?.(
+        `goal ${goal.id}: branch ${goal.branch ?? ''} moved to ${pull.tip} after it was read at ${read.tip}`,
+      );
+      recordGoalDrift(deps.store, goal.id, pull.tip, deps.clock.now());
+      return 'goal_branch_drift';
+    }
+  }
+  if (!pull.ok) return notReady(pull.reason);
+  if (!last.ready) return notReady(last.reason);
 
   const approved = submit(deps.store, {
     task_id: taskId,

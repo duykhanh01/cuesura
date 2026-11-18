@@ -210,6 +210,8 @@ export type EventPayloads = {
     checks: Check[];
     required?: RequiredCheckVerdict;
     resets_streak_of: string | null;
+    /** Additive: read while the PR was a draft (or not read as ready); never a pass or a fail. */
+    pr_draft?: true;
   };
   BaseRelationRecorded: { relation: BaseRelation };
   EvidenceInvalidated: { revision: number; approvals: string[] };

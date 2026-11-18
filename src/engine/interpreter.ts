@@ -1650,9 +1650,11 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
           checks: d.checks,
           ...(d.required === undefined ? {} : { required: d.required }),
           resets_streak_of: resets,
+          ...(d.pr_draft === true ? { pr_draft: true as const } : {}),
         });
       if (d.base_relation !== undefined)
         ctx.emit('BaseRelationRecorded', { relation: d.base_relation });
+      if (readyAgain(ctx, d)) return;
       onCiRecorded(ctx, step as string, d.head_sha === ctx.state.head_sha ? d.required : undefined);
       return;
     }
@@ -2265,6 +2267,40 @@ function draftUntilReady(ctx: Ctx): boolean {
   return Object.values(ctx.frozen.workflow.steps).some(
     (d) => d.kind === 'action' && d.action === 'github.mark_ready',
   );
+}
+
+/**
+ * The ready step left the PR a draft because it was closed, retargeted or on another head, and a read now shows
+ * it open on the task's target with the task's head, still a draft: the ready step runs again, before any
+ * CI can count. It is bounded by the step's visits and the task's deadline, never by the CI window.
+ * Returns whether it did.
+ */
+export function readyAgain(
+  ctx: Ctx,
+  ci: { head_sha: string; pr_draft?: true | undefined } | undefined,
+): boolean {
+  const s = ctx.state;
+  const step = readyStep(ctx);
+  if (
+    ci?.pr_draft !== true ||
+    s.head_sha === null ||
+    ci.head_sha !== s.head_sha ||
+    s.run.pr_ready_pending !== true ||
+    step === null ||
+    s.cancellation !== null ||
+    pastDeadline(ctx)
+  )
+    return false;
+  proceed(ctx, { kind: 'enter_step', step }, 'pr_still_draft');
+  return true;
+}
+
+/** The step that turns the PR ready, when the graph has one. */
+function readyStep(ctx: Ctx): string | null {
+  const hit = Object.entries(ctx.frozen.workflow.steps).find(
+    ([, d]) => d.kind === 'action' && d.action === 'github.mark_ready',
+  );
+  return hit === undefined ? null : hit[0];
 }
 
 /** Review steps of a task started with a confirmed mode compare inputs and bind to the checkpoint. */

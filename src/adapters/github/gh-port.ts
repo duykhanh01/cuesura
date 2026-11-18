@@ -65,9 +65,15 @@ export const POST_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/actions/runs/\\d+/rerun-failed-jobs$`),
   /^graphql$/,
 ];
-/** The only GraphQL document the port lets through. */
+/** The GraphQL mutation that turns a draft pull request ready for review. */
 export const MARK_READY_MUTATION =
   'mutation($id: ID!) { markPullRequestReadyForReview(input: {pullRequestId: $id}) { pullRequest { isDraft } } }';
+/**
+ * A read: a pull request's state, draft flag, head commit, base branch and that branch's tip, all from
+ * one answer, so none of them can change between the reads of the others.
+ */
+export const CONFIRM_PULL_QUERY =
+  'query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { state isDraft headRefOid baseRefName baseRef { target { oid } } } } }';
 
 const REVIEW_FIELDS = new Set(['commit_id', 'body', 'event', 'comments']);
 const REVIEW_COMMENT_FIELDS = new Set(['path', 'line', 'side', 'body']);
@@ -86,15 +92,23 @@ function validReviewBody(body: unknown): boolean {
   );
 }
 
-/** GraphQL is reachable for exactly one document: marking a pull request ready for review. */
+/**
+ * GraphQL is reachable for exactly two documents: marking a pull request ready for review, and reading
+ * one pull request for the merge's last check. Nothing else, and no other variables.
+ */
 function validGraphqlBody(body: unknown): boolean {
   const b = obj(body);
   const vars = obj(b['variables']);
+  const keys = Object.keys(vars).sort().join(',');
+  if (!Object.keys(b).every((k) => k === 'query' || k === 'variables')) return false;
+  if (b['query'] === MARK_READY_MUTATION) return keys === 'id' && typeof vars['id'] === 'string';
   return (
-    Object.keys(b).every((k) => k === 'query' || k === 'variables') &&
-    b['query'] === MARK_READY_MUTATION &&
-    Object.keys(vars).length === 1 &&
-    typeof vars['id'] === 'string'
+    b['query'] === CONFIRM_PULL_QUERY &&
+    keys === 'name,number,owner' &&
+    typeof vars['owner'] === 'string' &&
+    typeof vars['name'] === 'string' &&
+    Number.isSafeInteger(vars['number']) &&
+    (vars['number'] as number) > 0
   );
 }
 
@@ -377,7 +391,7 @@ export class GhPort implements GitHubPort {
         status: null,
         detail:
           req.path === 'graphql'
-            ? 'graphql may only mark a pull request ready'
+            ? 'graphql may only mark a pull request ready or read one'
             : 'a review may only COMMENT',
         retry_after_ms: null,
       });

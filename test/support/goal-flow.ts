@@ -35,6 +35,7 @@ import type { Store } from '../../src/store/index.ts';
 import { openFileStoreForTest } from '../../src/store/testing.ts';
 import { buildPolicy, freezeOk, ownerAuthz, uuidOf } from './builders.ts';
 import { FakeGitHub } from './fake-github.ts';
+import { CONFIRM_PULL_QUERY } from '../../src/adapters/github/gh-port.ts';
 import { contentFile, passthrough } from './flow-env.ts';
 import { gitSandbox, type GitSandbox } from './git-repo.ts';
 import { confirmedRuntime, proposeAndConfirm } from './runtime.ts';
@@ -72,6 +73,14 @@ export class RemoteGitHub extends FakeGitHub {
   beforeNext: ((req: GitHubRequest) => void) | null = null;
   /** Runs once right before the next merge is applied, after the daemon's last read. */
   beforeMerge: (() => void) | null = null;
+  /** Runs once before the next read of a PR (REST, or the GraphQL check before a merge) is answered. */
+  beforePull: (() => void) | null = null;
+  /**
+   * Runs once when a GET follows the next read of a PR straight away, before it is answered: a change
+   * landing after GitHub answered for the PR and before the next read. Dropped if a write comes next.
+   */
+  betweenPullAndGet: (() => void) | null = null;
+  #pullAnswered = false;
 
   constructor(git: GitSandbox, remote: string, work: string) {
     super('acme/app', 4242);
@@ -114,6 +123,23 @@ export class RemoteGitHub extends FakeGitHub {
       this.beforeNext = null;
       hook(req);
     }
+    const pullHook = this.beforePull;
+    const readsPull =
+      (req.method === 'GET' && /\/pulls\/\d+$/.test(req.path)) ||
+      (req.method === 'POST' &&
+        req.path === 'graphql' &&
+        (req.body as { query?: unknown } | null)?.query === CONFIRM_PULL_QUERY);
+    if (pullHook !== null && readsPull) {
+      this.beforePull = null;
+      pullHook();
+    }
+    const between = this.betweenPullAndGet;
+    if (between !== null && this.#pullAnswered) {
+      this.#pullAnswered = false;
+      this.betweenPullAndGet = null;
+      if (req.method === 'GET') between();
+    }
+    if (between !== null && readsPull) this.#pullAnswered = true;
     const merge = req.method === 'PUT' ? /\/pulls\/(\d+)\/merge$/.exec(req.path) : null;
     if (merge !== null) {
       this.calls.push(`${req.method} ${req.path}`);

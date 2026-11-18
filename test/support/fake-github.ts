@@ -4,6 +4,7 @@ import type {
   GitHubRequest,
   GitHubResponse,
 } from '../../src/adapters/ports.ts';
+import { CONFIRM_PULL_QUERY } from '../../src/adapters/github/gh-port.ts';
 import { hashCanonical } from '../../src/shared/hash.ts';
 import { err, ok, type Result } from '../../src/shared/result.ts';
 
@@ -148,6 +149,30 @@ export class FakeGitHub implements GitHubPort {
       this.prs.push(pr);
       return reply(201, this.#pull(pr));
     }
+    if (
+      req.method === 'POST' &&
+      req.path === 'graphql' &&
+      (req.body as { query?: unknown }).query === CONFIRM_PULL_QUERY
+    ) {
+      const n = (req.body as { variables: { number: number } }).variables.number;
+      const p = this.prs.find((x) => x.number === n);
+      if (p === undefined) return reply(200, { data: { repository: { pullRequest: null } } });
+      if (p.merged_at === null) p.head.sha = this.headOf(p.head.ref) ?? p.head.sha;
+      const tip = this.headOf(p.base);
+      return reply(200, {
+        data: {
+          repository: {
+            pullRequest: {
+              state: p.merged_at !== null ? 'MERGED' : p.state === 'closed' ? 'CLOSED' : 'OPEN',
+              isDraft: p.draft === true,
+              headRefOid: p.head.sha,
+              baseRefName: p.base,
+              baseRef: tip === null ? null : { target: { oid: tip } },
+            },
+          },
+        },
+      });
+    }
     if (req.method === 'POST' && req.path === 'graphql') {
       const id = (req.body as { variables: { id: string } }).variables.id;
       const p = this.prs.find((x) => `PR_${x.id}` === id);
@@ -272,7 +297,11 @@ export class FakeGitHub implements GitHubPort {
       return reply(200, req.query['page'] === '1' ? [...ready, ...merged] : []);
     }
     if (/\/rules\/branches\//.test(req.path)) return reply(200, []);
-    if (/\/branches\/[^/]+$/.test(req.path)) return reply(200, { protected: false });
+    const branch = /\/branches\/([^/]+)$/.exec(req.path);
+    if (branch !== null) {
+      const tip = this.headOf(decodeURIComponent(branch[1] as string));
+      return reply(200, { protected: false, ...(tip === null ? {} : { commit: { sha: tip } }) });
+    }
     const runs = /\/commits\/([0-9a-f]{40})\/check-runs$/.exec(req.path);
     if (runs !== null) {
       const sha = runs[1] as string;

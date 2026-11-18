@@ -70,7 +70,7 @@ import {
   type DeputyDecision,
 } from '../application/deputy-decisions.ts';
 import { toMergeProof } from '../adapters/github/merge-proof.ts';
-import { observePull } from '../adapters/github/observe.ts';
+import { observePull, rateLimited } from '../adapters/github/observe.ts';
 import {
   bodyDigest as bodyDigestOf,
   createOrRecoverPr,
@@ -98,6 +98,7 @@ import {
 import { defaultReviewTemplate } from '../domain/templates.ts';
 import type {
   Clock,
+  GitHubFailure,
   GitHubPort,
   GitPort,
   HarnessFailure,
@@ -2291,11 +2292,26 @@ async function createPr(deps: HandlerDeps, effect: Effect): Promise<EffectOutcom
 
 type CiData = z.infer<typeof AwaitCiDataSchema>;
 
+/** Waited after GitHub's rate limit when it names no time of its own. */
+const RATE_LIMIT_FALLBACK_MS = 60_000;
+
+/** GitHub's wait for a rate-limited read (429, or 403 with Retry-After); null for any other failure. */
+export function rateLimitWait(f: GitHubFailure): number | null {
+  return rateLimited(f) ? (f.retry_after_ms ?? RATE_LIMIT_FALLBACK_MS) : null;
+}
+
+const rateLimitFailure = (message: string, reset_at: number): EffectOutcome => ({
+  outcome: 'failed',
+  data: { failure_class: 'rate_limit', message, reset_at },
+});
+
 /** What one read of the task's PR established: CI data of its head (or why none), and facts for the engine. */
 export type ObservedPr = {
   readonly ci: CiData | null;
   readonly failure: string | null;
   readonly facts: Trigger[];
+  /** GitHub's own wait when `failure` is its rate limit. */
+  readonly retry_after_ms?: number;
 };
 
 /**
@@ -2337,7 +2353,7 @@ export async function observeTaskPr(
       pr_number: n,
       pr_id: null,
       target: l.s.task.base_branch,
-      skipped_before: l.s.run.pr_ready_at ?? null,
+      required_checks: l.policy.ci.required_checks,
     },
     now,
   );
@@ -2441,8 +2457,22 @@ export async function observeTaskPr(
       failure: null,
       facts: observation('closed', obs.pull.head.sha, null),
     };
+  // A drift needs no CI read: it is recorded below whatever became of the checks.
+  const drifted =
+    l.s.head_sha !== null && obs.pull.head.sha !== null && obs.pull.head.sha !== l.s.head_sha;
+  // Checks GitHub would not give out for now: no verdict without them, and the next read waits as asked.
+  const limited = obs.checks_error === undefined ? null : rateLimitWait(obs.checks_error);
+  if (limited !== null && !drifted)
+    return {
+      ci: null,
+      failure: `checks unreadable: ${obs.reasons.join('; ')}`,
+      facts: observation('unknown', obs.pull.head.sha, { reasons: obs.reasons }),
+      retry_after_ms: limited,
+    };
   const verdict = evaluateRequired(obs.required, l.policy.ci.required_checks);
   const names = verdict.kind === 'covered' ? [...verdict.github] : [];
+  // A draft, or a PR not read as ready, has no CI result for the ready PR: never a pass (FR-042).
+  const draft = obs.pull.draft !== false;
   const checks =
     obs.checks?.checks.map((c) => ({
       name: c.name,
@@ -2452,6 +2482,7 @@ export async function observeTaskPr(
       run: String(c.generation),
     })) ?? [];
   const complete =
+    !draft &&
     verdict.kind === 'covered' &&
     obs.checks !== null &&
     obs.checks.complete &&
@@ -2461,6 +2492,7 @@ export async function observeTaskPr(
     required_set: { names, source: 'branch_protection', complete },
     checks,
     required: requiredData(verdict),
+    ...(draft ? { pr_draft: true } : {}),
   };
   const facts = observation('open', obs.pull.head.sha, {
     required: ci.required,
@@ -2468,7 +2500,7 @@ export async function observeTaskPr(
     complete,
   });
   // A PR head that is not the head this task pushed: a drift fact, never the new expected head (H01).
-  if (l.s.head_sha !== null && obs.pull.head.sha !== null && obs.pull.head.sha !== l.s.head_sha) {
+  if (drifted && l.s.head_sha !== null && obs.pull.head.sha !== null) {
     if (
       deps.local !== undefined &&
       (await workerPushed(deps.local, l, l.s.head_sha, obs.pull.head.sha))
@@ -2613,7 +2645,10 @@ export async function observeTask(
   for (const f of r.facts) if (f.kind === 'observation_result') delete f.ci;
   if (r.ci === null)
     return {
-      outcome: failed('infra', r.failure ?? 'observation failed'),
+      outcome:
+        r.retry_after_ms === undefined
+          ? failed('infra', r.failure ?? 'observation failed')
+          : rateLimitFailure(r.failure ?? 'rate limited', deps.clock.now() + r.retry_after_ms),
       extra: r.facts,
     };
   return { outcome: { outcome: 'succeeded', data: r.ci }, extra: r.facts };
@@ -2687,22 +2722,49 @@ function prOf(l: Loaded): { repo: string; n: number } {
   return { repo: l.rt.target.repo, n };
 }
 
-function readyOutcome(l: Loaded, r: ReadyOutcome): EffectOutcome {
+/** The effect result of a mark_ready read; exported for tests. */
+export function readyOutcome(
+  l: { readonly s: Pick<TaskState, 'pr_ref' | 'head_sha'> },
+  r: ReadyOutcome,
+  now = 0,
+): EffectOutcome {
   switch (r.kind) {
     case 'ready':
       return {
         outcome: 'succeeded',
-        data: { pr_ref: l.s.pr_ref, ready_at: r.ready_at },
+        data: {
+          pr_ref: l.s.pr_ref,
+          ready_at: r.ready_at,
+          outcome: 'ready',
+          head_sha: r.head_sha,
+          base: r.base,
+        },
       };
-    // A closed, merged or retargeted PR, or one whose head moved, is the CI wait's to judge: it observes
-    // the PR and records the merge, mismatch or drift.
+    // The PR stays a draft. A closed, retargeted or drifted PR is the CI wait's to judge: it records the
+    // closure, mismatch or drift and waits, and CI of a draft never passes there. `outcome` keeps them
+    // apart from a PR that was turned ready.
     case 'closed':
+      return {
+        outcome: 'succeeded',
+        data: { pr_ref: l.s.pr_ref, ready_at: null, outcome: 'closed' },
+      };
     case 'retargeted':
+      return {
+        outcome: 'succeeded',
+        data: { pr_ref: l.s.pr_ref, ready_at: null, outcome: 'retargeted', base: r.base },
+      };
     case 'head_moved':
       return {
         outcome: 'succeeded',
-        data: { pr_ref: l.s.pr_ref, ready_at: null },
+        data: { pr_ref: l.s.pr_ref, ready_at: null, outcome: 'head_moved', head_sha: r.head_sha },
       };
+    // Usually GitHub still serving the head before the publish: retried with bounded backoff until the
+    // PR shows the published head or PR and branch both confirm another one.
+    case 'head_unsettled': {
+      const message = `PR head ${r.head_sha} is not the published head ${l.s.head_sha ?? 'none'}: ${r.detail}; left a draft`;
+      const wait = r.failure === null ? null : rateLimitWait(r.failure);
+      return wait === null ? failed('infra', message) : rateLimitFailure(message, now + wait);
+    }
     case 'rejected':
       return failed('auth_config', `ready for review refused: ${r.detail}`);
     case 'unknown':
@@ -2715,13 +2777,11 @@ async function markReadyEffect(deps: HandlerDeps, effect: Effect): Promise<Effec
   const l = load(deps, effect);
   const { repo, n } = prOf(l);
   if (l.s.head_sha === null) return failed('infra', 'no published head');
-  return readyOutcome(
-    l,
-    await markReady(deps.github(), repo, n, {
-      head_sha: l.s.head_sha,
-      target: l.s.task.base_branch,
-    }),
-  );
+  const r = await markReady(deps.github(), repo, n, {
+    head_sha: l.s.head_sha,
+    target: l.s.task.base_branch,
+  });
+  return readyOutcome(l, r, deps.clock.now());
 }
 
 function reviewMarker(taskId: string, attemptId: string): string {

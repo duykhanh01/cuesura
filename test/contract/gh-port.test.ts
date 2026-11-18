@@ -3,6 +3,7 @@ import {
   API_VERSION,
   GhPort,
   listAll,
+  CONFIRM_PULL_QUERY,
   MARK_READY_MUTATION,
   spawnGhExec,
   type GhPortOptions,
@@ -105,7 +106,7 @@ describe('gh port (T040, contracts/github.md)', () => {
     expect(exec.calls).toEqual([]);
   });
 
-  it('posts only COMMENT reviews and only the mark-ready GraphQL mutation', async () => {
+  it('posts only COMMENT reviews, the mark-ready GraphQL mutation and the merge check read', async () => {
     const review = {
       commit_id: 'a'.repeat(40),
       body: 'b',
@@ -137,6 +138,12 @@ describe('gh port (T040, contracts/github.md)', () => {
       },
       { ...ready, variables: { id: 'PR_1', other: 1 } },
       { ...ready, operationName: 'x' },
+      // The read for the last check before a merge takes exactly its own variables.
+      { query: CONFIRM_PULL_QUERY, variables: { owner: 'o', name: 'r' } },
+      { query: CONFIRM_PULL_QUERY, variables: { owner: 'o', name: 'r', number: 0 } },
+      { query: CONFIRM_PULL_QUERY, variables: { owner: 'o', name: 'r', number: 1, id: 'x' } },
+      { query: CONFIRM_PULL_QUERY, variables: { id: 'PR_1' } },
+      { query: MARK_READY_MUTATION, variables: { owner: 'o', name: 'r', number: 1 } },
     ])
       expect(await p.request({ method: 'POST', path: 'graphql', query: {}, body })).toMatchObject({
         ok: false,
@@ -159,7 +166,15 @@ describe('gh port (T040, contracts/github.md)', () => {
         body: ready,
       }),
     ).toMatchObject({ ok: true });
-    expect(exec.calls).toHaveLength(2);
+    expect(
+      await p.request({
+        method: 'POST',
+        path: 'graphql',
+        query: {},
+        body: { query: CONFIRM_PULL_QUERY, variables: { owner: 'o', name: 'r', number: 1 } },
+      }),
+    ).toMatchObject({ ok: true });
+    expect(exec.calls).toHaveLength(3);
   });
 
   it('POSTs a PR once with the JSON body on stdin; a 422 is an HTTP error, a lost answer is unknown', async () => {

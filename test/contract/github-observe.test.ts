@@ -9,6 +9,7 @@ import {
   type ObserveTarget,
 } from '../../src/adapters/github/observe.ts';
 import type { ExternalSubject } from '../../src/domain/runtime.ts';
+import { ciVerdict } from '../../src/engine/merge-guard.ts';
 import { evaluateRequired } from '../../src/engine/required-checks.ts';
 import { Redactor } from '../../src/runner/redact.ts';
 import type { EpochMs } from '../../src/shared/brand.ts';
@@ -409,5 +410,158 @@ describe('observation bundle (T044)', () => {
     expect(
       await observePull(port({ 'GET repos/acme/app/pulls/7': [{ status: 502 }] }), target, 0),
     ).toMatchObject({ status: 'unknown' });
+  });
+});
+
+// PR #36 of a dogfood repo: the repo's CI skipped every job of the draft, the aggregate `ci-ok` included,
+// and that skip was taken for a pass while the task held no ready time.
+describe('skipped runs of a draft PR', () => {
+  const HEAD = 'a'.repeat(40);
+  const target: ObserveTarget = {
+    repo: 'acme/app',
+    immutable_repo_id: REPO_ID,
+    pr_number: 7,
+    pr_id: '5007',
+    target: 'master',
+    required_checks: ['ci-ok'],
+  };
+  /** A check run made by workflow run `id + 1000`, itself made at `made`. */
+  const run = (id: number, name: string, conclusion: string, made: string) => ({
+    id,
+    name,
+    status: 'completed',
+    conclusion,
+    started_at: made,
+    completed_at: made,
+    details_url: `https://github.com/acme/app/actions/runs/${id + 1000}/job/${id}`,
+    head_sha: HEAD,
+    app: { id: 15368 },
+    made,
+  });
+  const ciOk = (id: number, conclusion: string, made: string) => run(id, 'ci-ok', conclusion, made);
+  const EVENTS = 'GET repos/acme/app/issues/7/events?per_page=100&page=1';
+  const PULL = 'GET repos/acme/app/pulls/7';
+  const ready = (...at: string[]) => at.map((t) => ({ event: 'ready_for_review', created_at: t }));
+  const script = (
+    draft: boolean | undefined,
+    runs: ReturnType<typeof run>[],
+    events: FixtureResponse[] = [{ status: 200, body: [] }],
+  ): FixtureScript => ({
+    [PULL]: [{ status: 200, body: pull(7, draft === undefined ? {} : { draft }) }],
+    'GET repos/acme/app/branches/master': [{ status: 200, body: { protected: false } }],
+    'GET repos/acme/app/rules/branches/master?per_page=100&page=1': [{ status: 200, body: [] }],
+    [`GET repos/acme/app/commits/${HEAD}/check-runs?per_page=100&page=1`]: [
+      { status: 200, body: { check_runs: runs } },
+    ],
+    [`GET repos/acme/app/commits/${HEAD}/statuses?per_page=100&page=1`]: [
+      { status: 200, body: [] },
+    ],
+    [EVENTS]: events,
+    ...Object.fromEntries(
+      runs.map((r) => [
+        `GET repos/acme/app/actions/runs/${r.id + 1000}`,
+        [{ status: 200, body: { id: r.id + 1000, head_sha: HEAD, created_at: r.made } }],
+      ]),
+    ),
+  });
+  const verdict = (obs: Awaited<ReturnType<typeof observePull>>) =>
+    ciVerdict(
+      { ci: { required_checks: ['ci-ok'] } } as never,
+      { names: ['ci-ok'], source: 'policy', complete: true },
+      obs.status === 'open' ? (obs.checks?.checks ?? []) : [],
+    );
+  const observe = (s: FixtureScript) => {
+    const exec = fixtureExec(s);
+    const p = new GhPort({
+      exec,
+      clock: { now: () => 0 as EpochMs, monotonic: () => 0 },
+      redactor: new Redactor(),
+    });
+    const count = (part: string) => exec.calls.filter((c) => c.target.includes(part)).length;
+    return { count, obs: observePull(p, target, 0) };
+  };
+  const ok = (body: unknown): FixtureResponse[] => [{ status: 200, body }];
+
+  it('a draft PR, or one whose draft state is unknown: a skipped required aggregate never passes', async () => {
+    for (const draft of [true, undefined]) {
+      const o = observe(script(draft, [ciOk(1, 'skipped', '2026-11-17T23:19:24Z')]));
+      const obs = await o.obs;
+      expect(obs).toMatchObject({ status: 'open', checks: { checks: [] } });
+      expect(verdict(obs)).toMatchObject({ kind: 'incomplete', missing: ['ci-ok'] });
+      expect(o.count('/events')).toBe(0);
+    }
+  });
+
+  it('a PR turned ready without the task: the ready event dates the draft runs, and the new run counts', async () => {
+    const events = ok(ready('2026-11-18T01:17:20Z'));
+    const draftRun = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
+    expect(verdict(await observe(script(false, [draftRun], events)).obs)).toMatchObject({
+      kind: 'incomplete',
+      missing: ['ci-ok'],
+    });
+    const fresh = [draftRun, ciOk(2, 'success', '2026-11-18T01:17:30Z')];
+    expect(verdict(await observe(script(false, fresh, events)).obs)).toEqual({ kind: 'pass' });
+  });
+
+  it('turned ready a second time: the latest ready event decides, not the first', async () => {
+    const events = ok(ready('2026-11-17T10:00:00Z', '2026-11-18T01:17:20Z'));
+    const second = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
+    expect(verdict(await observe(script(false, [second], events)).obs).kind).toBe('incomplete');
+    // A skip of a run the second ready event made (a docs-only change) passes.
+    const after = [second, ciOk(2, 'skipped', '2026-11-18T01:17:25Z')];
+    expect(verdict(await observe(script(false, after, events)).obs)).toEqual({ kind: 'pass' });
+  });
+
+  it('a skip of a PR that never was a draft still passes (docs-only)', async () => {
+    const o = observe(script(false, [ciOk(1, 'skipped', '2026-11-17T23:19:24Z')]));
+    const obs = await o.obs;
+    expect(obs).toMatchObject({ checks: { checks: [{ name: 'ci-ok', state: 'skipped' }] } });
+    expect(verdict(obs)).toEqual({ kind: 'pass' });
+    expect(o.count('/events')).toBe(1);
+    expect(o.count('/actions/runs/')).toBe(0);
+  });
+
+  it('events are read only when the verdict rests on a skip of a required check', async () => {
+    const optional = observe(
+      script(false, [
+        ciOk(1, 'success', '2026-11-17T23:19:24Z'),
+        run(2, 'lint-docs', 'skipped', '2026-11-17T23:19:24Z'),
+      ]),
+    );
+    expect(verdict(await optional.obs)).toEqual({ kind: 'pass' });
+    expect(optional.count('/events')).toBe(0);
+    // A required skip next to a failure cannot pass anyway.
+    const failed = observe(
+      script(false, [
+        ciOk(1, 'skipped', '2026-11-17T23:19:24Z'),
+        run(2, 'build', 'failure', '2026-11-17T23:19:24Z'),
+      ]),
+    );
+    expect(verdict(await failed.obs).kind).not.toBe('pass');
+    expect(failed.count('/events')).toBe(0);
+  });
+
+  it('GitHub’s rate limit on the ready event stops the read there, with the limit kept', async () => {
+    const limited = observe(
+      script(
+        false,
+        [ciOk(1, 'skipped', '2026-11-17T23:19:24Z')],
+        [{ status: 429, headers: { 'retry-after': '120' } }],
+      ),
+    );
+    const obs = await limited.obs;
+    expect(obs).toMatchObject({
+      status: 'open',
+      checks: null,
+      checks_error: { status: 429, retry_after_ms: 120_000 },
+    });
+    expect(verdict(obs).kind).toBe('incomplete');
+    // No second read of the PR after the limit.
+    expect(limited.count('repos/acme/app/pulls/7')).toBe(1);
+    const failing = await observe(
+      script(false, [ciOk(1, 'skipped', '2026-11-17T23:19:24Z')], [{ status: 502 }]),
+    ).obs;
+    expect(failing).toMatchObject({ status: 'open', checks: null });
+    expect(verdict(failing).kind).toBe('incomplete');
   });
 });

@@ -8,11 +8,16 @@ import type {
 import {
   markReady,
   postReview,
+  readyEventAt,
   renderReview,
   type ReviewPost,
 } from '../../src/adapters/github/review.ts';
-import { selectCurrent } from '../../src/adapters/github/checks.ts';
-import { MARK_READY_MUTATION } from '../../src/adapters/github/gh-port.ts';
+import { readHeadChecks } from '../../src/adapters/github/checks.ts';
+import { readyOutcome } from '../../src/daemon/handlers.ts';
+import { GhPort, MARK_READY_MUTATION } from '../../src/adapters/github/gh-port.ts';
+import { Redactor } from '../../src/runner/redact.ts';
+import type { EpochMs } from '../../src/shared/brand.ts';
+import { fixtureExec, type FixtureResponse } from '../support/gh-fixture.ts';
 import {
   DEFAULT_REVIEW_TEMPLATE,
   renderReviewTemplate,
@@ -74,7 +79,7 @@ const pull = (draft: boolean, head = A, state = 'open', base = 'main') => ({
   draft,
   state,
   node_id: 'PR_1',
-  head: { sha: head },
+  head: { sha: head, ref: 'cusr/t' },
   base: { ref: base },
 });
 
@@ -97,6 +102,8 @@ describe('mark ready (draft → ready after the review)', () => {
     expect(await markReady(port, 'o/r', 1, EXPECTED)).toEqual({
       kind: 'ready',
       ready_at: Date.parse('2026-10-29T11:00:00Z'),
+      head_sha: A,
+      base: 'main',
     });
     expect(port.calls.filter((c) => c.path === 'graphql').map((c) => c.body)).toEqual([
       { query: MARK_READY_MUTATION, variables: { id: 'PR_1' } },
@@ -111,11 +118,31 @@ describe('mark ready (draft → ready after the review)', () => {
     expect(await markReady(ready, 'o/r', 1, EXPECTED)).toEqual({
       kind: 'ready',
       ready_at: null,
+      head_sha: A,
+      base: 'main',
     });
-    const moved = fakePort({ 'GET repos/o/r/pulls/1': pull(true, B) });
+    // Someone pushed B to the task branch: PR and branch both show B, so this is a drift.
+    const moved = fakePort({
+      'GET repos/o/r/pulls/1': pull(true, B),
+      'GET repos/o/r/branches/cusr%2Ft': { commit: { sha: B } },
+    });
     expect(await markReady(moved, 'o/r', 1, EXPECTED)).toEqual({
       kind: 'head_moved',
       head_sha: B,
+    });
+    // An unreadable branch tip, or a branch that agrees with neither, settles nothing: retried.
+    const unread = fakePort({ 'GET repos/o/r/pulls/1': pull(true, B) });
+    expect(await markReady(unread, 'o/r', 1, EXPECTED)).toMatchObject({
+      kind: 'head_unsettled',
+      head_sha: B,
+      failure: { status: 404 },
+    });
+    const elsewhere = fakePort({
+      'GET repos/o/r/pulls/1': pull(true, B),
+      'GET repos/o/r/branches/cusr%2Ft': { commit: { sha: 'c'.repeat(40) } },
+    });
+    expect(await markReady(elsewhere, 'o/r', 1, EXPECTED)).toMatchObject({
+      kind: 'head_unsettled',
     });
     const retargeted = fakePort({
       'GET repos/o/r/pulls/1': pull(true, A, 'open', 'release'),
@@ -130,8 +157,104 @@ describe('mark ready (draft → ready after the review)', () => {
     expect(await markReady(closed, 'o/r', 1, EXPECTED)).toEqual({
       kind: 'closed',
     });
-    for (const p of [ready, moved, retargeted, closed])
+    for (const p of [ready, moved, unread, elsewhere, retargeted, closed])
       expect(p.calls.every((c) => c.method === 'GET')).toBe(true);
+  });
+
+  // PR #36 of a dogfood repo: the read right after the minor fix was published still showed the head
+  // before it, and the task went on to CI with the PR left a draft.
+  it('a PR head GitHub has not caught up with is retried; the next read turns it ready on the published head', async () => {
+    let head = B;
+    let draft = true;
+    const port = fakePort({
+      'GET repos/o/r/pulls/1': () => body(pull(draft, head)),
+      'GET repos/o/r/branches/cusr%2Ft': { commit: { sha: A } },
+      'POST graphql': () => {
+        draft = false;
+        return body({ data: {} });
+      },
+      'GET repos/o/r/issues/1/events': [
+        { event: 'ready_for_review', created_at: '2026-11-17T23:19:23Z' },
+      ],
+    });
+    const lag = await markReady(port, 'o/r', 1, EXPECTED);
+    expect(lag).toMatchObject({ kind: 'head_unsettled', head_sha: B, failure: null });
+    expect(port.calls.some((c) => c.method === 'POST')).toBe(false);
+    const l = { s: { pr_ref: 'o/r#1', head_sha: A } };
+    expect(readyOutcome(l, lag)).toMatchObject({
+      outcome: 'failed',
+      data: { failure_class: 'infra' },
+    });
+    head = A;
+    expect(await markReady(port, 'o/r', 1, EXPECTED)).toEqual({
+      kind: 'ready',
+      ready_at: Date.parse('2026-11-17T23:19:23Z'),
+      head_sha: A,
+      base: 'main',
+    });
+    expect(port.calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+  });
+
+  // Through the production port: the branch read must be one its allowlist lets through.
+  it('through GhPort: a lagging PR head is unsettled, a rate-limited branch read keeps GitHub’s wait', async () => {
+    const pullBody = (head: string) => ({
+      ...pull(true, head),
+      head: { sha: head, ref: 'cusr/t' },
+    });
+    const run = async (branch: FixtureResponse[]) => {
+      const exec = fixtureExec({
+        'GET repos/o/r/pulls/1': [{ status: 200, body: pullBody(B) }],
+        'GET repos/o/r/branches/cusr%2Ft': branch,
+      });
+      const port = new GhPort({
+        exec,
+        clock: { now: () => 0 as EpochMs, monotonic: () => 0 },
+        redactor: new Redactor(),
+      });
+      return { r: await markReady(port, 'o/r', 1, EXPECTED), exec };
+    };
+    const lag = await run([{ status: 200, body: { name: 'cusr/t', commit: { sha: A } } }]);
+    expect(lag.r).toMatchObject({ kind: 'head_unsettled', head_sha: B });
+    expect(lag.exec.calls.map((c) => c.target)).toContain('repos/o/r/branches/cusr%2Ft');
+    const moved = await run([{ status: 200, body: { name: 'cusr/t', commit: { sha: B } } }]);
+    expect(moved.r).toEqual({ kind: 'head_moved', head_sha: B });
+    const limited = await run([{ status: 429, headers: { 'retry-after': '120' } }]);
+    expect(limited.r).toMatchObject({
+      kind: 'head_unsettled',
+      failure: { status: 429, retry_after_ms: 120_000 },
+    });
+    const l = { s: { pr_ref: 'o/r#1', head_sha: A } };
+    expect(readyOutcome(l, limited.r, 1_000)).toMatchObject({
+      outcome: 'failed',
+      data: { failure_class: 'rate_limit', reset_at: 121_000 },
+    });
+    // A 429 naming no wait is still GitHub's rate limit: a minute, not the 5 s infra backoff.
+    const bare = await run([{ status: 429 }]);
+    expect(bare.r).toMatchObject({ kind: 'head_unsettled', failure: { status: 429 } });
+    expect(readyOutcome(l, bare.r, 1_000)).toMatchObject({
+      outcome: 'failed',
+      data: { failure_class: 'rate_limit', reset_at: 61_000 },
+    });
+  });
+
+  it('only a PR GitHub reads as ready is a ready outcome; the others keep their own', () => {
+    const l = { s: { pr_ref: 'o/r#1', head_sha: A } };
+    expect(readyOutcome(l, { kind: 'ready', ready_at: 5, head_sha: A, base: 'main' })).toEqual({
+      outcome: 'succeeded',
+      data: { pr_ref: 'o/r#1', ready_at: 5, outcome: 'ready', head_sha: A, base: 'main' },
+    });
+    expect(readyOutcome(l, { kind: 'head_moved', head_sha: B })).toEqual({
+      outcome: 'succeeded',
+      data: { pr_ref: 'o/r#1', ready_at: null, outcome: 'head_moved', head_sha: B },
+    });
+    expect(readyOutcome(l, { kind: 'retargeted', base: 'release' })).toMatchObject({
+      outcome: 'succeeded',
+      data: { ready_at: null, outcome: 'retargeted', base: 'release' },
+    });
+    expect(readyOutcome(l, { kind: 'closed' })).toMatchObject({
+      outcome: 'succeeded',
+      data: { ready_at: null, outcome: 'closed' },
+    });
   });
 
   it('a mutation GitHub refuses is rejected; a lost answer with the PR still a draft is unknown', async () => {
@@ -324,30 +447,130 @@ describe('review body', () => {
 });
 
 describe('CI of a PR turned ready', () => {
-  it('ignores skipped runs that finished while it was a draft; a later run of the same check counts', () => {
-    const run = (id: number, conclusion: string, completed_at: string) => ({
-      id,
-      name: 'build',
-      head_sha: A,
-      status: 'completed',
-      conclusion,
-      completed_at,
-      app: { id: 1 },
+  const READY = '2026-11-18T01:17:20Z';
+  /** A check run of `name` made by workflow run `wf` (none: no workflow run to read). */
+  const run = (id: number, name: string, conclusion: string, wf: number | null) => ({
+    id,
+    name,
+    head_sha: A,
+    status: 'completed',
+    conclusion,
+    started_at: '2026-11-18T01:17:25Z',
+    ...(wf === null ? {} : { details_url: `https://github.com/o/r/actions/runs/${wf}/job/${id}` }),
+    app: { id: 15368 },
+  });
+  const github = (
+    runs: unknown[],
+    workflows: Record<number, string>,
+    events: unknown[] = [{ event: 'ready_for_review', created_at: READY }],
+  ) =>
+    fakePort({
+      [`GET repos/o/r/commits/${A}/check-runs`]: { check_runs: runs },
+      [`GET repos/o/r/commits/${A}/statuses`]: [],
+      'GET repos/o/r/issues/1/events': events,
+      ...Object.fromEntries(
+        Object.entries(workflows).map(([id, created_at]) => [
+          `GET repos/o/r/actions/runs/${id}`,
+          { id: Number(id), head_sha: A, event: 'pull_request', created_at },
+        ]),
+      ),
     });
-    const readyAt = Date.parse('2026-10-29T11:00:00Z');
-    const draftOnly = [run(1, 'skipped', '2026-10-29T10:00:00Z')];
-    expect(selectCurrent(draftOnly, [], A, readyAt).checks).toEqual([]);
-    expect(selectCurrent(draftOnly, [], A).checks).toMatchObject([
-      { name: 'build', state: 'skipped' },
+  const read = async (port: GitHubPort, required = ['ci-ok'], draft = false) => {
+    const r = await readHeadChecks(port, 'o/r', A, {
+      draft,
+      required,
+      readyAt: () => readyEventAt(port, 'o/r', 1),
+    });
+    if (!r.ok) throw new Error(r.error.detail);
+    return r.value.checks.map((c) => ({ name: c.name, state: c.state, run: c.generation }));
+  };
+  const calls = (port: { calls: GitHubRequest[] }, part: string) =>
+    port.calls.filter((c) => c.path.includes(part)).length;
+
+  // PR #36 of a dogfood repo: several `ci-ok` of one app on one head.
+  it('a skip of the draft is missing evidence: an earlier success of the same check never stands in', async () => {
+    const port = github(
+      [run(10, 'ci-ok', 'success', 100), run(11, 'ci-ok', 'skipped', 101)],
+      { 100: '2026-11-17T10:00:00Z', 101: '2026-11-17T23:19:24Z' },
+      [
+        { event: 'ready_for_review', created_at: '2026-11-17T09:00:00Z' },
+        { event: 'convert_to_draft', created_at: '2026-11-17T20:00:00Z' },
+        { event: 'ready_for_review', created_at: READY },
+      ],
+    );
+    expect(await read(port)).toEqual([]);
+    // A draft now: the same, without reading anything more.
+    const draft = github([run(10, 'ci-ok', 'success', 100), run(11, 'ci-ok', 'skipped', 101)], {});
+    expect(await read(draft, ['ci-ok'], true)).toEqual([]);
+    expect(calls(draft, '/events') + calls(draft, '/actions/runs/')).toBe(0);
+  });
+
+  it('a check belongs to the workflow run that made it, not to when its job started', async () => {
+    // The draft's workflow run was made before the ready event; its job started and skipped after it.
+    const draftRun = github([run(11, 'ci-ok', 'skipped', 101)], { 101: '2026-11-18T01:17:19Z' });
+    expect(await read(draftRun)).toEqual([]);
+    const readyRun = github([run(12, 'ci-ok', 'skipped', 102)], { 102: '2026-11-18T01:17:21Z' });
+    expect(await read(readyRun)).toEqual([{ name: 'ci-ok', state: 'skipped', run: 12 }]);
+  });
+
+  it('a workflow run made in the ready event’s second is pending, even after an earlier draft run of it', async () => {
+    // Two draft runs: one well before the ready event, one in its very second but before it.
+    const both = github([run(11, 'ci-ok', 'skipped', 101), run(12, 'ci-ok', 'skipped', 102)], {
+      101: '2026-11-17T23:19:24Z',
+      102: READY,
+    });
+    expect(await read(both)).toEqual([{ name: 'ci-ok', state: 'pending', run: 12 }]);
+    const alone = github([run(12, 'ci-ok', 'skipped', 102)], { 102: READY });
+    expect(await read(alone)).toEqual([{ name: 'ci-ok', state: 'pending', run: 12 }]);
+    // One second later is the ready PR's.
+    const after = github([run(11, 'ci-ok', 'skipped', 101), run(12, 'ci-ok', 'skipped', 102)], {
+      101: '2026-11-17T23:19:24Z',
+      102: '2026-11-18T01:17:21Z',
+    });
+    expect(await read(after)).toEqual([{ name: 'ci-ok', state: 'skipped', run: 12 }]);
+    // With no workflow run to read, it is undetermined too.
+    const unknown = github([run(13, 'ci-ok', 'skipped', null)], {});
+    expect(await read(unknown)).toEqual([{ name: 'ci-ok', state: 'pending', run: 13 }]);
+    // A workflow run GitHub no longer has (404) proves no turn either.
+    const gone = github([run(14, 'ci-ok', 'skipped', 999)], {});
+    expect(await read(gone)).toEqual([{ name: 'ci-ok', state: 'pending', run: 14 }]);
+  });
+
+  it('only the workflow run of each check’s current run is read: a long history leaves the others decided', async () => {
+    const history = Array.from({ length: 9 }, (_, i) => run(20 + i, 'ci-ok', 'skipped', 200 + i));
+    const port = github(
+      [...history, run(40, 'ci-ok', 'skipped', 300), run(41, 'docs', 'skipped', 301)],
+      {
+        ...Object.fromEntries(history.map((_, i) => [200 + i, '2026-11-17T23:00:00Z'])),
+        // In the ready event's second: undetermined, and no history is read to decide it.
+        300: READY,
+        301: '2026-11-18T01:17:30Z',
+      },
+    );
+    expect(await read(port, ['ci-ok', 'docs'])).toEqual([
+      { name: 'ci-ok', state: 'pending', run: 40 },
+      { name: 'docs', state: 'skipped', run: 41 },
     ]);
-    const after = [
-      ...draftOnly,
-      run(2, 'skipped', '2026-10-29T11:05:00Z'),
-      { ...run(3, 'success', '2026-10-29T10:00:00Z'), name: 'test' },
-    ];
-    expect(selectCurrent(after, [], A, readyAt).checks).toMatchObject([
-      { name: 'build', state: 'skipped', generation: 2 },
-      { name: 'test', state: 'success' },
-    ]);
+    expect(calls(port, '/actions/runs/')).toBe(2);
+  });
+
+  it('a PR never a draft keeps its skips (docs-only) and reads no workflow run', async () => {
+    const port = github([run(11, 'ci-ok', 'skipped', 101)], {}, []);
+    expect(await read(port)).toEqual([{ name: 'ci-ok', state: 'skipped', run: 11 }]);
+    expect(calls(port, '/actions/runs/')).toBe(0);
+  });
+
+  it('nothing more is read while another required check is pending or missing', async () => {
+    const pending = github(
+      [
+        run(11, 'ci-ok', 'skipped', 101),
+        { ...run(12, 'build', 'success', 101), status: 'in_progress', conclusion: null },
+      ],
+      {},
+    );
+    await read(pending, ['ci-ok', 'build']);
+    const missing = github([run(11, 'ci-ok', 'skipped', 101)], {});
+    await read(missing, ['ci-ok', 'build']);
+    for (const p of [pending, missing]) expect(calls(p, '/events')).toBe(0);
   });
 });

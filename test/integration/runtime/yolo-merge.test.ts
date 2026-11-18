@@ -11,7 +11,7 @@ import { observeTaskPr } from '../../../src/daemon/handlers.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { agentData, publishData } from '../../support/scenario.ts';
 import { toPublish, checkpointGates, reviewToCi } from '../../support/store-flows.ts';
-import { readMergeReadiness } from '../../../src/adapters/github/merge.ts';
+import { confirmPull, readMergeReadiness } from '../../../src/adapters/github/merge.ts';
 import { GhPort } from '../../../src/adapters/github/gh-port.ts';
 import type { Clock, GitHubPort, GitHubRequest } from '../../../src/adapters/ports.ts';
 import { advanceTaskPr, type YoloDeps } from '../../../src/daemon/yolo.ts';
@@ -52,6 +52,14 @@ type Remote = {
   mergeStatus?: number | 'lost';
   /** Conclusions of the head's current check runs. */
   checks?: Record<string, string>;
+  /** The PR's issue events; none by default. */
+  events?: unknown[];
+  /** What successive reads of the PR add to `pull`, the last one repeating. */
+  pullReads?: Record<string, unknown>[];
+  /** When each workflow run was made, by id. */
+  workflows?: Record<number, string>;
+  /** The answer to reads of the check runs, when not the listing. */
+  checkRunsStatus?: { status: number; retry_after_ms: number | null };
 };
 
 const REQUIRED = ['build', 'test'];
@@ -75,6 +83,7 @@ const MESSAGE = 'feat: thêm tìm kiếm\n\nGiải thích thay đổi.\n';
 
 function github(r: Remote = {}) {
   const sent: GitHubRequest[] = [];
+  let pullReads = 0;
   const conclusions = r.checks ?? { build: 'success', test: 'success' };
   const port: GitHubPort = {
     request: (req) => {
@@ -150,6 +159,22 @@ function github(r: Remote = {}) {
               },
             )
           : failure(r.targetStatus);
+      const wf = /\/actions\/runs\/(\d+)$/.exec(req.path);
+      if (wf !== null) {
+        const made = r.workflows?.[Number(wf[1])];
+        return made === undefined
+          ? failure(404)
+          : reply({ id: Number(wf[1]), head_sha: A, created_at: made });
+      }
+      if (req.path.endsWith('/check-runs') && r.checkRunsStatus !== undefined)
+        return Promise.resolve(
+          err({
+            reason: 'http_error' as const,
+            status: r.checkRunsStatus.status,
+            detail: `HTTP ${r.checkRunsStatus.status}`,
+            retry_after_ms: r.checkRunsStatus.retry_after_ms,
+          }),
+        );
       if (req.path.endsWith('/check-runs'))
         return reply(
           r.checkRuns ?? {
@@ -164,16 +189,37 @@ function github(r: Remote = {}) {
           },
         );
       if (req.path.endsWith('/statuses')) return reply(r.statuses ?? []);
-      return reply({
+      if (req.path.endsWith('/events')) return reply(r.events ?? []);
+      const read = r.pullReads?.[Math.min(pullReads++, r.pullReads.length - 1)];
+      const pull = {
         id: 700,
         number: 7,
         state: 'open',
+        draft: false,
         merged: false,
         mergeable_state: 'clean',
         head: { sha: A, ref: 'cusr/t' },
         base: { ref: 'main', sha: 'b'.repeat(40), repo: { id: 1 } },
         ...r.pull,
-      });
+        ...read,
+      } as Record<string, unknown> & { head: { sha: string }; base: { ref: string } };
+      // The last check before an approval: the same PR, in one GraphQL answer with its target's tip.
+      if (req.method === 'POST' && req.path === 'graphql')
+        return reply({
+          data: {
+            repository: {
+              pullRequest: {
+                state:
+                  pull['merged'] === true ? 'MERGED' : pull['state'] === 'open' ? 'OPEN' : 'CLOSED',
+                isDraft: pull['draft'],
+                headRefOid: pull.head.sha,
+                baseRefName: pull.base.ref,
+                baseRef: { target: { oid: r.targetSha ?? 'b'.repeat(40) } },
+              },
+            },
+          },
+        });
+      return reply(pull);
     },
   };
   return { port, sent };
@@ -1201,6 +1247,61 @@ describe('yolo merge', () => {
     expect(puts(sent)).toEqual([]);
   });
 
+  // Through the production port: the last check is one GraphQL answer its allowlist lets through.
+  it('the last check reads PR and target tip from one GraphQL answer, and fails closed on a partial one', async () => {
+    const TIP = 'c'.repeat(40);
+    const answer = (pr: Record<string, unknown> | null) => ({
+      data: { repository: { pullRequest: pr } },
+    });
+    const pr = {
+      state: 'OPEN',
+      isDraft: false,
+      headRefOid: A,
+      baseRefName: 'goal/x',
+      baseRef: { target: { oid: TIP } },
+    };
+    const check = async (body: unknown) => {
+      const exec = fixtureExec({ 'POST graphql': [{ status: 200, body }] });
+      const port = new GhPort({
+        exec,
+        clock: { now: () => 0 as EpochMs, monotonic: () => 0 },
+        redactor: new Redactor({ values: [] }),
+      });
+      const r = await confirmPull(port, {
+        repo: 'acme/app',
+        pr_number: 7,
+        target: 'goal/x',
+        head_sha: A,
+      });
+      return { r, exec };
+    };
+    const ok = await check(answer(pr));
+    expect(ok.r).toEqual({ ok: true, tip: TIP });
+    expect(ok.exec.calls).toHaveLength(1);
+    expect(JSON.parse(ok.exec.calls[0]?.stdin ?? '{}')).toMatchObject({
+      variables: { owner: 'acme', name: 'app', number: 7 },
+    });
+    // Moved to main in the same answer: not this target, and its tip is no goal branch tip.
+    expect((await check(answer({ ...pr, baseRefName: 'main' }))).r).toEqual({
+      ok: false,
+      reason: 'target does not match',
+      tip: null,
+    });
+    expect((await check(answer({ ...pr, isDraft: true }))).r).toMatchObject({
+      ok: false,
+      tip: TIP,
+    });
+    expect((await check(answer({ ...pr, baseRef: null }))).r).toEqual({ ok: true, tip: null });
+    for (const partial of [
+      answer(null),
+      answer({ ...pr, isDraft: undefined }),
+      { errors: [{ message: 'Resource not accessible by integration' }] },
+      // Full data next to errors is not trusted either.
+      { ...answer(pr), errors: [{ message: 'Something went wrong' }] },
+    ])
+      expect((await check(partial)).r).toMatchObject({ ok: false, tip: null });
+  });
+
   it('the compare allowlist accepts only a full head SHA and an encoded target branch', async () => {
     let tick = 0;
     const valid = [`repos/o/r/compare/${A}...main`, `repos/o/r/compare/${A}...release%2Fv1.0`];
@@ -1281,6 +1382,208 @@ describe('yolo merge', () => {
     });
     expect(await advanceTaskPr(deps(d, port), t.id)).toBe('merged');
     expect(puts(sent)).toHaveLength(1);
+  });
+
+  it('a draft PR is not merged and no approval is recorded, though GitHub says clean', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({ pull: { draft: true } });
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
+    expect(puts(sent)).toEqual([]);
+    expect(approvals(d, t)).toEqual([]);
+  });
+
+  it.each([
+    ['back to a draft', { draft: true }],
+    ['with no draft state', { draft: undefined }],
+  ] as const)('green checks of a PR %s are recorded, but never as a CI pass', async (_, pull) => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr', { required_checks: REQUIRED }, OBS_RUNTIME);
+    toPublish(d, t, A, { content: { digest: CONTENT_DIGEST, ref: '/content/a.json' } });
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    const { port } = github({ pull });
+    const read = await observeTaskPr(deps(d, port), t.id, 'draft-again', 'timer');
+    expect(read.ci).toMatchObject({
+      pr_draft: true,
+      required_set: { complete: false },
+      checks: [
+        { name: 'build', state: 'success' },
+        { name: 'test', state: 'success' },
+      ],
+    });
+    d.complete(t.id, d.pendingOne(t.id, 'await_ci').id, 'succeeded', read.ci);
+    expect(d.task(t.id)).toMatchObject({
+      current_step: 'ci',
+      wait: { detail: { code: 'checks_incomplete', complete: false } },
+    });
+    for (const fact of read.facts) d.must(t.id, fact);
+    expect(d.task(t.id).wait?.detail.code).not.toBe('merge');
+  });
+
+  it('a PR that went back to a draft while its checks were read gets no approval', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const { port, sent } = github({ pullReads: [{}, { draft: true }] });
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
+    expect(puts(sent)).toEqual([]);
+    expect(approvals(d, t)).toEqual([]);
+    // The PR is read once more after the checks, right before the approval.
+    const pulls = sent.filter((q) => q.path === 'repos/acme/app/pulls/7' || q.path === 'graphql');
+    expect(pulls).toHaveLength(2);
+  });
+
+  it('a head drift is recorded although GitHub rate-limits the checks; a limit alone schedules the retry', async () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'direct-pr', { required_checks: REQUIRED }, OBS_RUNTIME);
+    toPublish(d, t, A, { content: { digest: CONTENT_DIGEST, ref: '/content/a.json' } });
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    const B = 'b'.repeat(40);
+    const limit = { status: 429, retry_after_ms: null };
+    const moved = github({
+      pull: { head: { sha: B, ref: 'cusr/t' } },
+      checkRunsStatus: limit,
+    });
+    const drift = await observeTaskPr(deps(d, moved.port), t.id, 'drift-429', 'timer');
+    expect(drift.facts).toContainEqual(
+      expect.objectContaining({ kind: 'head_drift', expected: A, observed: B }),
+    );
+    expect(drift.retry_after_ms).toBeUndefined();
+    const same = github({ checkRunsStatus: limit });
+    const limited = await observeTaskPr(deps(d, same.port), t.id, 'limit-429', 'timer');
+    expect(limited).toMatchObject({ ci: null, retry_after_ms: 60_000 });
+    expect(limited.facts.some((f) => f.kind === 'head_drift')).toBe(false);
+  });
+
+  it('a PR retargeted while readiness was read gets no approval: the PR is read last', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    // The second readiness read still sees main; the PR read after it sees the new target.
+    const { port, sent } = github({
+      pullReads: [{}, {}, { base: { ref: 'release', sha: 'b'.repeat(40), repo: { id: 1 } } }],
+    });
+    expect(await advanceTaskPr(deps(d, port), t.id)).toBe('not_ready');
+    expect(approvals(d, t)).toEqual([]);
+    expect(puts(sent)).toEqual([]);
+    // The last read is the one GraphQL check of the PR and its target's tip.
+    expect(sent.at(-1)).toMatchObject({ method: 'POST', path: 'graphql' });
+  });
+
+  it.each([
+    ['with Retry-After', 120_000, 120_000],
+    ['without Retry-After', null, 60_000],
+  ] as const)(
+    'GitHub’s rate limit on the checks holds the next merge passes until it ends (%s)',
+    async (_, retryAfter, wait) => {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const limited = github({ checkRunsStatus: { status: 429, retry_after_ms: retryAfter } });
+      const ds = deps(d, limited.port);
+      expect(await advanceTaskPr(ds, t.id)).toBe('not_ready');
+      const before = limited.sent.length;
+      const fresh = github();
+      const again = { ...ds, github: () => fresh.port };
+      expect(await advanceTaskPr(again, t.id)).toBe('not_ready');
+      expect(fresh.sent).toEqual([]);
+      expect(limited.sent).toHaveLength(before);
+      d.now += wait;
+      expect(await advanceTaskPr(again, t.id)).toBe('merged');
+    },
+  );
+
+  /** A check run made by workflow run `id + 1000`, itself made at `made` (see `workflowsOf`). */
+  const run = (id: number, name: string, conclusion: string, made: string) => ({
+    id,
+    name,
+    head_sha: A,
+    status: 'completed',
+    conclusion,
+    started_at: made,
+    completed_at: made,
+    details_url: `https://github.com/acme/app/actions/runs/${id + 1000}/job/${id}`,
+    app: { id: 15368 },
+  });
+  const workflowsOf = (runs: ReturnType<typeof run>[]) =>
+    Object.fromEntries(runs.map((r) => [r.id + 1000, r.started_at]));
+
+  // PR #36 of a dogfood repo: turned ready by a person, so the task held no ready time, while the
+  // skipped runs of the draft were the only ones on the head.
+  it('skipped runs started before the PR’s ready event are no pass, though the task holds no ready time', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const events = [{ event: 'ready_for_review', created_at: '2026-11-18T01:17:20Z' }];
+    const draftRuns = [
+      run(1, 'build', 'skipped', '2026-11-17T23:19:24Z'),
+      run(2, 'test', 'skipped', '2026-11-17T23:19:24Z'),
+    ];
+    const draftOnly = github({
+      checkRuns: { check_runs: draftRuns },
+      events,
+      workflows: workflowsOf(draftRuns),
+    });
+    expect(await advanceTaskPr(deps(d, draftOnly.port), t.id)).toBe('not_ready');
+    expect(puts(draftOnly.sent)).toEqual([]);
+    expect(approvals(d, t)).toEqual([]);
+    const readyRuns = [
+      ...draftRuns,
+      run(3, 'build', 'success', '2026-11-18T01:30:00Z'),
+      run(4, 'test', 'success', '2026-11-18T01:30:00Z'),
+    ];
+    const ready = github({
+      checkRuns: { check_runs: readyRuns },
+      events,
+      workflows: workflowsOf(readyRuns),
+    });
+    expect(await advanceTaskPr(deps(d, ready.port), t.id)).toBe('merged');
+  });
+
+  it('turned ready a second time: skips of the second draft are no pass; those of the new ready run are', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const events = [
+      { event: 'ready_for_review', created_at: '2026-11-17T10:00:00Z' },
+      { event: 'convert_to_draft', created_at: '2026-11-17T20:00:00Z' },
+      { event: 'ready_for_review', created_at: '2026-11-18T01:17:20Z' },
+    ];
+    const secondDraft = [
+      run(1, 'build', 'skipped', '2026-11-17T23:19:24Z'),
+      run(2, 'test', 'skipped', '2026-11-17T23:19:24Z'),
+    ];
+    const stale = github({
+      checkRuns: { check_runs: secondDraft },
+      events,
+      workflows: workflowsOf(secondDraft),
+    });
+    expect(await advanceTaskPr(deps(d, stale.port), t.id)).toBe('not_ready');
+    expect(approvals(d, t)).toEqual([]);
+    const docsRuns = [
+      ...secondDraft,
+      run(3, 'build', 'skipped', '2026-11-18T01:17:30Z'),
+      run(4, 'test', 'skipped', '2026-11-18T01:17:30Z'),
+    ];
+    const docsOnly = github({
+      checkRuns: { check_runs: docsRuns },
+      events,
+      workflows: workflowsOf(docsRuns),
+    });
+    expect(await advanceTaskPr(deps(d, docsOnly.port), t.id)).toBe('merged');
   });
 
   it.each(['stale', 'cancelled', 'timed_out', 'action_required', 'startup_failure'])(

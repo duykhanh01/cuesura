@@ -386,6 +386,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         required_set: event.payload.required_set,
         checks: event.payload.checks,
         ...(event.payload.required === undefined ? {} : { required: event.payload.required }),
+        ...(event.payload.pr_draft === true ? { pr_draft: true as const } : {}),
         valid: true,
       });
       resetStreak(s, event.payload.resets_streak_of);
@@ -1164,6 +1165,10 @@ function applySuccessFacts(s: TaskState, kind: string, result: unknown): void {
     s.run.pr_body = body;
   if (kind === 'merge' && r['merged'] === true) s.merged = true;
   if (kind === 'mark_ready' && typeof r['ready_at'] === 'number') s.run.pr_ready_at = r['ready_at'];
+  // Left a draft for a reason a later read may see gone; a drift recorded meanwhile holds the task first.
+  if (kind === 'mark_ready')
+    s.run.pr_ready_pending =
+      r['outcome'] === 'closed' || r['outcome'] === 'retargeted' || r['outcome'] === 'head_moved';
   if (
     kind === 'post_review' &&
     typeof r['attempt_id'] === 'string' &&

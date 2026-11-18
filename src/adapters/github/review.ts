@@ -7,6 +7,7 @@ import type { ReviewEvidence } from '../../domain/state.ts';
 import { renderReviewTemplate, type ReviewPlaceholder } from '../../domain/templates.ts';
 import type { GitHubFailure, GitHubPort } from '../ports.ts';
 import { markerCount } from '../publish-content.ts';
+import type { ReadyAtRead } from './checks.ts';
 import { listAll, MARK_READY_MUTATION } from './gh-port.ts';
 
 type Obj = Record<string, unknown>;
@@ -14,11 +15,34 @@ const obj = (v: unknown): Obj =>
   typeof v === 'object' && v !== null && !Array.isArray(v) ? (v as Obj) : {};
 
 export type ReadyOutcome =
-  /** `ready_at`: GitHub's time of the latest draft → ready change; null when the PR never was a draft. */
-  | { readonly kind: 'ready'; readonly ready_at: number | null }
+  /**
+   * GitHub reads the PR as no longer a draft. `ready_at`: GitHub's time of the latest draft → ready
+   * change; null when the PR never was a draft. `head_sha`/`base`: what that read saw.
+   */
+  | {
+      readonly kind: 'ready';
+      readonly ready_at: number | null;
+      readonly head_sha: string;
+      readonly base: string | null;
+    }
   | { readonly kind: 'closed' }
-  /** The PR's head is not the commit that was reviewed: left a draft; the CI wait records the drift. */
+  /**
+   * The PR and its head branch both show `head_sha`, not the commit that was reviewed: someone else
+   * pushed. Left a draft; the CI wait records the drift.
+   */
   | { readonly kind: 'head_moved'; readonly head_sha: string }
+  /**
+   * The PR shows `head_sha`, not the commit that was reviewed, and its branch does not confirm a push:
+   * the branch is at the reviewed commit (GitHub has not caught up with the push yet), elsewhere, or
+   * unreadable. Left a draft; reading again later settles it. `failure`: GitHub's refusal of the branch
+   * read, rate limit included, when that is why.
+   */
+  | {
+      readonly kind: 'head_unsettled';
+      readonly head_sha: string;
+      readonly detail: string;
+      readonly failure: GitHubFailure | null;
+    }
   /** The PR targets another branch than the task's: left a draft; the CI wait records the mismatch. */
   | { readonly kind: 'retargeted'; readonly base: string | null }
   | { readonly kind: 'rejected'; readonly detail: string }
@@ -30,6 +54,8 @@ type PullState =
       closed: boolean;
       node_id: string;
       head_sha: string;
+      head_ref: string | null;
+      head_repo: string | null;
       base: string | null;
     }
   | { error: string };
@@ -44,6 +70,8 @@ async function readPull(port: GitHubPort, repo: string, n: number): Promise<Pull
   if (!r.ok) return { error: r.error.detail };
   const p = obj(r.value.body);
   const head = obj(p['head'])['sha'];
+  const headRef = obj(p['head'])['ref'];
+  const headRepo = obj(obj(p['head'])['repo'])['full_name'];
   const base = obj(p['base'])['ref'];
   if (
     typeof p['draft'] !== 'boolean' ||
@@ -56,33 +84,50 @@ async function readPull(port: GitHubPort, repo: string, n: number): Promise<Pull
     closed: p['state'] === 'closed',
     node_id: p['node_id'],
     head_sha: head,
+    head_ref: typeof headRef === 'string' ? headRef : null,
+    head_repo: typeof headRepo === 'string' ? headRepo : null,
     base: typeof base === 'string' ? base : null,
   };
 }
 
-async function readyEventAt(
+/** GitHub's time of the PR's latest draft → ready change; null when there is none. */
+export async function readyEventAt(
   port: GitHubPort,
   repo: string,
   n: number,
-): Promise<number | null | { error: string }> {
+): Promise<ReadyAtRead> {
   const r = await listAll(port, `repos/${repo}/issues/${n}/events`, (b) =>
     Array.isArray(b) ? b : null,
   );
-  if (!r.ok) return { error: r.error.detail };
-  if (!r.value.complete) return { error: 'PR events listing incomplete' };
+  if (!r.ok) return { ok: false, error: r.error };
+  if (!r.value.complete)
+    return {
+      ok: false,
+      error: {
+        reason: 'unknown',
+        status: null,
+        detail: 'PR events listing incomplete',
+        retry_after_ms: null,
+      },
+    };
   const at = r.value.items
     .map(obj)
     .filter((e) => e['event'] === 'ready_for_review')
     .map((e) => Date.parse(String(e['created_at'])))
     .filter((t) => Number.isFinite(t));
-  return at.length === 0 ? null : Math.max(...at);
+  return { ok: true, at: at.length === 0 ? null : Math.max(...at) };
 }
 
-async function readyResult(port: GitHubPort, repo: string, n: number): Promise<ReadyOutcome> {
+async function readyResult(
+  port: GitHubPort,
+  repo: string,
+  n: number,
+  pull: { head_sha: string; base: string | null },
+): Promise<ReadyOutcome> {
   const at = await readyEventAt(port, repo, n);
-  return typeof at === 'object' && at !== null
-    ? { kind: 'unknown', detail: `events: ${at.error}` }
-    : { kind: 'ready', ready_at: at };
+  return at.ok
+    ? { kind: 'ready', ready_at: at.at, head_sha: pull.head_sha, base: pull.base }
+    : { kind: 'unknown', detail: `events: ${at.error.detail}` };
 }
 
 /** Read-only: whether the PR is ready (and since when), still a draft, or unreadable. Sends nothing. */
@@ -94,7 +139,51 @@ export async function probeReady(
   const pull = await readPull(port, repo, n);
   if ('error' in pull) return { kind: 'unknown', detail: pull.error };
   if (pull.closed) return { kind: 'closed' };
-  return pull.draft ? { kind: 'draft' } : readyResult(port, repo, n);
+  return pull.draft ? { kind: 'draft' } : readyResult(port, repo, n, pull);
+}
+
+/** The commit the PR's head branch points at now. */
+async function branchTip(
+  port: GitHubPort,
+  repo: string,
+  pull: { head_ref: string | null; head_repo: string | null },
+): Promise<
+  { ok: true; sha: string } | { ok: false; detail: string; failure: GitHubFailure | null }
+> {
+  if (pull.head_ref === null) return { ok: false, detail: 'PR head branch unknown', failure: null };
+  const r = await port.request({
+    method: 'GET',
+    path: `repos/${pull.head_repo ?? repo}/branches/${encodeURIComponent(pull.head_ref)}`,
+    query: {},
+    body: null,
+  });
+  if (!r.ok) return { ok: false, detail: r.error.detail, failure: r.error };
+  const sha = obj(obj(r.value.body)['commit'])['sha'];
+  return typeof sha === 'string' && /^[0-9a-f]{40}$/.test(sha)
+    ? { ok: true, sha }
+    : { ok: false, detail: 'branch tip missing', failure: null };
+}
+
+/** Why the PR shows `prHead` rather than `expected`: a push someone else made, or not settled yet. */
+async function headChange(
+  port: GitHubPort,
+  repo: string,
+  pull: { head_sha: string; head_ref: string | null; head_repo: string | null },
+  expected: string,
+): Promise<ReadyOutcome> {
+  const unsettled = (detail: string, failure: GitHubFailure | null = null): ReadyOutcome => ({
+    kind: 'head_unsettled',
+    head_sha: pull.head_sha,
+    detail,
+    failure,
+  });
+  const tip = await branchTip(port, repo, pull);
+  if (!tip.ok) return unsettled(`branch tip unreadable: ${tip.detail}`, tip.failure);
+  // Right after a push GitHub may still serve the PR's previous head while the branch moved on.
+  if (tip.sha === expected) return unsettled(`branch is at ${expected}, the PR not yet`);
+  if (tip.sha !== pull.head_sha)
+    return unsettled(`branch is at ${tip.sha}, the PR at ${pull.head_sha}`);
+  return { kind: 'head_moved', head_sha: pull.head_sha };
 }
 
 /**
@@ -110,10 +199,10 @@ export async function markReady(
   const before = await readPull(port, repo, n);
   if ('error' in before) return { kind: 'unknown', detail: before.error };
   if (before.closed) return { kind: 'closed' };
-  if (!before.draft) return readyResult(port, repo, n);
+  if (!before.draft) return readyResult(port, repo, n, before);
   if (before.base !== expected.target) return { kind: 'retargeted', base: before.base };
   if (before.head_sha !== expected.head_sha)
-    return { kind: 'head_moved', head_sha: before.head_sha };
+    return headChange(port, repo, before, expected.head_sha);
   const r = await port.request({
     method: 'POST',
     path: 'graphql',
@@ -122,7 +211,7 @@ export async function markReady(
   });
   const after = await readPull(port, repo, n);
   if ('error' in after) return { kind: 'unknown', detail: `read back: ${after.error}` };
-  if (!after.draft) return readyResult(port, repo, n);
+  if (!after.draft) return readyResult(port, repo, n, after);
   if (!r.ok)
     return r.error.reason === 'http_error' && r.error.status !== null && r.error.status < 500
       ? { kind: 'rejected', detail: r.error.detail }

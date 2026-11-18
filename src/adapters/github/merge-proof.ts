@@ -22,6 +22,7 @@ export type PullFacts = {
   readonly id: number | null;
   readonly number: number | null;
   readonly state: string | null;
+  readonly draft: boolean | null;
   readonly merged: boolean | null;
   readonly merged_at: string | null;
   readonly merge_commit_sha: string | null;
@@ -48,6 +49,7 @@ export function pullFacts(body: unknown): PullFacts {
     id: num(b['id']),
     number: num(b['number']),
     state: str(b['state']),
+    draft: typeof b['draft'] === 'boolean' ? b['draft'] : null,
     merged: typeof b['merged'] === 'boolean' ? b['merged'] : null,
     merged_at: str(b['merged_at']),
     merge_commit_sha: str(b['merge_commit_sha']),

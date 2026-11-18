@@ -5,7 +5,7 @@
  * the newest status of a context; an older success never hides a newer pending or failure. The same
  * name from two sources or two apps is a collision, reported rather than merged.
  */
-import type { Check, CheckState } from '../../domain/trigger.ts';
+import { checkPasser, type Check, type CheckState } from '../../domain/trigger.ts';
 import type { Hash } from '../../shared/brand.ts';
 import { hashText } from '../../shared/hash.ts';
 import type { GitHubFailure, GitHubPort } from '../ports.ts';
@@ -76,32 +76,16 @@ export function statusState(state: unknown): CheckState {
   }
 }
 
-/**
- * A skipped run that finished before the PR was turned ready: the repo's CI skipping a draft, not a
- * result for the ready PR. Dropping it lets the run started by the ready event count instead.
- */
-function skippedWhileDraft(o: Obj, skippedBefore: number | null): boolean {
-  if (skippedBefore === null || o['conclusion'] !== 'skipped') return false;
-  const at = Date.parse(String(o['completed_at']));
-  return Number.isFinite(at) && at < skippedBefore;
-}
-
 /** Current generation per identity, then collisions per name. Pure; exported for tests. */
 export function selectCurrent(
   runs: readonly unknown[],
   statuses: readonly unknown[],
   sha: string,
-  skippedBefore: number | null = null,
 ): { checks: SourcedCheck[]; collisions: string[] } {
   const current = new Map<string, SourcedCheck>();
   for (const r of runs) {
     const o = obj(r);
-    if (
-      typeof o['name'] !== 'string' ||
-      typeof o['id'] !== 'number' ||
-      o['head_sha'] !== sha ||
-      skippedWhileDraft(o, skippedBefore)
-    )
+    if (typeof o['name'] !== 'string' || typeof o['id'] !== 'number' || o['head_sha'] !== sha)
       continue;
     const appId = typeof obj(o['app'])['id'] === 'number' ? (obj(o['app'])['id'] as number) : null;
     const key = `run\u0000${o['name']}\u0000${appId ?? ''}`;
@@ -150,11 +134,109 @@ export function selectCurrent(
   return { checks, collisions };
 }
 
+/** GitHub's time of the PR's latest draft → ready change: null when it never was a draft. */
+export type ReadyAtRead =
+  | { readonly ok: true; readonly at: number | null }
+  | { readonly ok: false; readonly error: GitHubFailure };
+
+/** What decides whether a skipped check run is a result of the PR as it is now. */
+export type SkipEvidence = {
+  /** The PR is a draft now, or that is not known: no skipped run is a result. */
+  readonly draft: boolean;
+  /** Names a verdict is taken on; a skip of any other check never needs the ready time. */
+  readonly required: readonly string[];
+  /** Read only when a verdict would rest on a skip. */
+  readonly readyAt: () => Promise<ReadyAtRead>;
+};
+
+const isSkip = (c: SourcedCheck): boolean =>
+  c.source === 'check_run' && c.raw === 'completed/skipped';
+
+/**
+ * Whether a verdict over `required` would pass on a skip: every required check is there and passed or
+ * skipped, at least one skipped, and nothing failed (`checkPasser`). Anything else needs no ready time.
+ */
+function restsOnSkip(checks: readonly SourcedCheck[], required: readonly string[]): boolean {
+  if (required.length === 0 || !checkPasser(checks)('skipped')) return false;
+  let skipped = false;
+  for (const name of required) {
+    const ofName = checks.filter((c) => c.name === name);
+    if (ofName.length === 0) return false;
+    for (const c of ofName) {
+      if (isSkip(c)) skipped = true;
+      else if (c.state !== 'success' && c.state !== 'skipped') return false;
+    }
+  }
+  return skipped;
+}
+
+type Turn = 'ready' | 'draft' | 'undetermined';
+const WORKFLOW_RUN = /\/actions\/runs\/(\d+)\/job\//;
+const MAX_RUN_READS = 10;
+
+/**
+ * Which turn of the PR the skipped check runs `skipped` answer, given GitHub's time of its latest
+ * draft → ready change. A check run answers the workflow run that made it: a workflow run created before
+ * that time ran for the draft (its jobs may start or skip after it), one created strictly after it for
+ * the ready PR. GitHub dates both to the second, so a workflow run created in that very second proves
+ * neither and stays undetermined, as does one that cannot be read or belongs to another head: a wait,
+ * never a wrong pass. Only the workflow run of each check's current run is read, once per run.
+ */
+async function skipTurns(
+  port: GitHubPort,
+  repo: string,
+  sha: string,
+  readyAt: number,
+  runs: readonly unknown[],
+  skipped: readonly SourcedCheck[],
+): Promise<{ ok: true; turns: Map<number, Turn> } | { ok: false; error: GitHubFailure }> {
+  const created = new Map<number, number | null>();
+  const createdAt = async (o: Obj): Promise<number | null | { error: GitHubFailure }> => {
+    const id = Number(WORKFLOW_RUN.exec(String(o['details_url']))?.[1]);
+    if (!Number.isSafeInteger(id)) return null;
+    if (created.has(id)) return created.get(id) ?? null;
+    if (created.size >= MAX_RUN_READS) return null;
+    const r = await port.request({
+      method: 'GET',
+      path: `repos/${repo}/actions/runs/${id}`,
+      query: {},
+      body: null,
+    });
+    // A workflow run GitHub no longer has (deleted, or another app's link) proves no turn.
+    if (!r.ok && r.error.status === 404) {
+      created.set(id, null);
+      return null;
+    }
+    if (!r.ok) return { error: r.error };
+    const run = obj(r.value.body);
+    const at = Date.parse(String(run['created_at']));
+    const value = run['head_sha'] === sha && Number.isFinite(at) ? at : null;
+    created.set(id, value);
+    return value;
+  };
+  const byId = new Map<number, Obj>();
+  for (const r of runs) {
+    const o = obj(r);
+    if (typeof o['id'] === 'number' && o['head_sha'] === sha) byId.set(o['id'], o);
+  }
+  const turns = new Map<number, Turn>();
+  for (const c of skipped) {
+    const o = byId.get(c.generation as number);
+    const at = o === undefined ? null : await createdAt(o);
+    if (typeof at === 'object' && at !== null) return { ok: false, error: at.error };
+    turns.set(
+      c.generation as number,
+      at === null || at === readyAt ? 'undetermined' : at < readyAt ? 'draft' : 'ready',
+    );
+  }
+  return { ok: true, turns };
+}
+
 export async function readHeadChecks(
   port: GitHubPort,
   repo: string,
   sha: string,
-  skippedBefore: number | null = null,
+  skip?: SkipEvidence,
 ): Promise<{ ok: true; value: HeadChecks } | { ok: false; error: GitHubFailure }> {
   if (!/^[0-9a-f]{40}$/.test(sha))
     return {
@@ -175,12 +257,26 @@ export async function readHeadChecks(
     Array.isArray(b) ? b : null,
   );
   if (!statuses.ok) return statuses;
-  const { checks, collisions } = selectCurrent(
-    runs.value.items,
-    statuses.value.items,
-    sha,
-    skippedBefore,
-  );
+  // The newest run of each check is its result; an older run never stands in for a newer one that does
+  // not count (a skip of a draft is missing evidence, not a reason to fall back on an earlier success).
+  const selected = selectCurrent(runs.value.items, statuses.value.items, sha);
+  const { collisions } = selected;
+  let checks = selected.checks;
+  if (skip?.draft === true) checks = checks.filter((c) => !isSkip(c));
+  else if (skip !== undefined && restsOnSkip(checks, skip.required)) {
+    const at = await skip.readyAt();
+    if (!at.ok) return { ok: false, error: at.error };
+    if (at.at !== null) {
+      const skipped = checks.filter((c) => isSkip(c) && skip.required.includes(c.name));
+      const read = await skipTurns(port, repo, sha, at.at, runs.value.items, skipped);
+      if (!read.ok) return { ok: false, error: read.error };
+      checks = checks.flatMap((c) => {
+        const turn = read.turns.get(c.generation as number);
+        if (!isSkip(c) || turn === undefined || turn === 'ready') return [c];
+        return turn === 'draft' ? [] : [{ ...c, state: 'pending' as const, raw: `${c.raw}?` }];
+      });
+    }
+  }
   return {
     ok: true,
     value: {

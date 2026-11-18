@@ -8,6 +8,7 @@ import { configuredSelection } from '../../support/preflight-fakes.ts';
 import { proposeAndConfirm } from '../../support/runtime.ts';
 import { goalPlan, planUnit } from '../../support/goal.ts';
 import { goalFlowEnv } from '../../support/goal-flow.ts';
+import type { FakePr } from '../../support/fake-github.ts';
 
 // 007 T073, SC-004 for merges: a daemon that dies between creating the goal branch and recording it,
 // or after sending a unit's merge into the goal branch, leaves one branch and one merge commit per
@@ -206,6 +207,125 @@ describe('goal branch and merges across a restart', () => {
     const after = f.store.goals.read(goal.goalId);
     expect(after?.status).toBe('replan');
     expect(after?.replan_reason).toBe('goal_branch_drift');
+  });
+
+  it.each([
+    [
+      'a draft',
+      (pr: FakePr): void => {
+        pr.draft = true;
+      },
+    ],
+    [
+      'retargeted',
+      (pr: FakePr): void => {
+        pr.base = 'other';
+      },
+    ],
+  ] as const)(
+    'gives no approval to a unit whose PR became %s while the goal branch was read last',
+    async (_, change) => {
+      const f = setup(PLAN);
+      const goal = f.confirm();
+      const a = goal.units['a'] as string;
+      f.control.merge = false;
+      await f.until(() => f.task(a).wait?.detail.code === 'merge');
+      const n = Number(f.task(a).pr_ref?.split('#')[1]);
+      // The first goal branch read is the one before CI; the PR changes during the second, the last.
+      f.gitHook.afterProbe = (): Promise<void> => {
+        f.gitHook.afterProbe = (): Promise<void> => {
+          const pr = f.github.prs.find((p) => p.number === n);
+          if (pr === undefined) throw new Error('no PR');
+          change(pr);
+          return Promise.resolve();
+        };
+        return Promise.resolve();
+      };
+      expect(await advanceTaskPr(f.yolo(), a)).toBe('not_ready');
+      expect(f.gitHook.afterProbe).toBeNull();
+      expect(f.github.merges).toBe(0);
+      expect(Object.values(f.task(a).approvals).filter((x) => x.kind === 'merge')).toEqual([]);
+    },
+  );
+
+  it('does not merge after a push to the goal branch while the PR is read last (review #330 R10)', async () => {
+    const f = setup(PLAN);
+    const goal = f.confirm();
+    const a = goal.units['a'] as string;
+    f.control.merge = false;
+    await f.until(() => f.task(a).wait?.detail.code === 'merge');
+    const base = f.tip(goal.branch);
+    // After the last goal branch read, the push lands while GitHub answers the last read of the PR.
+    f.gitHook.afterProbe = (): Promise<void> => {
+      f.gitHook.afterProbe = (): Promise<void> => {
+        f.github.beforePull = () => pushByHand(f.remote, goal.branch, `hand-pull-${goal.goalId}`);
+        return Promise.resolve();
+      };
+      return Promise.resolve();
+    };
+    expect(await advanceTaskPr(f.yolo(), a)).toBe('goal_branch_drift');
+    expect(f.github.beforePull).toBeNull();
+    expect(f.github.merges).toBe(0);
+    expect(f.tip(goal.branch)).not.toBe(base);
+    expect(Object.values(f.task(a).approvals).filter((x) => x.kind === 'merge')).toEqual([]);
+    const after = f.store.goals.read(goal.goalId);
+    expect(after?.status).toBe('replan');
+    expect(after?.replan_reason).toBe('goal_branch_drift');
+  });
+
+  it('does not merge a unit whose PR is retargeted to main during the last check (review #330 R12)', async () => {
+    const f = setup(PLAN);
+    const goal = f.confirm();
+    const a = goal.units['a'] as string;
+    f.control.merge = false;
+    await f.until(() => f.task(a).wait?.detail.code === 'merge');
+    const n = Number(f.task(a).pr_ref?.split('#')[1]);
+    const main = f.tip('main');
+    // The goal branch is untouched; the PR moves to main while GitHub answers the last check.
+    f.gitHook.afterProbe = (): Promise<void> => {
+      f.gitHook.afterProbe = (): Promise<void> => {
+        f.github.beforePull = () => {
+          const pr = f.github.prs.find((p) => p.number === n);
+          if (pr === undefined) throw new Error('no PR');
+          pr.base = 'main';
+        };
+        return Promise.resolve();
+      };
+      return Promise.resolve();
+    };
+    expect(await advanceTaskPr(f.yolo(), a)).toBe('not_ready');
+    expect(f.github.beforePull).toBeNull();
+    expect(f.github.merges).toBe(0);
+    expect(f.github.calls.some((c) => c.startsWith('PUT '))).toBe(false);
+    expect(f.tip('main')).toBe(main);
+    expect(Object.values(f.task(a).approvals).filter((x) => x.kind === 'merge')).toEqual([]);
+    expect(f.store.goals.read(goal.goalId)?.status).toBe('running');
+  });
+
+  it('leaves no read between the PR and its target tip in the last check (review #330 R12)', async () => {
+    const f = setup(PLAN);
+    const goal = f.confirm();
+    const a = goal.units['a'] as string;
+    f.control.merge = false;
+    await f.until(() => f.task(a).wait?.detail.code === 'merge');
+    const n = Number(f.task(a).pr_ref?.split('#')[1]);
+    const main = f.tip('main');
+    // A retarget to main landing after GitHub answered for the PR, before a separate read of the tip:
+    // with PR and tip in one answer there is no such read, and the unit merges into its goal branch.
+    f.gitHook.afterProbe = (): Promise<void> => {
+      f.gitHook.afterProbe = (): Promise<void> => {
+        f.github.betweenPullAndGet = () => {
+          const pr = f.github.prs.find((p) => p.number === n);
+          if (pr === undefined) throw new Error('no PR');
+          pr.base = 'main';
+        };
+        return Promise.resolve();
+      };
+      return Promise.resolve();
+    };
+    expect(await advanceTaskPr(f.yolo(), a)).toBe('merged');
+    expect(f.tip('main')).toBe(main);
+    expect(f.github.prs.find((p) => p.number === n)?.base).toBe(goal.branch);
   });
 
   it('takes no merge recorded while its probe was out for a drift (review #294 re-check, 2)', async () => {

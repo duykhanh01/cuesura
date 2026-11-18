@@ -262,11 +262,18 @@ export const RerunDataSchema = z
   .object({ head_sha: z.string().min(1), rerun_checks: z.array(z.string()) })
   .strict();
 
-/** `ready_at` is GitHub's time of the draft → ready change this effect made; null when it was ready already. */
+/**
+ * `ready_at` is GitHub's time of the draft → ready change this effect made; null when it was ready
+ * already or was left a draft. `outcome`, and the head and base GitHub showed, are additive: only
+ * `ready` means GitHub read the PR as no longer a draft.
+ */
 export const MarkReadyDataSchema = z
   .object({
     pr_ref: z.string().min(1),
     ready_at: z.number().int().nonnegative().nullable(),
+    outcome: z.enum(['ready', 'closed', 'retargeted', 'head_moved']).optional(),
+    head_sha: z.string().min(1).optional(),
+    base: z.string().min(1).nullable().optional(),
   })
   .strict();
 
@@ -351,6 +358,8 @@ export const AwaitCiDataSchema = z
     pr_state: z.enum(['open', 'closed']).optional(),
     /** GitHub's requirement compared to the frozen snapshot (FR-042); absent for legacy data. */
     required: RequiredCheckVerdictSchema.optional(),
+    /** The PR was not read as ready for review: its CI is no result yet (`required_set` incomplete). */
+    pr_draft: z.literal(true).optional(),
   })
   .strict();
 

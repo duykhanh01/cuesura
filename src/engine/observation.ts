@@ -3,7 +3,7 @@ import { isTerminal, type DetailCode, type ResumeAction, type Wait } from '../do
 import type { Trigger } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import { reject, type Ctx } from './context.ts';
-import { ciSpent, onCiRecorded, proceed, waitCiExhausted } from './interpreter.ts';
+import { ciSpent, onCiRecorded, proceed, readyAgain, waitCiExhausted } from './interpreter.ts';
 import { heldCi, taskCiVerdict } from './merge-guard.ts';
 import { mkWait, waitTask } from './waits.ts';
 
@@ -310,6 +310,24 @@ export function waitMergeEvidence(ctx: Ctx, resume: ResumeAction): void {
   );
 }
 
+const READY_AGAIN_FROM: ReadonlySet<DetailCode> = new Set<DetailCode>([
+  'pr_closed',
+  'target_mismatch',
+  'checks_incomplete',
+  'ci_wait_exhausted',
+]);
+
+/** Whether `readyAgain` would act on this read, decided before the wait it replaces is cancelled. */
+function pendingReady(ctx: Ctx, t: ObservationResult): boolean {
+  const s = ctx.state;
+  return (
+    t.ci?.pr_draft === true &&
+    t.ci.head_sha === s.head_sha &&
+    t.observation.observed_head === s.head_sha &&
+    s.run.pr_ready_pending === true
+  );
+}
+
 function react(ctx: Ctx, t: ObservationResult): void {
   const s = ctx.state;
   if (s.cancellation !== null || s.run.head_drift !== null) return;
@@ -359,6 +377,13 @@ function react(ctx: Ctx, t: ObservationResult): void {
       });
       return;
     case 'open': {
+      // Reopened or retargeted back while the ready step had left it a draft, also after the CI window
+      // ran out: it is turned ready again rather than waiting on CI that cannot count.
+      if (w !== null && READY_AGAIN_FROM.has(w.detail.code) && pendingReady(ctx, t)) {
+        cancelWaitTimer(ctx, w);
+        readyAgain(ctx, t.ci);
+        return;
+      }
       if (w?.detail.code === 'pr_closed') {
         proceed(ctx, w.resume.kind === 'none' ? recheckCi : w.resume, 'pr_reopened');
         return;
@@ -460,6 +485,7 @@ function onOpenCi(ctx: Ctx, t: ObservationResult, step: string | null): void {
       checks: ci.checks,
       ...(ci.required === undefined ? {} : { required: ci.required }),
       resets_streak_of: null,
+      ...(ci.pr_draft === true ? { pr_draft: true as const } : {}),
     });
   // Still not covered while already waiting on it: nothing changed for the task.
   if (code === 'required_checks_mismatch' && !covered) return;

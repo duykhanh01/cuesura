@@ -9,6 +9,7 @@
 import type { MergeMethod } from '../../domain/merge-method.ts';
 import type { GitHubPort } from '../ports.ts';
 import { pullFacts } from './merge-proof.ts';
+import { CONFIRM_PULL_QUERY } from './gh-port.ts';
 
 export type MergeTarget = {
   readonly repo: string;
@@ -45,6 +46,9 @@ export async function readMergeReadiness(
   if (!pull.ok) return notReady(`pull unreadable: ${pull.error.detail}`);
   const facts = pullFacts(pull.value.body);
   if (facts.state !== 'open' || facts.merged !== false) return notReady('pull is not open');
+  // GitHub refuses to merge a draft (HTTP 405), whatever its mergeable_state says.
+  if (facts.draft !== false)
+    return notReady(facts.draft === true ? 'pull is a draft' : 'pull draft state unknown');
   if (facts.base.ref !== t.target) return notReady('target does not match');
   if (facts.head.sha !== t.head_sha) return notReady('head does not match');
   const state = obj(pull.value.body)['mergeable_state'];
@@ -85,6 +89,46 @@ export async function readMergeReadiness(
   if (state !== 'clean' && state !== 'unstable')
     return { ...notReady(`mergeable_state ${String(state)}`), tip };
   return { ready: true, tip };
+}
+
+/** What the last check before a merge approval read, or why it could not. */
+export type PullConfirmation =
+  | { readonly ok: true; readonly tip: string | null }
+  /** `tip` only when the PR still targets `t.target`: the tip of that branch, read with the PR. */
+  | { readonly ok: false; readonly reason: string; readonly tip: string | null };
+
+/**
+ * The PR as the approval is about to bind it: open, not a draft, on `t.target` with head `t.head_sha`,
+ * and the tip of `t.target`, all from one GraphQL answer. Read last, so no other read can stand between
+ * it and the approval; GitHub's own merge check is the only one after it. Anything missing fails closed.
+ */
+export async function confirmPull(port: GitHubPort, t: MergeTarget): Promise<PullConfirmation> {
+  const [owner, name] = t.repo.split('/');
+  const r = await port.request({
+    method: 'POST',
+    path: 'graphql',
+    query: {},
+    body: { query: CONFIRM_PULL_QUERY, variables: { owner, name, number: t.pr_number } },
+  });
+  if (!r.ok) return { ok: false, reason: `pull unreadable: ${r.error.detail}`, tip: null };
+  // GraphQL may answer 200 with errors beside partial data: none of that data is trusted.
+  const errors = obj(r.value.body)['errors'];
+  if (Array.isArray(errors) && errors.length > 0)
+    return { ok: false, reason: 'pull unreadable: GraphQL errors', tip: null };
+  const pr = obj(obj(obj(obj(r.value.body)['data'])['repository'])['pullRequest']);
+  const state = pr['state'];
+  const draft = pr['isDraft'];
+  const head = pr['headRefOid'];
+  const base = pr['baseRefName'];
+  const oid = obj(obj(pr['baseRef'])['target'])['oid'];
+  if (typeof state !== 'string' || typeof draft !== 'boolean' || typeof head !== 'string')
+    return { ok: false, reason: 'pull unreadable: answer incomplete', tip: null };
+  if (base !== t.target) return { ok: false, reason: 'target does not match', tip: null };
+  const tip = typeof oid === 'string' && /^[0-9a-f]{40}$/.test(oid) ? oid : null;
+  if (state !== 'OPEN') return { ok: false, reason: 'pull is not open', tip };
+  if (draft) return { ok: false, reason: 'pull is a draft', tip };
+  if (head !== t.head_sha) return { ok: false, reason: 'head does not match', tip };
+  return { ok: true, tip };
 }
 
 export type MergeSent =
