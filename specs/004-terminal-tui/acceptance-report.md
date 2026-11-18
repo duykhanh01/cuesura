@@ -243,6 +243,7 @@ Test T040–T043 được viết trước. Trước khi triển khai chỉ chạ
 **Giới hạn của bằng chứng:**
 
 - Đọc log tối đa 200 bản ghi mỗi giây theo R-03, bắt đầu từ đầu log. Task có nhiều log phải chờ khá lâu mới tới phần cuối: 5.300 bản ghi mất khoảng 27 giây.
+- **Phép đo dài chưa chạy (T078 bỏ qua theo chỉ đạo người dùng):** SC-009 (phiên rảnh 1 giờ) và SC-013 (phiên log 8 giờ, bộ nhớ, phím dưới 200 ms ở 95%, tải daemon FR-039) chưa có kết quả, chưa đạt. Bằng chứng duy nhất cho SC-009 vẫn là phiên rảnh 30 giây của T033.
 - Trần bộ đệm trong PTY được đối chiếu qua số hiển thị `Records: a–b`, không đo bộ nhớ process. Trần 8 MiB chỉ có test unit. SC-013 phiên 8 giờ thuộc T078.
 - Thời gian phản hồi phím trong test log dồn dập chỉ kiểm dưới 1 giây ở 8 lần bấm, không phải số 200 ms của SC-013.
 - Log đọc dồn dập trong test là log đã có sẵn; chỉ các test nhỏ mới ghi log trong lúc màn hình đang mở.
