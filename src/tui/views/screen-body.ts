@@ -9,6 +9,8 @@ import { helpBody } from './help.ts';
 import { homeBody } from './home.ts';
 import type { Body } from './layout.ts';
 import { logsBody } from './logs.ts';
+import { newTaskBody } from './new-task.ts';
+import { runConfigBody } from './run-config.ts';
 import { detailBody } from './task-detail.ts';
 
 /** What the screen on top draws between the bars, under what a lost connection has to say. */
@@ -29,6 +31,10 @@ export function screenBody(s: TuiState, opts: { color: boolean }): Body {
         return detailBody(s);
       case 'logs':
         return logsBody(s);
+      case 'new_task':
+        return newTaskBody(s);
+      case 'run_config':
+        return runConfigBody(s);
     }
   })();
   return withDisconnected(s, withQuitPrompt(s, body));

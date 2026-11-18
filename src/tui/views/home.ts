@@ -14,6 +14,7 @@ import { displayWidth, truncate } from '../terminal/width.ts';
 import { QUEUE_TARGET } from '../client/mutations.ts';
 import { mutationLine } from './actions.ts';
 import { pausedBy } from './dialog.ts';
+import { formUnavailable } from './actions.ts';
 import { filtered, filterLine } from './filters.ts';
 import { BOLD, DIM, fg, putSegs, ruleHeading, seg, segsWidth, ui, type Seg } from './ink.ts';
 import { clockTime, type Body } from './layout.ts';
@@ -442,7 +443,14 @@ export const homeBody =
       return;
     }
     if (rows.length === 0) {
-      frame.put(1, listTop, truncate(uiText('No tasks in this view.'), cols - 1), DIM);
+      // With nothing filtered the list is empty for good: the way forward is the form.
+      const permission = formUnavailable(s.caller);
+      const none = filtered(s)
+        ? 'No tasks in this view.'
+        : permission === null
+          ? 'No tasks yet. Press n to create the first one.'
+          : `No tasks yet. New task ${permission}.`;
+      frame.put(1, listTop, truncate(uiText(none), cols - 1), DIM);
       return;
     }
     drawList(frame, s, listTop, room, rows, opts.color);

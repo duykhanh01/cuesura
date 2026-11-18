@@ -26,6 +26,24 @@ import {
 } from './dialog.ts';
 import { homeRows, keepSelection, selectRow, selectedRowIndex } from './home-rows.ts';
 import { commandFor, keyContext, type Command } from './keymap.ts';
+import {
+  hasContent,
+  onNewTaskCommand,
+  onNewTaskKey,
+  onNewTaskMutation,
+  onNewTaskTasksRead,
+  openNewTask,
+  reconcileNewTask,
+} from './new-task.ts';
+import {
+  onRunConfigCommand,
+  onRunConfigKey,
+  onRunConfigMutation,
+  onRunConfigRead,
+  runConfigDirty,
+  RUN_CONFIG_BOX_X,
+} from './run-config.ts';
+import { BOX_X } from '../views/form.ts';
 import type { Effect, Message } from './messages.ts';
 import {
   boardQueryKey,
@@ -61,30 +79,38 @@ export function reduce(state: TuiState, message: Message): Reduced {
       const open = [state.detail?.taskId, state.logs?.taskId, state.actions?.taskId].filter(
         (id): id is string => id !== undefined,
       );
-      const recovering = state.stale && open.length > 0;
-      const online: TuiState = {
-        ...state,
-        ...(recovering
-          ? {
-              recheck: open.reduce((m, id) => m.set(id, message.at), new Map(state.recheck)),
-              ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
-              ...(state.actions === null
-                ? {}
-                : { actions: { ...state.actions, showWanted: true, watermark: null } }),
-            }
-          : {}),
-        connection: nextConnection(state.connection, { ok: true }),
-        stale: false,
-        queuePaused: message.board.queue_paused ?? null,
-        lastError: null,
-        health: message.health,
-        ...(message.projects === undefined
-          ? {}
-          : {
-              caller: message.projects.caller,
-              projects: message.projects.projects,
-            }),
-      };
+      const recovering = state.stale && (open.length > 0 || state.newTask !== null);
+      const online = reconcileNewTask(
+        {
+          ...state,
+          ...(recovering
+            ? {
+                recheck: open.reduce((m, id) => m.set(id, message.at), new Map(state.recheck)),
+                ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
+                ...(state.actions === null
+                  ? {}
+                  : { actions: { ...state.actions, showWanted: true, watermark: null } }),
+              }
+            : {}),
+          runConfig:
+            state.stale && state.runConfig !== null
+              ? { ...state.runConfig, freshAfter: message.at }
+              : state.runConfig,
+          connection: nextConnection(state.connection, { ok: true }),
+          stale: false,
+          queuePaused: message.board.queue_paused ?? null,
+          lastError: null,
+          health: message.health,
+          ...(message.projects === undefined
+            ? {}
+            : {
+                caller: message.projects.caller,
+                projects: message.projects.projects,
+                profiles: message.projects.profiles,
+              }),
+        },
+        state.stale,
+      );
       // Asked before the view changed: the connection is fine, the board is not this view's.
       if (message.queryKey !== undefined && message.queryKey !== boardQueryKey(state))
         return { state: online, effects: recovering ? [{ type: 'read_screen' }] : [] };
@@ -124,13 +150,17 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onActionsShowRead(state, message));
     case 'dialog_read':
       return same(onDialogRead(state, message));
+    case 'new_task_tasks_read':
+      return same(onNewTaskTasksRead(state, message));
+    case 'run_config_read':
+      return same(onRunConfigRead(state, message));
     case 'mutation_changed': {
       const m = message.mutation;
       const mutations = new Map(state.mutations).set(mutationTarget(m.command), m);
       const dialog = onDialogMutation({ ...state, mutations }, m);
       // A write that went through moved the task: read the board now instead of at the next tick.
       return {
-        state: dialog.state,
+        state: onRunConfigMutation(onNewTaskMutation(dialog.state, m), m),
         effects: [
           ...dialog.effects,
           ...(m.state === 'accepted' && state.connection.kind === 'online'
@@ -183,6 +213,10 @@ function onKey(given: TuiState, key: Key): Reduced {
       return onLogsCommand(state, command) ?? same(state);
     case 'actions':
       return onActionsCommand(state, command) ?? same(state);
+    case 'new_task':
+      return onNewTaskCommand(state, command) ?? same(state);
+    case 'run_config':
+      return onRunConfigCommand(state, command) ?? same(state);
     case 'dialog':
       return onDialogCommand(state, command) ?? same(state);
   }
@@ -190,14 +224,23 @@ function onKey(given: TuiState, key: Key): Reduced {
 
 function askToQuit(state: TuiState): Reduced {
   // What was typed is worth one more key press (contracts/tui.md).
-  const typed = (state.filterDraft?.query ?? '') !== '' || dialogHasText(state);
+  const typed =
+    (state.filterDraft?.query ?? '') !== '' ||
+    dialogHasText(state) ||
+    (state.newTask !== null && hasContent(state.newTask)) ||
+    (state.runConfig !== null && runConfigDirty(state.runConfig));
   if (typed && !state.quitArmed) return same({ ...state, quitArmed: true });
   return { state, effects: [{ type: 'quit', code: 0 }] };
 }
 
 /** A key that is no command: text, where a field takes it, and nothing elsewhere. */
 function onText(state: TuiState, key: Key): Reduced {
-  if (currentScreen(state) === 'dialog') return onDialogKey(state, key);
+  const screen = currentScreen(state);
+  const width = Math.max(1, state.size.cols - BOX_X - 1);
+  if (screen === 'new_task') return onNewTaskKey(state, key, width);
+  if (screen === 'run_config')
+    return onRunConfigKey(state, key, Math.max(1, state.size.cols - RUN_CONFIG_BOX_X - 1));
+  if (screen === 'dialog') return onDialogKey(state, key);
   const draft = state.filterDraft;
   if (keyContext(state) !== 'filter_text' || draft === null) return same(state);
   const put = (query: string): Reduced =>
@@ -233,6 +276,7 @@ function onHelpCommand(state: TuiState, command: Command): Reduced {
 }
 
 function onHomeCommand(state: TuiState, command: Command): Reduced {
+  if (command === 'new_task') return openNewTask(state);
   if (command === 'filters') return openFilters(state);
   const rows = homeRows(state);
   const at = selectedRowIndex(state, rows);

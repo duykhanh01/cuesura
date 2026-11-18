@@ -12,6 +12,8 @@ import { contentHeight } from '../views/disconnected.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
 import { DIALOG_ACTIONS, openDialog } from './dialog.ts';
 import type { Command } from './keymap.ts';
+import { openNewTask } from './new-task.ts';
+import { openRunConfig } from './run-config.ts';
 import type { Effect } from './messages.ts';
 import { mutationLock, writeLock, type TuiState } from './state.ts';
 
@@ -230,20 +232,18 @@ function openEntry(state: TuiState, menu: ActionsMenu, item: ActionItem): Reduce
     state: { ...state, actions: { ...menu, notice: uiText(text) } },
     effects: [],
   });
-  if (kind === undefined || item.unavailable !== null) return note(enterNotice(item));
+  if (item.unavailable !== null) return note(enterNotice(item));
+  const ready = { ...state, actions: { ...menu, notice: null } };
+  if (item.action === 'task_add') return openNewTask(ready);
+  if (item.action === 'propose') return openRunConfig(ready, menu.taskId, menu.title);
+  if (kind === undefined) return note(enterNotice(item));
   const explain = menu.explain.data;
   const show = menu.show.data;
   if (explain === null || show === null) return note(READING);
   // Both reads describe the task the dialog is about; ones of different versions describe two tasks.
   if (explain.version !== show.version)
     return note('The task changed while it was being read; try again in a moment.');
-  return openDialog(
-    { ...state, actions: { ...menu, notice: null } },
-    kind,
-    explain,
-    show.version,
-    show.project,
-  );
+  return openDialog(ready, kind, explain, show.version, show.project);
 }
 
 /** `null`: not a command of this screen. */

@@ -6,6 +6,8 @@ import type { ActionsMenu } from './actions.ts';
 import type { Dialog } from './dialog.ts';
 import type { TaskDetail } from './detail.ts';
 import type { LogState } from './logs.ts';
+import type { NewTaskForm } from './new-task.ts';
+import type { RunConfigForm } from './run-config.ts';
 
 /** Automatic reconnect attempts in one round; after these the session waits for the user (FR-009). */
 export const RECONNECT_ATTEMPTS = 30;
@@ -57,7 +59,16 @@ export function retryConnection(c: Connection): Connection | null {
   return null;
 }
 
-export type Screen = 'home' | 'help' | 'filters' | 'detail' | 'logs' | 'actions' | 'dialog';
+export type Screen =
+  | 'home'
+  | 'help'
+  | 'filters'
+  | 'detail'
+  | 'logs'
+  | 'actions'
+  | 'dialog'
+  | 'new_task'
+  | 'run_config';
 
 export type Filters = {
   readonly project: string | null;
@@ -104,6 +115,9 @@ export type TuiState = {
   readonly caller: CallerInfo | null;
   /** Projects the config declares, when `project_list` answered. */
   readonly projects: ProjectList['projects'] | null;
+  readonly profiles: ProjectList['profiles'];
+  readonly newTask: NewTaskForm | null;
+  readonly runConfig: RunConfigForm | null;
   readonly screens: readonly Screen[];
   /** Kept by task, not by row, so a reorder cannot move an action to another task (EC-013). */
   readonly selectedTaskId: string | null;
@@ -157,6 +171,9 @@ export function initialState(size: Size): TuiState {
     mutations: new Map(),
     caller: null,
     projects: null,
+    profiles: [],
+    newTask: null,
+    runConfig: null,
     screens: ['home'],
     selectedTaskId: null,
     finishedSelected: false,

@@ -27,6 +27,10 @@ export class ControlProxy {
    * the link dropped before the request was written. Each request is one chunk, so the test sees it whole.
    */
   refuse: ((request: string) => boolean) | null = null;
+  /** Holds a matching request until the test releases it. */
+  beforeForward: ((request: string) => Promise<void> | undefined) | null = null;
+  /** Observes the complete upstream reply, including replies dropped by the proxy. */
+  onReply: ((request: string, response: Buffer) => void) | null = null;
   #target: string;
   readonly #server: Server;
   readonly #open = new Set<Socket>();
@@ -73,9 +77,10 @@ export class ControlProxy {
       // A client that gave up must not cut off a request being dropped on purpose.
       if (this.mode !== 'drop_response') upstream.destroy();
     });
-    if (this.refuse !== null) {
+    if (this.refuse !== null || this.beforeForward !== null || this.onReply !== null) {
       client.once('data', (first: Buffer) => {
-        const refused = this.refuse?.(first.toString('utf8')) === true;
+        const request = first.toString('utf8');
+        const refused = this.refuse?.(request) === true;
         if (refused && this.mode === 'forward') {
           client.destroy();
           upstream.destroy();
@@ -85,8 +90,20 @@ export class ControlProxy {
           this.tap?.('request', first);
           client.on('data', (b: Buffer) => this.tap?.('request', b));
         }
-        upstream.write(first);
-        client.pipe(upstream);
+        const onReply = this.onReply;
+        if (onReply !== null) {
+          const chunks: Buffer[] = [];
+          upstream.on('data', (b: Buffer) => chunks.push(b));
+          upstream.on('close', () => onReply(request, Buffer.concat(chunks)));
+        }
+        const forward = (): void => {
+          if (client.destroyed || upstream.destroyed) return;
+          upstream.write(first);
+          client.pipe(upstream);
+        };
+        const gate = this.beforeForward?.(request);
+        if (gate === undefined) forward();
+        else void gate.then(forward);
       });
     } else {
       client.pipe(upstream);

@@ -1,3 +1,4 @@
+import { openRunConfig } from '../../../src/tui/model/run-config.ts';
 import { describe, expect, it } from 'vitest';
 import type {
   BoardReply,
@@ -166,6 +167,8 @@ function contexts(): Record<Context, TuiState> {
     logs,
     attempts: run(logs, ch('t')),
     actions: menu,
+    new_task: run(h, ch('n')),
+    run_config: openRunConfig(menu, TASK(2), sanitize('Task')).state,
     dialog_text: dialog('answer'),
     dialog_confirm: dialog('approve'),
     dialog_plain: dialog('recheck'),
@@ -180,7 +183,13 @@ function keyOf(p: { name: KeyName } | { char: string }): Key {
 }
 
 /** Contexts where a printable key is text, so only Ctrl-C quits. */
-const TYPING: readonly Context[] = ['filter_text', 'dialog_text', 'dialog_confirm'];
+const TYPING: readonly Context[] = [
+  'filter_text',
+  'dialog_text',
+  'dialog_confirm',
+  'new_task',
+  'run_config',
+];
 
 describe('the keymap is the one source of keys, hints and Help (T050)', () => {
   const all = contexts();
@@ -250,7 +259,7 @@ describe('the keymap is the one source of keys, hints and Help (T050)', () => {
   });
 
   it('Help lists every binding of every context, the one it came from first', () => {
-    const big = { cols: 140, rows: 100 };
+    const big = { cols: 140, rows: 120 };
     const s = run(home(big), k('enter'), ch('d'), ch('?'));
     const text = screen(s);
     expect(text.indexOf('Keys on Task detail')).toBeLessThan(text.indexOf('Keys on Home'));

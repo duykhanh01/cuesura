@@ -32,14 +32,14 @@ type Known = {
 const KNOWN: Readonly<Record<string, Known>> = {
   answer: { label: 'Answer the question', kind: 'dialog', role: 'operate' },
   confirm: { label: 'Confirm', kind: 'later', role: 'operate' },
-  propose: { label: 'Propose run', kind: 'later', role: 'operate' },
+  propose: { label: 'Propose run', kind: 'dialog', role: 'operate' },
   approve: { label: 'Approve', kind: 'dialog', role: 'operate' },
   cancel: { label: 'Cancel task', kind: 'dialog', role: 'operate' },
   recheck: { label: 'Recheck', kind: 'dialog', role: 'operate' },
   pause: { label: 'Pause task', kind: 'dialog', role: 'operate' },
   resume: { label: 'Resume task', kind: 'dialog', role: 'operate' },
   continue: { label: 'Continue task', kind: 'dialog', role: 'operate' },
-  task_add: { label: 'New task', kind: 'later', role: 'operate' },
+  task_add: { label: 'New task', kind: 'dialog', role: 'operate' },
   merge_manually: { label: 'Merge on GitHub', kind: 'guide' },
   fix_external: { label: 'Fix outside Cuesura', kind: 'guide' },
   wait: { label: 'Wait', kind: 'info' },
@@ -79,6 +79,14 @@ export function unavailable(role: Known['role'], caller: CallerInfo | null): str
   return `needs the ${role} role; you have: ${has}`;
 }
 
+/** The daemon admits neither form command for deputies. */
+export function formUnavailable(caller: CallerInfo | null): string | null {
+  return (
+    unavailable('operate', caller) ??
+    (caller?.actor === 'deputy' ? 'is unavailable to the deputy actor' : null)
+  );
+}
+
 export function actionItems(
   explain: TaskExplain,
   caller: CallerInfo | null,
@@ -92,12 +100,15 @@ export function actionItems(
       effect: a.note,
       command: a.command,
       // `approve` covers both approvals: an escalation needs operate, adopting a PR admin.
-      unavailable: unavailable(
-        a.action === 'approve' && explain.wait?.detail.code === 'adopt_approval'
-          ? 'admin'
-          : known?.role,
-        caller,
-      ),
+      unavailable:
+        a.action === 'task_add' || a.action === 'propose'
+          ? formUnavailable(caller)
+          : unavailable(
+              a.action === 'approve' && explain.wait?.detail.code === 'adopt_approval'
+                ? 'admin'
+                : known?.role,
+              caller,
+            ),
       guide: a.action === 'merge_manually' ? mergeGuide(explain.merge) : [],
     };
   });

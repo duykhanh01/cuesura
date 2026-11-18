@@ -4,14 +4,22 @@
  * the daemon nothing. Each kind of read runs one at a time. A failure stays with its part of the screen.
  */
 import { actionsDue, actionsShowDue } from '../model/actions.ts';
-import { contentDue, detailDue, hasEnding, type DetailPartName } from '../model/detail.ts';
+import {
+  contentDue,
+  detailDue,
+  EXPLAIN_READ_MS,
+  hasEnding,
+  type DetailPartName,
+} from '../model/detail.ts';
 import { dialogDue, questionView } from '../model/dialog.ts';
 import { gateLogDue, gatesDue } from '../model/gates.ts';
 import { logDue, requestAttempt, LOG_PAGE_RECORDS } from '../model/logs.ts';
+import { newTaskTasksDue } from '../model/new-task.ts';
+import { runConfigDue } from '../model/run-config.ts';
 import type { Message } from '../model/messages.ts';
-import { currentScreen, type TuiState } from '../model/state.ts';
+import { currentScreen, PAGE_LIMIT, type TuiState } from '../model/state.ts';
 import type { DaemonPort } from './daemon-port.ts';
-import { DETAIL_TIMEOUT_MS, type RefreshClock } from './refresh.ts';
+import { DETAIL_TIMEOUT_MS, RUN_OPTIONS_TIMEOUT_MS, type RefreshClock } from './refresh.ts';
 
 export type ScreenRead = {
   /** At most one read with the same key runs at a time. */
@@ -306,6 +314,43 @@ function dialogReads(
   }));
 }
 
+/** The tasks of the chosen project, to pick dependencies from; asked again when the project changes. */
+function newTaskReads(
+  s: TuiState,
+  port: DaemonPort,
+  clock: RefreshClock,
+  now: number,
+): readonly ScreenRead[] {
+  const form = s.newTask;
+  if (form === null) return [];
+  const due = newTaskTasksDue(s, now, EXPLAIN_READ_MS);
+  if (due === null) return [];
+  const { project, cursor } = due;
+  return [
+    {
+      key: 'new_task:tasks',
+      run: async () => ({
+        type: 'new_task_tasks_read',
+        session: form.session,
+        project,
+        cursor,
+        askedAt: now,
+        result: await port.board(
+          {
+            project,
+            scope: 'all',
+            limit: PAGE_LIMIT,
+            order: 'newest',
+            ...(cursor === null ? {} : { cursor }),
+          },
+          DETAIL_TIMEOUT_MS,
+        ),
+        at: clock.now(),
+      }),
+    },
+  ];
+}
+
 /** What is due right now for the screen on top. */
 export function planScreenReads(
   s: TuiState,
@@ -342,6 +387,28 @@ export function planScreenReads(
     case 'actions':
       reads.push(...actionsReads(s, port, clock, now));
       break;
+    case 'new_task':
+      reads.push(...newTaskReads(s, port, clock, now));
+      break;
+    case 'run_config': {
+      reads.push(...actionsReads(s, port, clock, now));
+      const form = s.runConfig;
+      const watermark = s.board?.watermark ?? null;
+      if (form !== null && runConfigDue(form, watermark, now)) {
+        reads.push({
+          key: 'run_config:options',
+          run: async () => ({
+            type: 'run_config_read',
+            session: form.session,
+            askedAt: now,
+            watermark,
+            result: await port.runOptions(form.taskId, RUN_OPTIONS_TIMEOUT_MS),
+            at: clock.now(),
+          }),
+        });
+      }
+      break;
+    }
     case 'dialog':
       // The menu under a task dialog keeps its version and its list current: the dialog sends with them.
       if (s.dialog?.taskId != null && s.actions !== null)

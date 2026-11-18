@@ -26,7 +26,9 @@ export type MutationCommand = {
 
 /** Where a write is kept and locked: its task, or the queue. Task IDs are UUIDs, so the two never meet. */
 export const QUEUE_TARGET = 'queue';
-export const mutationTarget = (c: MutationCommand): string => c.task_id ?? QUEUE_TARGET;
+export const NEW_TASK_KEY = 'new-task';
+export const mutationTarget = (c: MutationCommand): string =>
+  c.task_id ?? (c.kind === 'task_add' ? NEW_TASK_KEY : QUEUE_TARGET);
 
 export type MutationState = 'sending' | 'accepted' | 'rejected' | 'unknown' | 'unresolved';
 

@@ -20,7 +20,15 @@ import { STORE_FILE } from '../../src/daemon/main.ts';
 import { PACKS } from './config-fixtures.ts';
 import { ControlProxy } from './control-proxy.ts';
 import { SeededDaemon, type Reply } from './daemon-task.ts';
-import { fakeGit, fakeGitHub, fakeHost, MANIFESTS, userConfig } from './preflight-fakes.ts';
+import {
+  fakeGit,
+  fakeGitHub,
+  fakeHost,
+  MANIFESTS,
+  REPO,
+  userConfig,
+  type GitOpts,
+} from './preflight-fakes.ts';
 import { KEY, PtySession } from './pty.ts';
 import { createGrantStart, proposeAndConfirm, selectionFor } from './runtime.ts';
 import { agentData, ciData, gatesData, PREPARE_DATA, publishData, USAGE } from './scenario.ts';
@@ -36,6 +44,8 @@ export const ROOMY = { cols: 140, rows: 60 } as const;
 const HEAD = 'a'.repeat(40);
 
 type DaemonOptions = {
+  readonly runnable?: GitOpts;
+  readonly runtime?: string;
   /** Extra project names in the user config, next to `acme`. */
   readonly projects?: readonly string[];
   /** Serves `task_recheck`; `observed` is called once for each time the PR is really read. */
@@ -64,9 +74,10 @@ export function useTui() {
   return {
     /** A stopped daemon to seed and start. Its clock reads now, so a time in status means something. */
     daemon(o: DaemonOptions = {}): SeededDaemon {
-      const lines = ['acme', ...(o.projects ?? [])].map(
-        (id) => `${id}: { base_branch: main, path: /srv/${id}, repo: acme/${id} }`,
-      );
+      const lines = ['acme', ...(o.projects ?? [])].map((id) => {
+        const path = id === 'acme' && o.runnable !== undefined ? REPO : `/srv/${id}`;
+        return `${id}: { base_branch: main, path: ${path}, repo: acme/${id} }`;
+      });
       // Seeded operations have no real runner unit; asking the host's systemd would make recovery depend
       // on whether a user bus is reachable.
       const noUnit = {
@@ -93,10 +104,13 @@ export function useTui() {
         logs: { dataDir: sd.dataDir, redactor: new Redactor() },
         confirm: {
           store,
-          ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
+          ports: { git: fakeGit(o.runnable), github: fakeGitHub(), host: fakeHost() },
           configInputs: () =>
             Promise.resolve({
-              user: userConfig({ project: lines.join('\n  ') }),
+              user: userConfig({
+                project: lines.join('\n  '),
+                ...(o.runtime === undefined ? {} : { runtime: o.runtime }),
+              }),
               packs: PACKS,
               manifests: MANIFESTS,
             }),

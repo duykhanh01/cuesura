@@ -3,6 +3,7 @@
  * trying and what the user can do. The screen stays with what it held; a daemon that died is no way out. The
  * banner row and the reason of a stop come from `layout.ts`.
  */
+import { formTextFocused } from '../model/keymap.ts';
 import { RECONNECT_ATTEMPTS, type TuiState } from '../model/state.ts';
 import { joinSafe, uiText, type SafeText } from '../terminal/safe-text.ts';
 import { truncate, wrap } from '../terminal/width.ts';
@@ -13,7 +14,7 @@ const LABEL = 'Disconnected: ';
 
 /** While typing, `R` is text like any other key, so the way to the retry goes through leaving the field. */
 const retryHint = (s: TuiState): string =>
-  s.filterDraft?.field === 'project'
+  s.filterDraft?.field === 'project' || formTextFocused(s)
     ? 'Press Tab to leave the text field, then R to retry. What you typed stays.'
     : 'Retry connection: press R. Nothing else starts a new round.';
 
@@ -45,7 +46,9 @@ export function disconnectedRows(s: TuiState, cols: number): SafeText[] {
     case 'stopped':
       return wrap(
         uiText(
-          s.filterDraft?.field === 'project' ? retryHint(s) : 'It will not try again on its own.',
+          s.filterDraft?.field === 'project' || s.newTask !== null || s.runConfig !== null
+            ? retryHint(s)
+            : 'It will not try again on its own.',
         ),
         cols,
       );

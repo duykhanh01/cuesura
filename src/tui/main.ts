@@ -38,7 +38,7 @@ function unknownResultNotice(mutations: Iterable<Mutation>): string | null {
     .filter((m) => m.state === 'sending' || m.state === 'unknown' || m.state === 'unresolved')
     .map(
       (m) =>
-        `cusr: the result of ${m.command.kind} ${m.command.task_id === null ? 'on the queue' : `on task ${m.command.task_id}`} is not known.\n` +
+        `cusr: the result of ${m.command.kind} ${m.command.kind === 'task_add' ? 'for a new task' : m.command.task_id === null ? 'on the queue' : `on task ${m.command.task_id}`} is not known.\n` +
         `  request ID: ${m.requestId}\n  look it up with: cusr request show ${m.requestId}\n`,
     );
   return lines.length === 0 ? null : lines.join('');

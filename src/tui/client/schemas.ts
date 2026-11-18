@@ -114,6 +114,11 @@ const ChoiceSchema = z.looseObject({
   effort: safe,
 });
 
+const ChoiceWithFallbacks = z.looseObject({
+  choice: ChoiceSchema,
+  fallbacks: z.array(ChoiceSchema),
+});
+
 export const RunOptionsSchema = z.looseObject({
   task_id: taskId,
   revision: z.number().int(),
@@ -124,12 +129,8 @@ export const RunOptionsSchema = z.looseObject({
       mode: z.enum(['direct-pr', 'full-review']),
       when_to_use: safeBlock.nullable(),
       reviewers: z.array(ChoiceSchema),
-      workers: z.array(
-        z.looseObject({
-          choice: ChoiceSchema,
-          fallbacks: z.array(ChoiceSchema),
-        }),
-      ),
+      workers: z.array(ChoiceWithFallbacks),
+      reviewer_fallbacks: z.array(ChoiceWithFallbacks),
     }),
   ),
   truncated: z.boolean(),

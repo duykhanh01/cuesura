@@ -35,6 +35,8 @@ const ORDER: readonly Context[] = [
   'dialog_text',
   'dialog_confirm',
   'dialog_plain',
+  'new_task',
+  'run_config',
   'help',
 ];
 

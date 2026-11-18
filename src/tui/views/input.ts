@@ -19,6 +19,8 @@ export type TextField = {
   readonly cursor: number;
   /** In graphemes; what goes past it is not taken. */
   readonly max: number | null;
+  /** In UTF-16 units, how a daemon schema counts a string; what goes past it is not taken either. */
+  readonly maxUnits?: number | null;
 };
 
 export function textField(
@@ -26,8 +28,9 @@ export function textField(
   label: string,
   text = '',
   max: number | null = null,
+  maxUnits: number | null = null,
 ): TextField {
-  return { kind, label, text, cursor: graphemes(text).length, max };
+  return { kind, label, text, cursor: graphemes(text).length, max, maxUnits };
 }
 
 /** What a key that is not text asks of the form around the field. Submitting is only ever Ctrl-S. */
@@ -55,8 +58,13 @@ function insert(f: TextField, text: string): TextField {
   const tail = gs.slice(f.cursor).join('');
   const add = graphemes(text);
   // The limit counts the joined text: a mark or skin tone typed after the last character takes no room.
-  const fits = (n: number): boolean =>
-    f.max === null || graphemes(head + add.slice(0, n).join('') + tail).length <= f.max;
+  const fits = (n: number): boolean => {
+    const joined = head + add.slice(0, n).join('') + tail;
+    return (
+      (f.max === null || graphemes(joined).length <= f.max) &&
+      (f.maxUnits == null || joined.length <= f.maxUnits)
+    );
+  };
   let taken = add.length;
   if (!fits(taken)) {
     // Taking more never makes the joined text shorter, so the most that fits is found by halving: one

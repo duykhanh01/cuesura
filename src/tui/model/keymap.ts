@@ -8,6 +8,9 @@ import type { Key, KeyName } from '../terminal/keys.ts';
 import { displayWidth } from '../terminal/width.ts';
 import { logColumns } from './logs.ts';
 import { QUEUE_TARGET } from '../client/mutations.ts';
+import { formUnavailable } from '../views/actions.ts';
+import { isText, NEW_TASK_FIELDS } from './new-task.ts';
+import { focusedRunConfigField } from './run-config.ts';
 import { confirmWord } from './dialog.ts';
 import { currentScreen, mutationLock, type TuiState } from './state.ts';
 
@@ -44,7 +47,8 @@ export type Command =
   | 'switch_field'
   | 'erase'
   | 'check_again'
-  | 'queue';
+  | 'queue'
+  | 'new_task';
 
 export type Context =
   | 'home'
@@ -52,6 +56,8 @@ export type Context =
   | 'logs'
   | 'attempts'
   | 'actions'
+  | 'new_task'
+  | 'run_config'
   | 'filter_text'
   | 'filter_choice'
   | 'dialog_text'
@@ -207,6 +213,13 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       // Until it is settled no other queue change can go out, so the way out must stay in sight.
       keep: () => true,
       when: (s) => mutationLock(s, QUEUE_TARGET)?.state === 'unresolved',
+    },
+    {
+      keys: 'n',
+      hint: 'new task',
+      help: 'Create a task with a form',
+      press: [[c('n'), 'new_task']],
+      when: (s) => formUnavailable(s.caller) === null,
     },
   ],
   detail: [
@@ -495,6 +508,72 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
     DIALOG_NOW_FIELD,
     DIALOG_SCROLL,
   ],
+  new_task: [
+    {
+      keys: 'Tab',
+      hint: 'next field',
+      helpKeys: 'Tab Shift-Tab',
+      help: 'Next field, or the one before',
+      press: [],
+    },
+    {
+      keys: '↑↓',
+      hint: 'choose',
+      help: 'In Project, Profile and Depends on: choose from the list',
+      press: [],
+    },
+    {
+      keys: 'Space',
+      hint: 'toggle',
+      help: 'In Depends on: add or remove the task under the cursor',
+      press: [],
+    },
+    {
+      keys: 'Ctrl-S',
+      hint: 'create',
+      help: 'Create the task; nothing is sent before this',
+      press: [],
+    },
+  ],
+  run_config: [
+    {
+      keys: 'Enter',
+      hint: null,
+      help: 'On Mode, accept refreshed choices when the form reports a change',
+      press: [],
+    },
+    {
+      keys: 'Tab',
+      hint: 'next field',
+      helpKeys: 'Tab Shift-Tab',
+      help: 'Next field, or the one before',
+      press: [],
+    },
+    {
+      keys: '↑↓',
+      hint: 'choose',
+      help: 'In the choices and fallback lists: move up or down',
+      press: [],
+    },
+    {
+      keys: 'Space',
+      hint: 'toggle',
+      help: 'In either fallback list: add or remove the entry under the cursor',
+      press: [],
+    },
+    {
+      keys: 'PgUp/PgDn',
+      hint: null,
+      help: 'Read the guidance of the chosen mode when it is longer than its rows',
+      press: [],
+    },
+    {
+      keys: 'Ctrl-S',
+      hint: 'propose',
+      help: 'Propose this run; nothing is sent before this',
+      press: [],
+    },
+  ],
   help: [
     {
       keys: '↑↓',
@@ -515,7 +594,11 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
 
 /** In a text field a printable key is text, so only keys that are not text are global there. */
 const typing = (ctx: Context): boolean =>
-  ctx === 'filter_text' || ctx === 'dialog_text' || ctx === 'dialog_confirm';
+  ctx === 'filter_text' ||
+  ctx === 'dialog_text' ||
+  ctx === 'dialog_confirm' ||
+  ctx === 'new_task' ||
+  ctx === 'run_config';
 
 const GLOBAL_LEAD: readonly Binding[] = [
   {
@@ -527,6 +610,25 @@ const GLOBAL_LEAD: readonly Binding[] = [
     when: (s) => s.screens.length > 1,
   },
 ];
+
+const RETRY: Binding = {
+  keys: 'R',
+  hint: 'retry connection',
+  help: 'Retry the daemon connection. In a form, use Tab to reach a choice first.',
+  press: [[c('R'), 'retry']],
+  essential: true,
+  when: waiting,
+};
+
+export function formTextFocused(s: TuiState): boolean {
+  if (currentScreen(s) === 'new_task' && s.newTask !== null)
+    return isText(NEW_TASK_FIELDS[s.newTask.focus] ?? 'title');
+  return (
+    currentScreen(s) === 'run_config' &&
+    s.runConfig !== null &&
+    focusedRunConfigField(s.runConfig) === 'reason'
+  );
+}
 
 const GLOBAL_TAIL: readonly Binding[] = [
   {
@@ -554,14 +656,7 @@ const GLOBAL_TAIL: readonly Binding[] = [
     essential: true,
     when: (s) => currentScreen(s) !== 'help',
   },
-  {
-    keys: 'R',
-    hint: 'retry connection',
-    help: 'Retry the daemon connection once the automatic attempts are used',
-    press: [[c('R'), 'retry']],
-    essential: true,
-    when: waiting,
-  },
+  RETRY,
   {
     keys: 'Ctrl-C',
     hint: null,
@@ -666,7 +761,8 @@ export function fieldCommand(key: Key): FieldCommand | null {
 }
 
 export function keyContext(s: TuiState): Context {
-  switch (currentScreen(s)) {
+  const screen = currentScreen(s);
+  switch (screen) {
     case 'home':
       return 'home';
     case 'detail':
@@ -683,6 +779,9 @@ export function keyContext(s: TuiState): Context {
         : s.dialog?.focus === 'confirm'
           ? 'dialog_confirm'
           : 'dialog_plain';
+    case 'new_task':
+    case 'run_config':
+      return screen;
     case 'help':
       return 'help';
   }
@@ -690,7 +789,11 @@ export function keyContext(s: TuiState): Context {
 
 /** The bindings of `ctx` in the order the bar shows them, whether they apply now or not. */
 export function bindings(ctx: Context): readonly Binding[] {
-  return [...GLOBAL_LEAD, ...KEYS[ctx], ...(typing(ctx) ? TYPING_TAIL : GLOBAL_TAIL)];
+  const formRetry =
+    ctx === 'new_task' || ctx === 'run_config'
+      ? [{ ...RETRY, when: (s: TuiState) => waiting(s) && !formTextFocused(s) }]
+      : [];
+  return [...GLOBAL_LEAD, ...KEYS[ctx], ...formRetry, ...(typing(ctx) ? TYPING_TAIL : GLOBAL_TAIL)];
 }
 
 /** The bindings of a context of its own, without those of every screen: for Help. */
@@ -738,6 +841,8 @@ export const CONTEXT_TITLES: Readonly<Record<Context, string>> = {
   logs: 'Logs',
   attempts: 'Logs, choosing an attempt',
   actions: 'Actions',
+  new_task: 'New task',
+  run_config: 'Run config',
   filter_choice: 'Filter',
   filter_text: 'Filter, typing a project name',
   dialog_text: 'Dialog, typing text',
