@@ -309,9 +309,13 @@ function layout(s: TuiState, d: Dialog) {
     box.push(
       text(
         joinSafe([
-          uiText(`${d.focus === 'confirm' ? '› ' : '  '}Type ${word}, then press Enter: `),
+          d.kind === 'cancel'
+            ? uiText(
+                `${d.focus === 'confirm' ? '› ' : '  '}Cancel this task? Y cancels it · N leaves`,
+              )
+            : uiText(`${d.focus === 'confirm' ? '› ' : '  '}Type ${word}, then press Enter: `),
           sanitize(d.typed),
-          uiText(d.focus === 'confirm' ? '_' : ''),
+          uiText(d.focus === 'confirm' && d.kind !== 'cancel' ? '_' : ''),
         ]),
         d.focus === 'confirm' ? { bold: true } : {},
       ),
@@ -372,9 +376,13 @@ export const dialogBody =
     }
     for (const r of tailBottom) put(r);
     const hint =
-      (word === null
-        ? `${SEND_WORDS[d.kind]} · Esc leaves without sending`
-        : 'Enter sends once the word is exact · Esc leaves without sending') +
+      (d.kind === 'cancel'
+        ? d.focus === 'confirm'
+          ? 'Y cancels the task · N or Esc leaves without sending · Tab edits the reason'
+          : 'Ctrl-S or Tab: next, to confirm with Y · Esc leaves without sending'
+        : word === null
+          ? `${SEND_WORDS[d.kind]} · Esc leaves without sending`
+          : 'Enter sends once the word is exact · Esc leaves without sending') +
       (more ? ` · PgUp/PgDn scroll (${offset + 1}/${last + 1})` : '');
     y = Math.max(y, top + height - 1);
     put({ text: uiText(hint), style: { dim: true } });

@@ -174,7 +174,7 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
     expect((await s.waitForExit()).status).toBe(0);
   }, 60_000);
 
-  it('Cancel: nothing goes out until the word is exact; then it matches the CLI (US4 scenario 3, SC-007)', async () => {
+  it('Cancel: a reason, then one Y; N or anything else sends nothing; then it matches the CLI (US4 scenario 3, SC-007)', async () => {
     const sd = tui.daemon();
     sd.seed((d) => {
       seedRunning(d, 2);
@@ -187,35 +187,41 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
     await s.waitForText('What cancelling does');
     expect(flat(s.screenText())).toContain('it is not CANCELLED before');
 
-    // No reason: the word alone does not send.
+    // No reason: Y alone does not send.
     s.send(KEY.tab);
-    await s.waitForText('Type cancel, then press Enter');
-    s.send('cancel');
-    s.send(KEY.enter);
+    await s.waitForText('Cancel this task? Y cancels it');
+    s.send('Y');
     await s.waitForText('A reason is required');
-    for (let i = 0; i < 6; i++) s.send('\x7f');
-    // Wrong word, empty box, pasted word and Ctrl-S: each answered in place, none sent.
     s.send(KEY.tab);
+    // Anything but Y, Enter, a pasted Y and Ctrl-S are answered in place, none sent.
     s.send('stop it');
-    s.send(KEY.tab);
-    s.send('cancl');
-    s.send(KEY.enter);
-    await s.waitForText('type cancel exactly');
     s.send(KEY.ctrlS);
-    for (let i = 0; i < 5; i++) s.send('\x7f');
-    s.send('\x1b[200~cancel\x1b[201~');
-    await s.waitForText('Paste is not accepted here');
+    await s.waitForText('Y cancels the task');
+    s.send('x');
     s.send(KEY.enter);
-    await s.waitForText('type cancel exactly');
+    await s.waitForText('Press Y to cancel the task');
+    s.send('\x1b[200~Y\x1b[201~');
+    await s.waitForText('Press Y to cancel the task');
     expect(await outcome(sd, uuidOf(1))).toEqual(first);
 
-    s.send('cancel');
-    s.send(KEY.enter);
+    // N refuses: the dialog closes, nothing is written, and the reason is kept for the next try.
+    s.send('n');
+    await s.waitForText('Actions — ');
+    expect(await outcome(sd, uuidOf(1))).toEqual(first);
+    await pressAction(s, 'Cancel task');
+    await s.waitForText('stop it');
+
+    // One Y after the reason sends it.
+    s.send(KEY.ctrlS);
+    s.send('Y');
     await s.waitFor(
       () => /Cancel accepted by the daemon \(request /.test(flat(s.screenText())),
       15_000,
     );
     expect(flat(s.screenText())).toContain('not CANCELLED until the daemon reports it');
+    const history = await sd.query('owner', { kind: 'task_history', task_id: uuidOf(1) });
+    const asked = JSON.stringify(history.envelope.data?.['events']);
+    expect(asked).toContain('stop it');
 
     const viaCli = await cliJson(
       sd,
@@ -417,8 +423,7 @@ const OPERATIONS: readonly Operation[] = [
       await s.waitForText('What cancelling does');
       s.send('stop it');
       s.send(KEY.tab);
-      s.send('cancel');
-      s.send(KEY.enter);
+      s.send('Y');
       await s.waitFor(() => /Cancel accepted by the daemon/.test(flat(s.screenText())), 15_000);
     },
     cli: async (sd, actor, id) =>
@@ -869,7 +874,7 @@ describe('US4 below the PTY: what a dialog sends', () => {
     expect(screen).toContain('␛');
   });
 
-  it('Cancel needs a reason, the exact word and Enter; nothing else sends (scenario 3)', () => {
+  it('Cancel needs a reason and one Y; nothing else sends, N leaves (scenario 3)', () => {
     const m = menu(
       OWNER,
       explainOf(
@@ -894,26 +899,31 @@ describe('US4 below the PTY: what a dialog sends', () => {
     expect(screen).toContain('not CANCELLED before');
 
     // Word first, reason empty.
-    const noReason = run(open, key('tab'), ...chars('cancel'), key('enter'));
+    const noReason = run(open, key('tab'), ...chars('Y'));
     expect(submits(noReason.effects)).toHaveLength(0);
     expect(text(noReason.state)).toContain('A reason is required');
 
     const typed = run(open, ...chars('stop'), key('tab'));
-    // Ctrl-S, a wrong word, an empty box and a pasted word each leave the dialog as it was.
+    // Ctrl-S, Enter, any other key and a pasted Y each send nothing and keep the reason.
     for (const attempt of [
       [key('ctrl_s')],
       [key('enter')],
-      [...chars('cance'), key('enter')],
-      [{ type: 'key', key: { kind: 'paste', text: 'cancel' } } as Message, key('enter')],
-      [...chars('CANCEL'), key('enter')],
+      [...chars('cancel it'.replace(/[ny]/g, ''))],
+      [{ type: 'key', key: { kind: 'paste', text: 'Y' } } as Message],
     ]) {
       const r = run(typed.state, ...attempt);
       expect(submits(r.effects), JSON.stringify(attempt)).toHaveLength(0);
       expect(r.state.dialog?.field?.text).toBe('stop');
     }
-    expect(text(run(typed.state, key('enter')).state)).toContain('type cancel exactly');
+    expect(text(run(typed.state, key('enter')).state)).toContain('Press Y to cancel the task');
 
-    const sent = run(typed.state, ...chars('cancel'), key('enter'));
+    // N leaves without sending and keeps the reason as a draft.
+    const refused = run(typed.state, ...chars('n'));
+    expect(submits(refused.effects)).toHaveLength(0);
+    expect(refused.state.dialog).toBeNull();
+    expect([...refused.state.drafts.values()]).toContain('stop');
+
+    const sent = run(typed.state, ...chars('Y'));
     expect(sent.effects).toEqual([
       {
         type: 'submit',
@@ -1163,7 +1173,7 @@ describe('US4 below the PTY: what a dialog sends', () => {
 
   it('keeps the dialog while the write is on its way: Esc does nothing until the daemon answers', () => {
     const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
-    const sent = run(open, ...chars('why'), key('tab'), ...chars('cancel'), key('enter'));
+    const sent = run(open, ...chars('why'), key('tab'), ...chars('Y'));
     const command = sentCommand(sent.effects);
     const pressed = run(sent.state, key('esc'), key('esc'), ...chars('x'));
     expect(pressed.state.screens.at(-1)).toBe('dialog');
@@ -1193,8 +1203,7 @@ describe('US4 below the PTY: what a dialog sends', () => {
       key('enter'),
       ...chars('two'),
       key('tab'),
-      ...chars('cancel'),
-      key('enter'),
+      ...chars('Y'),
     );
     const command = sentCommand(sent.effects);
     const quit = run(sent.state, key('ctrl_c'));
@@ -1233,7 +1242,7 @@ describe('US4 below the PTY: what a dialog sends', () => {
 
   it('a daemon conflict for a stale version is shown as one and nothing is sent again (scenario 7)', () => {
     const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
-    const sent = run(open, ...chars('why'), key('tab'), ...chars('cancel'), key('enter'));
+    const sent = run(open, ...chars('why'), key('tab'), ...chars('Y'));
     const command = sentCommand(sent.effects);
     const refused = run(sent.state, {
       type: 'mutation_changed',
@@ -1291,8 +1300,8 @@ describe('a dialog on a small terminal (FR-035)', () => {
     const cancelState = small(menu(OWNER, explainOf({}, ['cancel'])));
     const cancel = run(cancelState, key('enter'), key('tab'), key('enter')).state;
     const screen = text(cancel);
-    expect(screen).toContain('Type cancel, then press Enter');
-    expect(screen).toContain('type cancel exactly');
+    expect(screen).toContain('Cancel this task? Y cancels it');
+    expect(screen).toContain('Y cancels the task');
   });
 
   it('shows the whole of an answer given elsewhere, by scrolling', () => {

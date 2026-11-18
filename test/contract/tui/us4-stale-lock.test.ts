@@ -143,8 +143,7 @@ describe('US4 scenario 10: the Actions screen on stale data', () => {
       await pressAction(s, 'Cancel task');
       await s.waitForText('keep this reason');
       s.send(KEY.tab);
-      s.send('cancel');
-      s.send(KEY.enter);
+      s.send('Y');
       await said('Nothing was sent');
       s.send(KEY.esc);
     } finally {
@@ -337,7 +336,7 @@ describe('US4 scenario 10: stale data locks writes', () => {
     const typed = run(open, ...chars('my reason')).state;
 
     // Stale while typing: the text stays and confirming sends nothing.
-    const stale = run(typed, failed, key('tab'), ...chars('cancel'), key('enter'));
+    const stale = run(typed, failed, key('tab'), ...chars('Y'));
     expect(submits(stale.effects)).toHaveLength(0);
     expect(stale.state.dialog?.field?.text).toBe('my reason');
     const back = run(stale.state, succeeded);
@@ -345,7 +344,7 @@ describe('US4 scenario 10: stale data locks writes', () => {
     expect(back.state.dialog?.field?.text).toBe('my reason');
 
     // Sent on fresh data, refused because the task moved: Esc and open again, as the dialog says.
-    const sent = run(typed, key('tab'), ...chars('cancel'), key('enter'));
+    const sent = run(typed, key('tab'), ...chars('Y'));
     const command = sentCommand(sent.effects);
     const refused = run(sent.state, {
       type: 'mutation_changed',
@@ -368,7 +367,7 @@ describe('US4 scenario 10: stale data locks writes', () => {
     expect(JSON.stringify(reopened.effects)).not.toContain('my reason');
 
     // A write the daemon took drops the draft: the next dialog starts empty.
-    const again = run(reopened.state, key('tab'), ...chars('cancel'), key('enter'));
+    const again = run(reopened.state, key('tab'), ...chars('Y'));
     const accepted = run(again.state, {
       type: 'mutation_changed',
       mutation: {
@@ -403,17 +402,17 @@ describe('US4 scenario 10: stale data locks writes', () => {
     });
     const failedRead = run(typed, explainRead(false, 30)).state;
     expect(failedRead.connection.kind).toBe('online');
-    const tried = run(failedRead, key('tab'), ...chars('cancel'), key('enter'));
+    const tried = run(failedRead, key('tab'), ...chars('Y'));
     expect(submits(tried.effects)).toHaveLength(0);
     expect(flat(text(tried.state))).toContain('could not be read just now');
     expect(tried.state.dialog?.field?.text).toBe('my reason');
-    const sent = run(tried.state, explainRead(true, 40), key('enter'));
+    const sent = run(tried.state, explainRead(true, 40), ...chars('Y'));
     expect(sentCommand(sent.effects).payload).toEqual({ reason: 'my reason' });
   });
 
   it('a draft whose write turned unknown comes back when the lookup finds it refused, and goes when taken', () => {
     const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
-    const sent = run(open, ...chars('my reason'), key('tab'), ...chars('cancel'), key('enter'));
+    const sent = run(open, ...chars('my reason'), key('tab'), ...chars('Y'));
     const command = sentCommand(sent.effects);
     const mutation = (state: 'unknown' | 'rejected' | 'accepted'): Message => ({
       type: 'mutation_changed',
@@ -465,13 +464,7 @@ describe('US4 scenario 10: stale data locks writes', () => {
           : run(state, m('accepted')).state;
       };
       const cancel = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
-      const sentCancel = run(
-        cancel,
-        ...chars('my reason  '),
-        key('tab'),
-        ...chars('cancel'),
-        key('enter'),
-      );
+      const sentCancel = run(cancel, ...chars('my reason  '), key('tab'), ...chars('Y'));
       expect(sentCommand(sentCancel.effects).payload).toEqual({ reason: 'my reason' });
       expect(
         accepted(sentCancel.state, sentCommand(sentCancel.effects), viaUnknown).drafts.size,
@@ -488,7 +481,7 @@ describe('US4 scenario 10: stale data locks writes', () => {
 
   it('keeps a draft edited after its write went out when that write is taken', () => {
     const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
-    const sent = run(open, ...chars('first'), key('tab'), ...chars('cancel'), key('enter'));
+    const sent = run(open, ...chars('first'), key('tab'), ...chars('Y'));
     const command = sentCommand(sent.effects);
     const change = (st: 'unknown' | 'accepted'): Message => ({
       type: 'mutation_changed',

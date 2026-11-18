@@ -48,7 +48,7 @@ export const DIALOG_ACTIONS: Readonly<Record<string, TaskDialogKind>> = {
 };
 
 /** The words the contract asks for, by dialog; the others send with `Ctrl-S`. */
-export const CONFIRM_WORDS = { cancel: 'cancel', approve: 'approve', worktree: 'accept' } as const;
+export const CONFIRM_WORDS = { cancel: 'Y', approve: 'approve', worktree: 'accept' } as const;
 
 /** Mirror `COMMAND_PAYLOADS` of `src/application/commands.ts`. */
 export const ANSWER_MAX = 65_536;
@@ -468,6 +468,15 @@ function onFieldKey(state: TuiState, d: Dialog, key: Key): Reduced {
   const asked = confirmWord(d);
   switch (r.signal) {
     case 'submit':
+      // Cancel: Ctrl-S is the way on from the reason to the one Y that confirms it.
+      if (d.kind === 'cancel')
+        return r.field.text.trim() === ''
+          ? refuse(
+              state,
+              { ...d, field: r.field },
+              'A reason is required: write it first. Nothing was sent.',
+            )
+          : put(state, { ...d, field: r.field }, { focus: 'confirm', error: null });
       // Ctrl-S sends only what asks no word; a thing with consequences is confirmed in its own box.
       return asked === null
         ? send(state, { ...d, field: r.field })
@@ -489,6 +498,7 @@ function onFieldKey(state: TuiState, d: Dialog, key: Key): Reduced {
 function onConfirmKey(state: TuiState, d: Dialog, key: Key): Reduced {
   const word = confirmWord(d);
   if (word === null) return same(state);
+  if (d.kind === 'cancel') return onCancelConfirmKey(state, d, key);
   if (key.kind === 'char') {
     const typed = graphemes(d.typed + key.text)
       .slice(0, TYPED_MAX)
@@ -510,6 +520,28 @@ function onConfirmKey(state: TuiState, d: Dialog, key: Key): Reduced {
       return d.typed === word
         ? send(state, d)
         : refuse(state, d, `Nothing was sent: type ${word} exactly, then press Enter.`);
+    default:
+      return same(state);
+  }
+}
+
+/** Cancel asks for one key: Y sends, N leaves; nothing typed is kept, so nothing else can match. */
+function onCancelConfirmKey(state: TuiState, d: Dialog, key: Key): Reduced {
+  const ask = 'Press Y to cancel the task, or N to leave. Nothing was sent.';
+  if (key.kind === 'char') {
+    const c = key.text.toLowerCase();
+    if (c === 'y') return send(state, d);
+    if (c === 'n') return same(closeDialog(state));
+    return refuse(state, d, ask);
+  }
+  if (key.kind === 'paste') return refuse(state, d, ask);
+  switch (key.name) {
+    case 'tab':
+    case 'shift_tab':
+      return put(state, d, { focus: nextFocus(d), error: null });
+    case 'enter':
+    case 'ctrl_s':
+      return refuse(state, d, ask);
     default:
       return same(state);
   }

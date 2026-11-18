@@ -219,7 +219,7 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     s.send(KEY.enter);
     s.send(KEY.tab);
     s.send(KEY.enter);
-    await s.waitForText('Nothing was sent: type cancel exactly');
+    await s.waitForText('Press Y to cancel the task');
     await new Promise((r) => setTimeout(r, 500));
     expect(await explainOf(sd, t.id)).toEqual(before);
     expect(await eventCount(sd, t.id)).toBe(events);

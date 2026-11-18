@@ -52,7 +52,7 @@ const NAMED: readonly KeyName[] = [
   'focus_in',
 ];
 /** The letters of every word asked for, so a typed word is likely; and what is not a letter. */
-const CHARS = [...'cancelapprovet acpt?qRCjk日界👍é̈\t'];
+const CHARS = [...'cancelapprovetyYn acpt?qRCjk日界👍é̈\t'];
 
 type Kind = 'answer' | 'cancel' | 'recheck' | 'recheck_worktree' | 'approve';
 
@@ -284,7 +284,18 @@ function fuzz(kind: Kind, seed: number): void {
       expect(e.command.kind, where).toBe(commandKind(d));
       expect(e.command.task_id, where).toBe(TASK);
       expect(e.command.expected_version, where).toBe(d.version);
-      if (message.type !== 'key' || message.key.kind !== 'key') throw new Error(where);
+      if (message.type !== 'key') throw new Error(where);
+      if (kind === 'cancel') {
+        // One Y, from the confirmation, and nothing typed.
+        expect(message.key.kind, where).toBe('char');
+        expect(d.focus, where).toBe('confirm');
+        expect(((e.command.payload as { reason?: string }).reason ?? '').trim(), where).not.toBe(
+          '',
+        );
+        last = e.command;
+        continue;
+      }
+      if (message.key.kind !== 'key') throw new Error(where);
       if (word === null) {
         expect(message.key.name, where).toBe('ctrl_s');
       } else {
@@ -296,7 +307,6 @@ function fuzz(kind: Kind, seed: number): void {
       const payload = e.command.payload as { reason?: string; answer?: string };
       if (kind === 'recheck_worktree')
         expect(d.progress.data?.worktree_path ?? null, where).not.toBeNull();
-      if (kind === 'cancel') expect((payload.reason ?? '').trim(), where).not.toBe('');
       if (kind === 'answer') expect((payload.answer ?? '').trim(), where).not.toBe('');
       last = e.command;
     }

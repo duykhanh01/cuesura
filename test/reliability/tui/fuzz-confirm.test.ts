@@ -74,9 +74,10 @@ const SCENES: readonly Scene[] = [
     title: 'Task 001',
     action: 'Cancel task',
     marker: 'Cancel task —',
-    word: 'cancel',
+    word: 'Y',
     kind: 'task_cancel',
-    without: 'c',
+    // Y confirms and N leaves, so neither is ever among the random keys.
+    without: 'yn',
     setup: (sd) => sd.seed((d) => void seedRunning(d, 1)),
   },
   {
@@ -127,9 +128,8 @@ type Step = { readonly bytes: string; readonly esc: boolean };
 
 function keyStream(scene: Scene, next: () => number): Step {
   const pick = <T>(xs: readonly T[]): T => xs[Math.floor(next() * xs.length)] as T;
-  const printable = PRINTABLE.filter(
-    (c) => c !== scene.without && c !== scene.without.toUpperCase(),
-  );
+  const left = [...scene.without, ...scene.without.toUpperCase()];
+  const printable = PRINTABLE.filter((c) => !left.includes(c));
   const r = next();
   if (r < 0.003) return { bytes: KEY.esc, esc: true };
   if (r < 0.56) return { bytes: pick(printable), esc: false };
@@ -214,7 +214,7 @@ describe('SC-008: random keys on each confirmation screen', () => {
           await pressAction(s, scene.action);
           await shows(s, scene);
           reopened++;
-          if (scene.word !== null) {
+          if (scene.word !== null && scene.name !== 'Cancel') {
             const line = s
               .screenText()
               .split('\n')
@@ -238,7 +238,38 @@ describe('SC-008: random keys on each confirmation screen', () => {
       }
 
       // Nothing that confirms was ever sent, and the task is as it was.
-      if (scene.word !== null) {
+      if (scene.name === 'Cancel') {
+        expect(trace, 'writes during the random keys').toEqual([]);
+        expect(await version()).toEqual(before);
+        s.send(KEY.esc);
+        await s.waitFor(() => s.screenText().includes('Actions — '), 15_000);
+        await pressAction(s, scene.action);
+        await shows(s, scene);
+        const says = (text: string): boolean => flat(s.screenText()).includes(text);
+        // The random keys left a draft reason; erase it, then with no reason Y sends nothing.
+        s.send('\x7f'.repeat(1_600));
+        s.send(KEY.ctrlS);
+        await s.waitFor(() => says('A reason is required'), 10_000);
+        s.send(`${KEY.tab}Y`);
+        await s.waitFor(() => says('A reason is required'), 10_000);
+        expect(trace, 'Y with no reason').toEqual([]);
+        // A reason, then Enter, Ctrl-S and a pasted Y are all refused; only one key Y sends, once.
+        s.send(`${KEY.tab}fuzz reason${KEY.ctrlS}`);
+        await s.waitFor(() => says('› Cancel this task?'), 10_000);
+        for (const keys of [KEY.enter, KEY.ctrlS, '\x1b[200~Y\x1b[201~', 'x']) {
+          s.send(keys);
+          await s.waitFor(() => says('Press Y to cancel the task'), 10_000);
+          expect(trace, `after ${JSON.stringify(keys)}`).toEqual([]);
+        }
+        s.send('Y');
+        await s.waitFor(
+          () => /\(request [0-9a-f-]{36}\)|The daemon refused it/.test(flat(s.screenText())),
+          20_000,
+        );
+        expect(new Set(trace)).toEqual(new Set([scene.kind]));
+        expect(ids.size).toBe(1);
+        expect(await version()).not.toEqual(before);
+      } else if (scene.word !== null) {
         expect(trace, 'writes during the random keys').toEqual([]);
         expect(await version()).toEqual(before);
         // Now the sequences that can confirm, from a dialog opened afresh, each checked against the trace.
@@ -264,13 +295,8 @@ describe('SC-008: random keys on each confirmation screen', () => {
             .trim();
         const says = (text: string): boolean => flat(s.screenText()).includes(text);
         // Out of order or incomplete, from the confirmation box: Ctrl-S, an empty Enter, a pasted word, a word
-        // one letter short; for Cancel also the whole word with no reason given. Each is refused on screen,
+        // one letter short. Each is refused on screen,
         // which a write would have replaced with `Sending…`.
-        const cancel = scene.name === 'Cancel';
-        if (cancel) {
-          s.send(KEY.tab);
-          await s.waitFor(() => box() !== undefined && says(`› Type ${word}`), 10_000);
-        }
         const wrong: readonly (readonly [string, () => boolean])[] = [
           [KEY.ctrlS, () => says('Ctrl-S does not send this')],
           [KEY.enter, () => says(`type ${word} exactly`)],
@@ -280,14 +306,6 @@ describe('SC-008: random keys on each confirmation screen', () => {
             `${wipe}${word.slice(0, -1)}${KEY.enter}`,
             () => says(`type ${word} exactly`) && box() === word.slice(0, -1),
           ],
-          ...(cancel
-            ? [
-                [
-                  `${wipe}${word}${KEY.enter}`,
-                  () => says('A reason is required') && box() === word,
-                ] as const,
-              ]
-            : []),
         ];
         for (const [keys, refused] of wrong) {
           s.send(keys);
@@ -295,7 +313,7 @@ describe('SC-008: random keys on each confirmation screen', () => {
           expect(trace, `after ${JSON.stringify(keys)}`).toEqual([]);
         }
         // In order: (a reason,) the exact word, Enter. Exactly that command reaches the daemon, once.
-        s.send(`${cancel ? `${KEY.tab}fuzz reason${KEY.tab}` : ''}${wipe}${word}`);
+        s.send(`${wipe}${word}`);
         await s.waitFor(() => box() === word, 10_000);
         expect(trace, 'the word typed, Enter not yet pressed').toEqual([]);
         s.send(KEY.enter);

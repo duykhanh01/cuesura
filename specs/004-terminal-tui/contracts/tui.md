@@ -85,7 +85,7 @@ dòng trong đó không kích hoạt gửi.
 | Thao tác | Cần trước khi gửi | Từ phải gõ |
 | --- | --- | --- |
 | Xác nhận intake, cấu hình chạy hoặc cả hai | Màn Review với nội dung đọc thành công; phạm vi theo [data model](../data-model.md#phạm-vi-xác-nhận) | `confirm` |
-| Hủy task | Lý do không rỗng, xem hậu quả | `cancel` |
+| Hủy task | Lý do không rỗng, xem hậu quả | Không gõ từ; một phím `Y` (xem bên dưới) |
 | Kiểm tra lại `worktree_changed` | Cảnh báo nhận cây thư mục, vị trí worktree | `accept` |
 | Duyệt escalation | Bước, nấc, lý do, giới hạn còn lại; quyền operate (nhận PR có sẵn: admin) | `approve` |
 | Trả lời, đề xuất cấu hình, tạo task, kiểm tra lại thường | Xem lại nội dung | Không; dùng `Ctrl-S` |
@@ -95,6 +95,12 @@ dòng trong đó không kích hoạt gửi.
 Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu cầu; sai thì giữ nguyên và báo lỗi tại chỗ, không sang trường khác. `Ctrl-S` không gửi
 ở đây, kể cả từ ô văn bản của hộp thoại có từ xác nhận; hộp thoại báo tại chỗ cách xác nhận. Ô xác nhận rỗng khi mở, không nhận paste, không có
 hết giờ. Mở lại Review sau khi bộ lựa chọn đổi thì hiện khác biệt và xóa từ đã gõ (FR-028).
+
+Hủy task (#307) chỉ có hai thao tác: nhập lý do, rồi `Y`. Rời ô lý do sang ô xác nhận bằng `Ctrl-S` hoặc `Tab`: `Ctrl-S` không sang
+khi lý do rỗng và báo tại chỗ, còn `Tab` vẫn sang được ô xác nhận khi lý do rỗng, nhưng ở đó `Y` không gửi và báo cần lý do cho đến khi lý do
+không rỗng. Ở ô xác nhận, một phím `Y` hoặc `y` gửi ngay, không cần Enter. `N`, `n` hoặc `Esc` rời hộp thoại không gửi và giữ
+lý do làm bản nháp. Enter, `Ctrl-S`, phím khác và paste không gửi, chỉ báo tại chỗ. Các quy tắc về từ phải gõ ở đoạn trên áp dụng cho
+những hộp thoại còn lại.
 
 Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tục, hàng đợi) dùng chung một khung và một quy ước:
 

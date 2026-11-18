@@ -475,17 +475,26 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
       helpKeys: 'Tab Shift-Tab',
       help: 'Go to the box where the word is typed',
       press: [],
-      when: (s) => s.dialog !== null && confirmWord(s.dialog) !== null,
+      when: (s) =>
+        s.dialog !== null && s.dialog.kind !== 'cancel' && confirmWord(s.dialog) !== null,
     },
     DIALOG_NOW_FIELD,
     DIALOG_SCROLL,
   ],
   dialog_confirm: [
     {
+      keys: 'Y N',
+      hint: 'cancel / leave',
+      help: 'Y cancels the task with the reason written; N leaves without sending',
+      press: [],
+      when: (s) => s.dialog?.kind === 'cancel',
+    },
+    {
       keys: 'Enter',
       hint: 'confirm',
       help: 'Send, when what is typed is exactly the word asked for; nothing else sends it',
       press: [],
+      when: (s) => s.dialog?.kind !== 'cancel',
     },
     {
       keys: 'Tab',
