@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { VendorPin } from '../adapters/harness/vendor.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import type { ProofOptions, ProofPlan } from '../runner/harness-proof.ts';
@@ -157,7 +157,8 @@ const recordManifest = {
       configPath: config,
       runtime: cfg.value.runtime,
       evidenceFile: evidence,
-      fixtureRef: evidence,
+      // Absolute, so doctor can name this file in the command that proves a missing role.
+      fixtureRef: resolve(evidence),
       now: Date.now(),
       dryRun: context.dryRun ?? false,
     });
@@ -345,7 +346,7 @@ function proofUsage(values: Values): Result<ProofUsage, string> {
 }
 
 function proofOptions(values: Values, cfg: OwnerConfig): Result<ProofOptions, string> {
-  const { config, harness, model, effort, outerProof } = values;
+  const { config, harness, model, effort, outerProof, out } = values;
   if (config === undefined || harness === undefined || model === undefined || model.trim() === '')
     return err('prove-harness requires --config, --harness, and --model');
   return ok({
@@ -356,6 +357,7 @@ function proofOptions(values: Values, cfg: OwnerConfig): Result<ProofOptions, st
     model,
     effort: effort ?? null,
     proveResume: values['proveResume'] !== undefined,
+    ...(out === undefined ? {} : { out }),
     ...(outerProof === undefined ? {} : { outerProofFile: outerProof }),
     runnerCommand: [process.execPath, process.argv[1] as string],
     now: () => Date.now(),
@@ -363,12 +365,14 @@ function proofOptions(values: Values, cfg: OwnerConfig): Result<ProofOptions, st
 }
 
 function proofReport(plan: ProofPlan, invocationsNeeded: number) {
-  const { pin, identity, invocations_spent } = plan;
+  const { pin, identity, invocations_spent, roles, reused } = plan;
   return {
     binary: pin.binary,
     identity,
     invocations_spent,
     invocations_needed: invocationsNeeded,
+    roles_to_prove: roles,
+    roles_reused: reused.map((r) => r.role),
   };
 }
 
@@ -449,7 +453,7 @@ const proveHarness = {
       }
       const report = proofReport(
         plan.value,
-        proof.PROOF_ROLES.length + (options.proveResume ? 1 : 0),
+        proof.invocationsNeeded(plan.value, options.proveResume),
       );
       io.stdout(json ? renderEnvelope(okEnvelope(report)) : `${JSON.stringify(report)}\n`);
       return ExitCode.ok;
@@ -465,14 +469,25 @@ const proveHarness = {
     if (!r.ok) {
       return refuse('proof_refused', r.error, ExitCode.failure);
     }
-    const { evidence, failures } = r.value;
+    const { evidence, failures, runs, reused } = r.value;
     if (failures.length > 0)
       return refuse(
         'proof_failed',
         `the proof did not show what a manifest needs (evidence: ${evidence}): ${failures.join('; ')}`,
         ExitCode.failure,
       );
-    io.stdout(json ? renderEnvelope(okEnvelope({ harness, evidence })) : `${evidence}\n`);
+    io.stdout(
+      json
+        ? renderEnvelope(
+            okEnvelope({
+              harness,
+              evidence,
+              roles_proved: runs.map((x) => x.role),
+              roles_reused: reused.map((x) => x.role),
+            }),
+          )
+        : `${evidence}\n`,
+    );
     return ExitCode.ok;
   },
 } satisfies CliCommand;
@@ -607,7 +622,7 @@ const setupHarness: CliCommand = {
           const report = {
             ...proofReport(
               planned.value,
-              proof.PROOF_ROLES.length + (options.value.proveResume ? 1 : 0),
+              proof.invocationsNeeded(planned.value, options.value.proveResume),
             ),
             pin_exists: pinExists,
           };

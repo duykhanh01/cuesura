@@ -21,6 +21,7 @@ import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'no
 import { fileURLToPath } from 'node:url';
 import type { InitFile } from './init.ts';
 import { PI_EXTENSION_MARKER, piExtensionSource } from './pi-extension.ts';
+import { shellWord } from '../shared/shell.ts';
 
 /** Codex reads skills from `.agents/skills`, Claude Code from `.claude/skills`. */
 export const CUSR_SKILL_ROOTS = ['.claude/skills/cusr', '.agents/skills/cusr'] as const;
@@ -54,15 +55,11 @@ export function cusrSkillFiles(): SkillFile[] {
     .map((path) => ({ path, content: readFileSync(join(dir, path), 'utf8') }));
 }
 
-function shellQuoted(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", `'\\''`)}'`;
-}
-
 export function assistantCommands(
   dataDir: string,
   harness: 'claude' | 'codex' = 'claude',
 ): { sessionStart: string; stop: string } {
-  const env = `CUSR_DATA_DIR=${shellQuoted(dataDir)} CUSR_ACTOR=assistant`;
+  const env = `CUSR_DATA_DIR=${shellWord(dataDir)} CUSR_ACTOR=assistant`;
   return {
     sessionStart: `${env} cusr assistant session-start`,
     stop: `${env} cusr assistant hook${harness === 'claude' ? '' : ` --harness ${harness}`}`,

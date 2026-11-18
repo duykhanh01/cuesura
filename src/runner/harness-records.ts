@@ -242,15 +242,42 @@ const HarnessIdentitySchema = z
 /** What a proof must have run with to count for this harness on this host. */
 export type HarnessIdentity = z.infer<typeof HarnessIdentitySchema>;
 
-const EvidenceFileSchema = z.object({
-  vendors: z.record(
-    z.string(),
-    z.looseObject({
-      binary: z.looseObject({ sha256: z.string() }),
-      attested: HarnessIdentitySchema.optional(),
-    }),
-  ),
+/** One vendor of an evidence file, as far as deciding which pin and host it proved for. */
+export const EvidenceVendorSchema = z.looseObject({
+  binary: z.looseObject({ sha256: z.string() }),
+  attested: HarnessIdentitySchema.optional(),
 });
+const EvidenceFileSchema = z.object({ vendors: z.record(z.string(), EvidenceVendorSchema) });
+
+/**
+ * Why evidence of `entry` was not shown for this pin on this host, or null when it was. The recorder and a
+ * proof that reuses earlier runs judge it the same way.
+ */
+export function evidenceMismatch(
+  file: string,
+  entry: z.infer<typeof EvidenceVendorSchema>,
+  pin: VendorPin,
+  identity: HarnessIdentity,
+): string | null {
+  if (entry.binary.sha256 !== pin.binary.sha256)
+    return `${file} proves another binary (sha256 ${entry.binary.sha256}); prove ${pin.binary.version} first`;
+  const evidence = entry as unknown as EvidenceEntry;
+  if (evidence.isolation_mode !== 'native' || evidence.selected_inner_mode === 'external_verified')
+    return 'evidence must prove native host execution; outer bwrap proofs no longer apply';
+  const shownInner =
+    evidence.selected_inner_mode === 'internal_required' ? 'native' : evidence.selected_inner_mode;
+  if (shownInner !== hostInnerMode(pin))
+    return 'evidence sandbox or permission mode differs from the pin';
+  const wanted = JSON.stringify(identity);
+  if (entry.attested === undefined)
+    return `${file} does not attest what it proved; a proof must run with ${wanted}`;
+  const differing = (Object.keys(identity) as (keyof HarnessIdentity)[]).filter(
+    (k) => hashCanonical(entry.attested?.[k]) !== hashCanonical(identity[k]),
+  );
+  return differing.length > 0
+    ? `${file} proved another configuration (${differing.join(', ')}); a proof must run with ${wanted}`
+    : null;
+}
 
 export function harnessIdentity(o: {
   readonly pin: VendorPin;
@@ -293,29 +320,11 @@ export function recordManifest(o: {
   if (!file.success) return err(`${o.evidenceFile} fails its schema`);
   const entry = file.data.vendors[pin.value.vendor];
   if (entry === undefined) return err(`${o.evidenceFile} has no evidence for ${pin.value.vendor}`);
-  if (entry.binary.sha256 !== pin.value.binary.sha256)
-    return err(
-      `${o.evidenceFile} proves another binary (sha256 ${entry.binary.sha256}); prove ${pin.value.binary.version} first`,
-    );
-  const evidence = entry as unknown as EvidenceEntry;
-  if (evidence.isolation_mode !== 'native' || evidence.selected_inner_mode === 'external_verified')
-    return err('evidence must prove native host execution; outer bwrap proofs no longer apply');
-  const inner = hostInnerMode(pin.value);
-  const shownInner =
-    evidence.selected_inner_mode === 'internal_required' ? 'native' : evidence.selected_inner_mode;
-  if (shownInner !== inner) return err('evidence sandbox or permission mode differs from the pin');
   const identity = harnessIdentity({ ...o, pin: pin.value });
   if (!identity.ok) return identity;
-  const wanted = JSON.stringify(identity.value);
-  if (entry.attested === undefined)
-    return err(`${o.evidenceFile} does not attest what it proved; a proof must run with ${wanted}`);
-  const differing = (Object.keys(identity.value) as (keyof HarnessIdentity)[]).filter(
-    (k) => hashCanonical(entry.attested?.[k]) !== hashCanonical(identity.value[k]),
-  );
-  if (differing.length > 0)
-    return err(
-      `${o.evidenceFile} proved another configuration (${differing.join(', ')}); a proof must run with ${wanted}`,
-    );
+  const mismatch = evidenceMismatch(o.evidenceFile, entry, pin.value, identity.value);
+  if (mismatch !== null) return err(mismatch);
+  const evidence = entry as unknown as EvidenceEntry;
   const observed = observeHarness(
     pin.value,
     identity.value.settings_hash,

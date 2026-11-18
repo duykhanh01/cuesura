@@ -16,6 +16,7 @@ import {
 import { resultLine } from '../explain/trial-result.ts';
 import { sanitize, uiText } from '../tui/terminal/safe-text.ts';
 import { displayWidth, padEnd } from '../tui/terminal/width.ts';
+import { shellWord } from '../shared/shell.ts';
 
 export type Render = (data: unknown) => string;
 
@@ -47,11 +48,6 @@ function taskTable(rows: readonly BoardRow[]): string[] {
       r.title,
     ]),
   );
-}
-
-/** Quoted only when it has to be, so a suggested command can be pasted as it is. */
-function shellWord(word: string): string {
-  return /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
 }
 
 /** `flags`: what this board was asked with, so the next page shows the same list. */

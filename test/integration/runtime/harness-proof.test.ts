@@ -13,6 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -20,7 +21,12 @@ import { hashText } from '../../../src/shared/hash.ts';
 import { DENIED_COMMAND } from '../../../src/runner/harness-proof.ts';
 import type { VendorPin } from '../../../src/adapters/harness/vendor.ts';
 import { validateConfig } from '../../../src/config/validate.ts';
-import { planProof, PROOF_LEDGER, proveHarness } from '../../../src/runner/harness-proof.ts';
+import {
+  planProof,
+  PROOF_LEDGER,
+  PROOF_ROLES,
+  proveHarness,
+} from '../../../src/runner/harness-proof.ts';
 import {
   harnessRecordProblems,
   harnessRecordProblem,
@@ -28,6 +34,10 @@ import {
   loadHarnessRecord,
   recordManifest,
 } from '../../../src/runner/harness-records.ts';
+import type { ProcessPort } from '../../../src/adapters/ports.ts';
+import { deputyCheck } from '../../../src/application/doctor.ts';
+import { Redactor } from '../../../src/runner/redact.ts';
+import { SystemdSupervisor } from '../../../src/runner/supervisor.ts';
 import { homeFileContent, REAL } from '../../support/harness-fixtures.ts';
 import { fakeVendorPin } from '../../support/runner-harness.ts';
 import { copyPrompts, hostUsable, smokeUserConfig, SMOKE_CANARY } from '../../support/smoke.ts';
@@ -598,5 +608,373 @@ describe.skipIf(!hostUsable())('a proof on the real unit and sandbox', () => {
     for (const c of ['structured_output', 'usage_report'])
       expect(entry(h.out, 'claude')?.capabilities[c]?.status, c).toBe('unknown');
     expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(1);
+  }, 120_000);
+});
+
+type Evidence = {
+  vendors: Record<
+    string,
+    {
+      role_schemas: Record<string, { digest: string }>;
+      capabilities: Record<string, { status: string; evidence: string }>;
+      runs: Record<string, unknown>[];
+    }
+  >;
+};
+
+describe.skipIf(!hostUsable())('a later proof reuses role runs that still hold (#316)', () => {
+  const edit = (out: string, vendor: string, f: (e: Evidence['vendors'][string]) => void) => {
+    const raw = JSON.parse(readFileSync(out, 'utf8')) as Evidence;
+    const e = raw.vendors[vendor];
+    if (e === undefined) throw new Error(`no ${vendor} evidence`);
+    f(e);
+    writeFileSync(out, JSON.stringify(raw));
+  };
+  const planned = (h: ReturnType<typeof setup>) => {
+    const p = planProof({ ...h.options, out: h.out });
+    if (!p.ok) throw new Error(p.error);
+    return { roles: p.value.roles, reused: p.value.reused.map((r) => r.role) };
+  };
+
+  it('adding deputy to a harness proven without it runs only the deputy role', async () => {
+    const h = setup('claude');
+    const first = await proveHarness({ ...h.options, out: h.out, budget: h.budget });
+    if (!first.ok) throw new Error(first.error);
+    const before = first.value.runs.slice(0, 4).map((r) => r.attempt_id);
+    // Evidence as an earlier release wrote it: four roles, no per-run checks.
+    edit(h.out, 'claude', (e) => {
+      e.runs = e.runs
+        .filter((r) => r['role'] !== 'deputy')
+        .map(({ role, attempt_id, kind, native_write_blocked }) => ({
+          role,
+          attempt_id,
+          kind,
+          native_write_blocked,
+        }));
+      e.capabilities['schema_acceptance_deputy'] = { status: 'unknown', evidence: 'none' };
+    });
+    expect(planned(h)).toEqual({
+      roles: ['deputy'],
+      reused: ['coder', 'fixer', 'reviewer', 'decider'],
+    });
+    // The command doctor prints for this store runs as printed and proves only deputy.
+    const legacy = h.record();
+    if (!legacy.ok) throw new Error(legacy.error);
+    expect(legacy.value.role_schemas['deputy']).toBeUndefined();
+    const fix = deputyCheck(
+      {
+        roles: { deputy: { binding: [{ model: 'proof' }] } },
+        models: { proof: { harness: 'claude', id: 'proof-model' } },
+      } as never,
+      { claude: legacy.value },
+      new Set(),
+      { config: h.options.configPath, dataDir: h.options.dataDir },
+    ).fix;
+    const line = fix?.split('\n')[0] ?? '';
+    expect(line).toMatch(/^cusr-runner setup-harness --from prove-harness .* --out \S+$/);
+    const printed = spawnSync(
+      'sh',
+      [
+        '-c',
+        `"$0" "$1" ${line.replace(/^cusr-runner /, '')} --dry-run --json`,
+        process.execPath,
+        RUNNER,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(JSON.parse(printed.stdout)).toMatchObject({
+      ok: true,
+      data: { roles_to_prove: ['deputy'] },
+    });
+
+    const preview = spawnSync(
+      process.execPath,
+      [
+        RUNNER,
+        'setup-harness',
+        '--json',
+        '--dry-run',
+        '--from',
+        'prove-harness',
+        '--config',
+        h.options.configPath,
+        '--data-dir',
+        h.options.dataDir,
+        '--harness',
+        'claude',
+        '--model',
+        'proof-model',
+        '--out',
+        h.out,
+      ],
+      { encoding: 'utf8' },
+    );
+    expect(JSON.parse(preview.stdout)).toMatchObject({
+      ok: true,
+      data: {
+        invocations_needed: 1,
+        roles_to_prove: ['deputy'],
+        roles_reused: ['coder', 'fixer', 'reviewer', 'decider'],
+      },
+    });
+
+    const r = await proveHarness({
+      ...h.options,
+      out: h.out,
+      budget: { ...h.budget, maxInvocations: 6 },
+    });
+    if (!r.ok) throw new Error(r.error);
+    expect(r.value.failures).toEqual([]);
+    expect(r.value.runs.map((x) => [x.role, x.outcome.kind])).toEqual([['deputy', 'turn_ended']]);
+    expect(r.value.reused.map((x) => x.attempt_id)).toEqual(before);
+    expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(6);
+    const e = entry(h.out, 'claude');
+    for (const c of ['structured_output', 'permission_denial_kept', 'private_home_auth'])
+      expect(e?.capabilities[c]?.status, c).toBe('proven');
+    expect(e?.capabilities['schema_acceptance_deputy']?.status).toBe('proven');
+    const recorded = h.record();
+    if (!recorded.ok) throw new Error(recorded.error);
+    expect(recorded.value.role_schemas['deputy']).toBeDefined();
+    expect(h.problem()).toBeNull();
+
+    // Nothing left to prove: no spawn, nothing spent, the evidence still makes the same manifest.
+    const again = await proveHarness({ ...h.options, out: h.out, budget: h.budget });
+    if (!again.ok) throw new Error(again.error);
+    expect(again.value.runs).toEqual([]);
+    expect(again.value.failures).toEqual([]);
+    expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(6);
+    expect(h.record().ok).toBe(true);
+  }, 120_000);
+
+  it('proves again a role that failed or changed, and every role for another binary or pin', async () => {
+    const h = setup('codex');
+    const first = await proveHarness({ ...h.options, out: h.out, budget: h.budget });
+    if (!first.ok) throw new Error(first.error);
+    expect(planned(h).roles).toEqual([]);
+    const saved = readFileSync(h.out, 'utf8');
+
+    edit(h.out, 'codex', (e) => {
+      const deputy = e.runs.find((r) => r['role'] === 'deputy');
+      if (deputy !== undefined) Object.assign(deputy, { kind: 'failure', valid: false });
+      const fixer = e.runs.find((r) => r['role'] === 'fixer');
+      if (fixer !== undefined) fixer['native_write_blocked'] = false;
+      e.role_schemas['coder'] = { digest: 'sha256:old' };
+    });
+    expect(planned(h).roles).toEqual(['coder', 'fixer', 'deputy']);
+
+    writeFileSync(h.out, '{not json');
+    expect(planned(h).roles).toHaveLength(5);
+
+    writeFileSync(h.out, saved);
+    const pinFile = join(h.options.dataDir, 'harnesses', 'codex', 'pin.json');
+    const pin = JSON.parse(readFileSync(pinFile, 'utf8')) as VendorPin;
+    writeFileSync(pinFile, JSON.stringify({ ...pin, env: { ...pin.env, FAKE_VENDOR_X: '1' } }));
+    expect(planned(h)).toEqual({ roles: [...PROOF_ROLES], reused: [] });
+
+    const moved = `${pin.binary.realpath}.next.js`;
+    writeFileSync(moved, `${readFileSync(pin.binary.realpath, 'utf8')}\n// next\n`, {
+      mode: 0o755,
+    });
+    writeFileSync(
+      pinFile,
+      JSON.stringify({
+        ...pin,
+        binary: {
+          ...pin.binary,
+          realpath: moved,
+          sha256: createHash('sha256').update(readFileSync(moved)).digest('hex'),
+        },
+      }),
+    );
+    expect(planned(h)).toEqual({ roles: [...PROOF_ROLES], reused: [] });
+  }, 120_000);
+
+  it('judges each role on its own, against the same rules as the recorder (R1, R3)', async () => {
+    const h = setup('claude');
+    const first = await proveHarness({ ...h.options, out: h.out, budget: h.budget });
+    if (!first.ok) throw new Error(first.error);
+    const saved = readFileSync(h.out, 'utf8');
+    const reset = () => writeFileSync(h.out, saved);
+    const row = (e: Evidence['vendors'][string], role: string) => {
+      const r = e.runs.find((x) => x['role'] === role);
+      if (r === undefined) throw new Error(`no ${role} run`);
+      return r;
+    };
+
+    // A failed outcome keeps no role, whatever its other checks claim.
+    edit(h.out, 'claude', (e) => {
+      Object.assign(row(e, 'deputy'), { kind: 'failure', failure: 'process_failed' });
+    });
+    expect(planned(h).roles).toEqual(['deputy']);
+
+    // A legacy row with an empty attempt id matches no verdict.
+    reset();
+    edit(h.out, 'claude', (e) => {
+      e.runs = e.runs.map(({ role, attempt_id, kind, native_write_blocked }) => ({
+        role,
+        attempt_id: role === 'fixer' ? '' : attempt_id,
+        kind,
+        native_write_blocked,
+      }));
+    });
+    expect(planned(h).roles).toEqual(['fixer']);
+
+    // A verdict that names another attempt does not prove this one.
+    reset();
+    edit(h.out, 'claude', (e) => {
+      e.capabilities['schema_acceptance_reviewer'] = {
+        status: 'proven',
+        evidence: 'valid result: 00000000-0000-4000-8000-000000000000',
+      };
+    });
+    expect(planned(h).roles).toEqual(['reviewer']);
+
+    // A result kind its role never returns proves nothing for that role.
+    reset();
+    edit(h.out, 'claude', (e) => {
+      row(e, 'coder')['kind'] = 'turn_ended';
+      row(e, 'deputy')['kind'] = 'result';
+    });
+    expect(planned(h).roles).toEqual(['coder', 'deputy']);
+
+    // A null row is skipped; a malformed duplicate still makes its role ambiguous.
+    reset();
+    edit(h.out, 'claude', (e) => {
+      e.runs = e.runs.map((r) => (r['role'] === 'deputy' ? null : r)) as typeof e.runs;
+      e.runs.push({ role: 'fixer', attempt_id: 'not-a-uuid' });
+    });
+    expect(planned(h)).toEqual({
+      roles: ['fixer', 'deputy'],
+      reused: ['coder', 'reviewer', 'decider'],
+    });
+
+    // Evidence the recorder would refuse reuses nothing.
+    reset();
+    edit(h.out, 'claude', (e) => {
+      (e as unknown as Record<string, unknown>)['isolation_mode'] = 'isolated';
+    });
+    expect(planned(h).roles).toHaveLength(5);
+    expect(refusal(h.record())).toContain('native host execution');
+
+    // One malformed row or an unrelated malformed entry costs only what it touches.
+    reset();
+    edit(h.out, 'claude', (e) => {
+      row(e, 'deputy')['valid'] = 'yes';
+      (e as unknown as Record<string, unknown>)['resume_probe'] = { remembered: 'maybe' };
+    });
+    const raw = JSON.parse(readFileSync(h.out, 'utf8')) as Evidence;
+    writeFileSync(h.out, JSON.stringify({ ...raw, vendors: { ...raw.vendors, codex: 7 } }));
+    expect(planned(h)).toEqual({
+      roles: ['deputy'],
+      reused: ['coder', 'fixer', 'reviewer', 'decider'],
+    });
+  }, 120_000);
+
+  it('keeps a completed role on disk when a later launch throws (R2)', async () => {
+    const h = setup('claude');
+    const real = new SystemdSupervisor({
+      dataDir: h.options.dataDir,
+      runnerCommand: h.options.runnerCommand,
+      redactor: new Redactor({ values: [] }),
+    });
+    let launches = 0;
+    const process: ProcessPort = {
+      launch: (spec) =>
+        ++launches === 2
+          ? Promise.resolve({ ok: false, error: { code: 'unknown', message: 'lost observation' } })
+          : real.launch(spec),
+      inspect: (id) => real.inspect(id),
+      stop: (id, o) => real.stop(id, o),
+    };
+    await expect(
+      proveHarness({ ...h.options, process, out: h.out, budget: h.budget }),
+    ).rejects.toThrow('lost observation');
+    expect(readFileSync(h.ledger, 'utf8').trim().split('\n')).toHaveLength(2);
+    expect(planned(h)).toEqual({
+      roles: ['fixer', 'reviewer', 'decider', 'deputy'],
+      reused: ['coder'],
+    });
+  }, 120_000);
+
+  it('carries a resume probe only with its coder, its continuation and a verdict naming it (R4)', async () => {
+    const h = setup('codex', {
+      FAKE_VENDOR_INNER_SANDBOX: '1',
+      FAKE_VENDOR_DENY_STDERR: '1',
+      FAKE_VENDOR_RESUME: 'success',
+    });
+    const r = await proveHarness({
+      ...h.options,
+      proveResume: true,
+      out: h.out,
+      budget: { ...h.budget, maxInvocations: 6 },
+    });
+    if (!r.ok) throw new Error(r.error);
+    const resumed = () => {
+      const p = planProof({ ...h.options, out: h.out });
+      if (!p.ok) throw new Error(p.error);
+      return p.value.reused_resume?.remembered === true;
+    };
+    expect(planned(h).roles).toEqual([]);
+    expect(resumed()).toBe(true);
+    // Nothing to prove: the proof keeps the probe, and the manifest keeps resume.
+    const again = await proveHarness({ ...h.options, out: h.out, budget: h.budget });
+    if (!again.ok) throw new Error(again.error);
+    expect(entry(h.out, 'codex')?.capabilities['session_resume']?.status).toBe('proven');
+    const recorded = h.record();
+    if (!recorded.ok) throw new Error(recorded.error);
+    expect(recorded.value.capabilities.resume).toBe('proven');
+    const saved = readFileSync(h.out, 'utf8');
+
+    edit(h.out, 'codex', (e) => {
+      (e as unknown as { resume_probe: Record<string, unknown> }).resume_probe['attempt_id'] = null;
+    });
+    expect(resumed()).toBe(false);
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      e.capabilities['session_resume'] = { status: 'unknown', evidence: 'not shown' };
+    });
+    expect(resumed()).toBe(false);
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      e.role_schemas['fixer'] = { digest: 'sha256:old' };
+    });
+    expect(resumed()).toBe(false);
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      (e as unknown as { resume_probe: Record<string, unknown> }).resume_probe['seed_attempt_id'] =
+        '00000000-0000-4000-8000-000000000000';
+    });
+    expect(resumed()).toBe(false);
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      (e as unknown as { resume_probe: Record<string, unknown> }).resume_probe['outcome'] = {
+        kind: 'failure',
+        failure: 'process_failed',
+      };
+    });
+    expect(resumed()).toBe(false);
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      const probe = (e as unknown as { resume_probe: { outcome: Record<string, unknown> } })
+        .resume_probe;
+      probe.outcome['resume_fallback'] = 'session_missing';
+    });
+    expect(resumed()).toBe(false);
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      const probe = (e as unknown as { resume_probe: { outcome: Record<string, unknown> } })
+        .resume_probe;
+      expect(probe.outcome['session_ref']).toEqual(expect.any(String));
+      probe.outcome['session_ref'] = null;
+    });
+    expect(resumed()).toBe(false);
+    // A probe written before it named its seed still counts with the coder of the same evidence.
+    writeFileSync(h.out, saved);
+    edit(h.out, 'codex', (e) => {
+      delete (e as unknown as { resume_probe: Record<string, unknown> }).resume_probe[
+        'seed_attempt_id'
+      ];
+    });
+    expect(resumed()).toBe(true);
   }, 120_000);
 });

@@ -500,9 +500,44 @@ roles:
 - `autonomous: true` mà không có role `deputy` (hay `decider`) thì config bị từ chối.
 - Role `decider` cũ được đọc như `deputy`; daemon ghi log `role 'decider' is read as 'deputy'` một lần và
   `cusr doctor` cũng báo. Đổi tên khi tiện.
-- Role `deputy` cần một lần `prove-harness` và `record-manifest` (hoặc `setup-harness`) sau khi nâng release: proof
-  chạy thêm một lượt cho role này, và `cusr doctor` báo lỗi khi manifest của harness chưa có bằng chứng cho deputy.
+- Manifest của harness chạy deputy phải có bằng chứng cho role `deputy`; các bước ở [Bật deputy](#bat-deputy).
 - Phiên tương tác cần `runtime.terminal.backend` khác `background` ([Xem agent trong herdr](#xem-agent-trong-herdr)).
+
+<a id="bat-deputy"></a>
+
+**Bật deputy.** Harness đã được chứng minh trước đó chỉ cần thêm bằng chứng cho role `deputy`:
+
+1. Thêm `roles.deputy` (và `autonomous` nếu muốn) vào user config như trên. Model trong binding phải trỏ tới
+   harness đã có pin.
+2. Chứng minh phần còn thiếu bằng đúng lệnh của lần proof trước, với cùng `--out` và cùng store của daemon:
+   `--config` và `--data-dir` phải là của `cusrd` đang chạy (bỏ `--data-dir` thì lệnh dùng `runtime.data_dir`
+   hoặc `~/.cusr`, có thể là một bản cài khác). `cusr doctor` in sẵn lệnh này với đường dẫn thật.
+
+   ```sh
+   cusr-runner setup-harness --from prove-harness --dry-run --config ~/.cusr/config.yaml \
+     --data-dir <DATA_DIR> --harness claude --model <model-id> --effort <effort> --out evidence-claude.json
+   cusr-runner setup-harness --from prove-harness --config ~/.cusr/config.yaml \
+     --data-dir <DATA_DIR> --harness claude --model <model-id> --effort <effort> --out evidence-claude.json
+   ```
+
+   Proof đọc evidence đang có ở `--out` và giữ lượt của mọi role còn hợp lệ: evidence được `record-manifest`
+   chấp nhận cho pin và host hiện tại (binary, `attested`, chế độ sandbox native), cùng hash quyền, cùng digest
+   schema của role, và lượt đó là kết quả thành công mà verdict `proven` của evidence nêu đúng attempt id, đã bị
+   rule từ chối probe, xóa auth sau khi chạy và (khi bật sandbox native) bị sandbox chặn ghi. Mỗi role được xét
+   riêng: một dòng hỏng chỉ làm role đó chạy lại. Role chưa có, thất bại hoặc mà binary/pin đã đổi được chạy lại.
+   Dry-run báo `roles_to_prove`, `roles_reused` và `invocations_needed`; harness đã có bằng chứng cho bốn role
+   kia thì chỉ cần 1 lượt. Proof lỗi giữa chừng, kể cả khi một lần khởi chạy ném lỗi, vẫn ghi
+   evidence gồm lượt tái dùng và lượt đã xong; manifest cũ giữ nguyên; chạy lại cùng lệnh chỉ thử các role còn
+   thiếu. Muốn chứng minh lại từ đầu thì dùng `--out` khác. `--prove-resume` luôn chạy lại `coder` vì probe resume
+   nối tiếp phiên của nó; probe resume cũ chỉ được giữ khi lượt `coder` của nó được giữ và verdict `session_resume`
+   nêu đúng lượt tiếp nối.
+3. Restart `cusrd` khi không còn task chạy (`systemctl --user restart cusrd.service`): daemon chỉ đọc manifest
+   lúc khởi động.
+4. Kiểm tra bằng `cusr doctor`: check `deputy` phải là `ok` và nêu model, harness. Còn thiếu bằng chứng thì
+   check này in lệnh ở bước 2 với `--config`, `--data-dir` của daemon và (nếu manifest ghi đường dẫn tuyệt đối)
+   file evidence của lần proof trước; manifest trên đĩa mới hơn manifest daemon đang giữ thì nó nhắc restart.
+   `cusr-runner check-records --config ~/.cusr/config.yaml --data-dir <DATA_DIR>` kiểm cùng store đó mà không
+   cần daemon.
 
 **Định tuyến.** Mỗi mã wait có đúng một nơi đến, theo bảng trong code (`src/engine/deputy-routing.ts`):
 
@@ -770,7 +805,7 @@ Khi một bước thực thi lỗi, chạy tiếp bằng `--from` để dùng pi
 
 ```sh
 # Proof lỗi: dùng pin đã ghi, không cần --vendor/--binary/--force.
-# Proof chạy lại đủ các role; cap vẫn tính cả các lượt đã tốn.
+# Proof chỉ chạy role mà evidence ở --out chưa chứng minh hợp lệ; cap vẫn tính cả các lượt đã tốn.
 cusr-runner setup-harness --from prove-harness --config ~/.cusr/config.yaml --harness claude \
   --model <model-id> --effort <effort> --max-invocations <cap-tổng> --approval "<ai duyệt, ngày>" \
   --out evidence-claude.json

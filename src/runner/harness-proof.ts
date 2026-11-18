@@ -5,9 +5,10 @@
  * failures included. The daemon never calls this.
  *
  * Each role runs once, through the production {@link RunnerHarness}, unit and sandbox, on a disposable
- * repository. To get past its checks the runs carry a candidate manifest that is built here and never
- * written; the only output is the evidence file, where a capability is `proven` only if these runs showed
- * it. Anything else stays `unknown`, and the manifest recorded from it does not hold.
+ * repository, unless the evidence already at the output still proves it for this binary and pin. To get
+ * past its checks the runs carry a candidate manifest that is built here and never written; the only
+ * output is the evidence file, where a capability is `proven` only if these runs (or the reused ones)
+ * showed it. Anything else stays `unknown`, and the manifest recorded from it does not hold.
  */
 import { homedir } from 'node:os';
 import { spawnSync } from 'node:child_process';
@@ -25,6 +26,7 @@ import {
   writeSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { z } from 'zod';
 import { ROLE_SCHEMA_DIGESTS, wireRoleSchema } from '../adapters/harness/result-schema.ts';
 import {
   hostInnerMode,
@@ -45,6 +47,8 @@ import { hashCanonical, hashText } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import {
   adapterFor,
+  EvidenceVendorSchema,
+  evidenceMismatch,
   harnessIdentity,
   hostSandbox,
   readPin,
@@ -78,6 +82,8 @@ export type ProofOptions = {
   readonly outerProofFile?: string;
   readonly runnerCommand: readonly string[];
   readonly now: () => number;
+  /** Evidence file of this proof; runs still valid in an existing one are kept instead of repeated. */
+  readonly out?: string;
   /** One additional invocation verifies resume across fresh private homes. */
   readonly proveResume?: boolean;
   /** Seam for tests; production always supervises through systemd. */
@@ -90,7 +96,16 @@ export type ProofPlan = {
   readonly outer_proof_hash: `sha256:${string}` | null;
   readonly permission_policy_hash: `sha256:${string}`;
   readonly invocations_spent: number;
+  /** Roles this proof invokes, in order. */
+  readonly roles: readonly ProofRole[];
+  /** Runs of an earlier proof at `out` that still hold for this binary, pin and host. */
+  readonly reused: readonly RunFacts[];
+  /** The earlier resume probe, kept while its coder run is reused and no new probe is asked for. */
+  readonly reused_resume?: ResumeProof;
 };
+
+export const invocationsNeeded = (plan: ProofPlan, proveResume = false): number =>
+  plan.roles.length + (proveResume ? 1 : 0);
 
 export type ProofBudget = {
   /** Who approved this spend, copied to the ledger. */
@@ -105,11 +120,12 @@ export function checkProofBudget(
   budget: ProofBudget,
   proveResume = false,
 ): Result<void, string> {
+  const invocations = invocationsNeeded(plan, proveResume);
+  if (invocations === 0) return ok(undefined);
   if (budget.approval.trim() === '') return err('a proof spends model usage and needs an approval');
   if (budget.maxInvocations === null) return ok(undefined);
   if (!Number.isInteger(budget.maxInvocations) || budget.maxInvocations < 1)
     return err('--max-invocations must be a positive integer');
-  const invocations = PROOF_ROLES.length + (proveResume ? 1 : 0);
   if (plan.invocations_spent + invocations > budget.maxInvocations)
     return err(
       `${plan.invocations_spent} invocations already spent on this binary; ${invocations} more exceed the cap of ${budget.maxInvocations}`,
@@ -179,18 +195,167 @@ export function planProof(o: ProofOptions, candidatePin?: VendorPin): Result<Pro
     identity.value.host_policy_hash,
   );
   if (!observed.ok) return err(observed.error.message);
+  // The rules each role actually runs under: the settings document, plus the fixed role arguments.
+  const permission_policy_hash = hashCanonical({
+    settings_hash: identity.value.settings_hash,
+    layout_shapes: identity.value.layout_shapes,
+    vendor: pin.value.vendor,
+  });
+  const prior =
+    o.out === undefined
+      ? { runs: [] }
+      : priorRuns(o.out, pin.value, identity.value, permission_policy_hash, o.proveResume === true);
   return ok({
     pin: pin.value,
     identity: identity.value,
     outer_proof_hash: null,
-    // The rules each role actually runs under: the settings document, plus the fixed role arguments.
-    permission_policy_hash: hashCanonical({
-      settings_hash: identity.value.settings_hash,
-      layout_shapes: identity.value.layout_shapes,
-      vendor: pin.value.vendor,
-    }),
+    permission_policy_hash,
     invocations_spent: spent(o.dataDir, o.harness, pin.value.binary.sha256),
+    roles: PROOF_ROLES.filter((role) => !prior.runs.some((r) => r.role === role)),
+    reused: prior.runs,
+    ...(prior.resume === undefined ? {} : { reused_resume: prior.resume }),
   });
+}
+
+const PriorFileSchema = z.object({
+  kind: z.literal('harness-proof'),
+  vendors: z.record(z.string(), z.unknown()),
+});
+const PriorVendorSchema = EvidenceVendorSchema.extend({
+  vendor: z.string(),
+  permission_policy_hash: z.string(),
+});
+const VerdictSchema = z.object({ status: z.string(), evidence: z.string() });
+const AttemptId = z.uuid();
+const PriorRunSchema = z.object({
+  role: z.enum(PROOF_ROLES),
+  attempt_id: AttemptId,
+  kind: z.enum(['result', 'turn_ended']),
+  failure: z.undefined().optional(),
+  valid: z.literal(true).optional(),
+  denied: z.boolean().optional(),
+  auth_removed: z.boolean().optional(),
+  usage_reported: z.boolean().optional(),
+  native_write_blocked: z.boolean().optional(),
+});
+const PriorResumeSchema = z.object({
+  attempt_id: AttemptId,
+  seed_attempt_id: AttemptId.optional(),
+  remembered: z.literal(true),
+  reason: z.string(),
+  // The continuation's own outcome: a done result of the resumed session, not a fallback.
+  outcome: z
+    .looseObject({
+      kind: z.literal('result'),
+      value: z.looseObject({ status: z.literal('done') }),
+      // A fresh probe counts only when the continuation returns the seed's session, never none.
+      session_ref: z.string().min(1),
+      resumed: z.literal(true).optional(),
+      resume_fallback: z.undefined().optional(),
+    })
+    .optional(),
+});
+
+/**
+ * Role runs of the evidence already at `file` that this proof would only repeat: evidence the recorder
+ * accepts for this pin and host, the same permission policy and role schema, and a successful run whose
+ * attempt the proven verdicts name. Each role is judged on its own, so one bad row costs only its role.
+ */
+function priorRuns(
+  file: string,
+  pin: VendorPin,
+  identity: HarnessIdentity,
+  permission_policy_hash: string,
+  proveResume: boolean,
+): { runs: RunFacts[]; resume?: ResumeProof } {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readFileSync(file, 'utf8'));
+  } catch {
+    return { runs: [] };
+  }
+  const parsed = PriorFileSchema.safeParse(raw);
+  const v = parsed.success ? parsed.data.vendors[pin.vendor] : undefined;
+  const e = PriorVendorSchema.safeParse(v);
+  if (
+    !e.success ||
+    e.data.vendor !== pin.vendor ||
+    hashCanonical(e.data.binary) !== hashCanonical(pin.binary) ||
+    e.data.permission_policy_hash !== permission_policy_hash ||
+    evidenceMismatch(file, e.data, pin, identity) !== null
+  )
+    return { runs: [] };
+  const entry = v as Record<string, unknown>;
+  const field = (name: string): Record<string, unknown> => {
+    const f = entry[name];
+    return typeof f === 'object' && f !== null && !Array.isArray(f)
+      ? (f as Record<string, unknown>)
+      : {};
+  };
+  const capabilities = field('capabilities');
+  const roleSchemas = field('role_schemas');
+  // The attempts a proven verdict names, written as `<what>: <id>, <id>`.
+  const named = (capability: string): readonly string[] => {
+    const c = VerdictSchema.safeParse(capabilities[capability]);
+    if (!c.success || c.data.status !== 'proven') return [];
+    const at = c.data.evidence.lastIndexOf(': ');
+    return at < 0 ? [] : c.data.evidence.slice(at + 2).split(', ');
+  };
+  const schemaCurrent = (role: ProofRole): boolean =>
+    (roleSchemas[role] as { digest?: unknown } | undefined)?.digest === ROLE_SCHEMA_DIGESTS[role];
+
+  const rows = (Array.isArray(entry['runs']) ? entry['runs'] : []).map((r) =>
+    PriorRunSchema.safeParse(r),
+  );
+  const ids = rows.flatMap((r) => (r.success ? [r.data.attempt_id] : []));
+  // A malformed row still counts against its role when it names one, so a duplicate is never hidden.
+  const roleCount = (role: ProofRole): number =>
+    (entry['runs'] as unknown[]).filter(
+      (r) => typeof r === 'object' && r !== null && (r as { role?: unknown }).role === role,
+    ).length;
+  const runs: RunFacts[] = [];
+  for (const row of rows) {
+    if (!row.success) continue;
+    const r = row.data;
+    if (proveResume && r.role === 'coder') continue;
+    if (roleCount(r.role) !== 1 || ids.filter((id) => id === r.attempt_id).length !== 1) continue;
+    // Only a deputy's answer ends its turn; every other role returns a result.
+    if (r.kind !== (r.role === 'deputy' ? 'turn_ended' : 'result')) continue;
+    if (!schemaCurrent(r.role) || !named(`schema_acceptance_${r.role}`).includes(r.attempt_id))
+      continue;
+    // Evidence written before runs carried their own checks: a run passed one when its verdict names it.
+    const shown = (capability: string): boolean => named(capability).includes(r.attempt_id);
+    const facts: RunFacts = {
+      role: r.role,
+      attempt_id: r.attempt_id,
+      kind: r.kind,
+      valid: true,
+      denied: r.denied ?? shown('permission_denial_kept'),
+      auth_removed: r.auth_removed ?? shown('private_home_auth'),
+      usage_reported: r.usage_reported ?? shown('usage_report'),
+      native_write_blocked: r.native_write_blocked ?? false,
+    };
+    if (
+      facts.auth_removed &&
+      (facts.denied || pin.permission_mode === 'full-access') &&
+      (facts.native_write_blocked || !nativeSandboxEnabled(pin))
+    )
+      runs.push(facts);
+  }
+  // The continuation runs as a fixer on the coder's session, so both runs and schemas must still hold.
+  const coder = runs.find((r) => r.role === 'coder');
+  const probe = PriorResumeSchema.safeParse(entry['resume_probe']);
+  const resume =
+    !proveResume &&
+    coder !== undefined &&
+    probe.success &&
+    !ids.includes(probe.data.attempt_id) &&
+    (probe.data.seed_attempt_id ?? coder.attempt_id) === coder.attempt_id &&
+    schemaCurrent('fixer') &&
+    named('session_resume').includes(probe.data.attempt_id)
+      ? (entry['resume_probe'] as ResumeProof)
+      : undefined;
+  return resume === undefined ? { runs } : { runs, resume };
 }
 
 const roleWork: Record<ProofRole, string> = {
@@ -288,10 +453,43 @@ type RoleRun = {
   readonly auth_removed: boolean;
 };
 
+/** What one role run showed; the form evidence records it in and a later proof reuses it from. */
+export type RunFacts = {
+  readonly role: ProofRole;
+  readonly attempt_id: string;
+  readonly kind: HarnessOutcome['kind'];
+  readonly failure?: string;
+  /** A structured result; a deputy's comes back as the end of its turn. */
+  readonly valid: boolean;
+  /** The probe was refused by the rule and its marker stayed absent. */
+  readonly denied: boolean;
+  readonly auth_removed: boolean;
+  readonly usage_reported: boolean;
+  readonly native_write_blocked: boolean;
+};
+
+export function runFacts(r: RoleRun): RunFacts {
+  const valid = r.outcome.kind === 'result' || r.outcome.kind === 'turn_ended';
+  return {
+    role: r.role,
+    attempt_id: r.attempt_id,
+    kind: r.outcome.kind,
+    ...(r.outcome.kind === 'failure' ? { failure: r.outcome.failure } : {}),
+    valid,
+    denied:
+      r.marker_absent && r.outcome.permission_denials.some((d) => d.command === DENIED_COMMAND),
+    auth_removed: r.auth_removed,
+    usage_reported: valid && r.outcome.usage.basis !== 'unavailable',
+    native_write_blocked: r.native_write_blocked,
+  };
+}
+
 const proven = (evidence: string) => ({ status: 'proven', evidence });
 const notShown = (evidence: string) => ({ status: 'unknown', evidence });
 type ResumeProof = {
   attempt_id: string | null;
+  /** The coder run whose session the continuation resumed. */
+  seed_attempt_id?: string;
   remembered: boolean;
   reason: string;
   outcome?: HarnessOutcome;
@@ -300,34 +498,28 @@ type ResumeProof = {
 /** What the runs showed, in the form `record-manifest` reads. Nothing here is taken from the vendor's word. */
 export function evidenceFromRuns(
   plan: ProofPlan,
-  runs: readonly RoleRun[],
+  runs: readonly RunFacts[],
   checkedAt: number,
   resume?: ResumeProof,
 ): Record<string, unknown> {
   const inner = hostInnerMode(plan.pin);
-  const ids = (ok_: (r: RoleRun) => boolean): string[] => runs.filter(ok_).map((r) => r.attempt_id);
-  const verdict = (ok_: (r: RoleRun) => boolean, what: string) => {
+  const ids = (ok_: (r: RunFacts) => boolean): string[] =>
+    runs.filter(ok_).map((r) => r.attempt_id);
+  const verdict = (ok_: (r: RunFacts) => boolean, what: string) => {
     const shown = ids(ok_);
     return shown.length === PROOF_ROLES.length
       ? proven(`${what}: ${shown.join(', ')}`)
       : notShown(`${what} in ${shown.length} of ${PROOF_ROLES.length} roles`);
   };
-  // A deputy's structured answer comes back as the end of its turn.
-  const valid = (r: RoleRun): boolean =>
-    r.outcome.kind === 'result' || r.outcome.kind === 'turn_ended';
-  const denied = (r: RoleRun): boolean =>
-    r.marker_absent && r.outcome.permission_denials.some((d) => d.command === DENIED_COMMAND);
+  const valid = (r: RunFacts): boolean => r.valid;
   const capabilities: Record<string, unknown> = {
     structured_output: verdict(valid, 'valid results'),
-    permission_denial_kept: verdict(denied, 'probe refused, marker absent'),
+    permission_denial_kept: verdict((r) => r.denied, 'probe refused, marker absent'),
     private_home_auth: verdict(
       (r) => valid(r) && r.auth_removed,
       'authenticated from the private home, auth removed after',
     ),
-    usage_report: verdict(
-      (r) => valid(r) && r.outcome.usage.basis !== 'unavailable',
-      'usage reported',
-    ),
+    usage_report: verdict((r) => r.usage_reported, 'usage reported'),
     session_resume: resume?.remembered
       ? proven(
           `resumed across private homes and recalled a transcript-only nonce: ${resume.attempt_id}`,
@@ -366,13 +558,7 @@ export function evidenceFromRuns(
         capabilities,
         attested: plan.identity,
         ...(resume === undefined ? {} : { resume_probe: resume }),
-        runs: runs.map((r) => ({
-          role: r.role,
-          attempt_id: r.attempt_id,
-          kind: r.outcome.kind,
-          ...(r.outcome.kind === 'failure' ? { failure: r.outcome.failure } : {}),
-          native_write_blocked: r.native_write_blocked,
-        })),
+        runs,
       },
     },
   };
@@ -383,6 +569,7 @@ export function proofFailures(
   pin: VendorPin,
   evidence: Record<string, unknown>,
   runs: readonly RoleRun[],
+  reused = 0,
 ): string[] {
   const vendors = evidence['vendors'] as Record<
     string,
@@ -399,8 +586,8 @@ export function proofFailures(
       out.push(
         `${r.role}: ${r.outcome.kind === 'failure' ? `${r.outcome.failure}: ${r.outcome.detail}` : r.outcome.kind}`,
       );
-  if (runs.length < PROOF_ROLES.length)
-    out.push(`stopped after ${runs.length} of ${PROOF_ROLES.length} roles`);
+  if (runs.length + reused < PROOF_ROLES.length)
+    out.push(`stopped after ${runs.length + reused} of ${PROOF_ROLES.length} roles`);
   if (entry.native_result === 'failed')
     out.push(
       `native sandbox refusal not shown (${runs
@@ -457,8 +644,8 @@ function candidateManifest(o: ProofOptions, plan: ProofPlan, shownAt: number) {
 }
 
 /**
- * Runs the three roles and writes the evidence file, whatever they show; a failed role ends the proof.
- * Refuses before the first spawn when the cap cannot cover all three.
+ * Runs the roles the plan still needs and writes the evidence file with the reused runs, whatever the new
+ * ones show; a failed role ends the proof. Refuses before the first spawn when the cap cannot cover them.
  */
 export async function proveHarness(
   o: ProofOptions & { readonly budget: ProofBudget; readonly out: string },
@@ -467,6 +654,7 @@ export async function proveHarness(
     {
       evidence: string;
       runs: readonly RoleRun[];
+      reused: readonly RunFacts[];
       /** Why the evidence would not make a usable manifest; empty when it would. */
       failures: readonly string[];
     },
@@ -519,189 +707,207 @@ export async function proveHarness(
         remembered: false,
         reason: 'resume requested; coder has not completed',
       }
-    : undefined;
-  for (const role of PROOF_ROLES) {
-    const attempt_id = randomUUID();
-    const operation_id = randomUUID();
-    const scratch = join(o.dataDir, 'worktrees', `proof-${attempt_id}`);
-    const workspace = disposableRepo(o.runtime, scratch);
-    reserve(o.dataDir, o.harness, {
-      at: new Date(o.now()).toISOString(),
-      harness: o.harness,
-      binary_sha256: plan.pin.binary.sha256,
-      role,
-      attempt_id,
-      model: o.model,
-      approval: o.budget.approval,
-      max_invocations: o.budget.maxInvocations,
-    });
-    const nativeMarker = join(scratch, 'native-write-probe');
-    // Positive control: a normal host shell with this UID can write here before the native sandbox runs.
-    writeFileSync(nativeMarker, 'positive control');
-    rmSync(nativeMarker);
-    const nativeCommand = `/usr/bin/touch '${nativeMarker.replaceAll("'", "'\\''")}'`;
-    const nonce = randomUUID();
-    const text =
-      proofPrompt(role, nativeSandboxEnabled(plan.pin, boundaryRole(role)) ? nativeCommand : null) +
-      (o.proveResume && role === 'coder'
-        ? `\nRemember this nonce for a later continuation: ${nonce}. Do not write it to a file.`
-        : '');
-    const outcome = await harness.run(
-      {
-        role,
-        operation_id,
-        attempt_id,
-        revision: 1,
-        binding: {
-          harness: o.harness,
-          vendor: plan.pin.vendor,
-          model: o.model,
-          effort: o.effort,
-          permission_policy_hash: plan.permission_policy_hash,
-        },
-        context: { text, digest: hashText(text) },
-        schema: wireRoleSchema(role, {
-          omit_meta_schema: plan.pin.vendor === 'claude',
-        }),
-        wall_ms: WALL_MS,
-        deadline_at: (o.now() + WALL_MS) as EpochMs,
-        session: null,
-        credentials: o.runtime.credential_refs,
-        workspace,
-      },
-      new AbortController().signal,
+    : plan.reused_resume;
+  // Runs already done stay on disk when a later launch throws, so a retry need not repeat them.
+  const write = (): Record<string, unknown> => {
+    const tmp = `${o.out}.${process.pid}.tmp`;
+    const fresh = runs.map(runFacts);
+    const all = PROOF_ROLES.flatMap((role) =>
+      [...plan.reused, ...fresh].filter((r) => r.role === role),
     );
-    const run = join(o.dataDir, 'runs', attempt_id);
-    const files = RunDir.open({
-      dataDir: o.dataDir,
-      kind: 'runs',
-      id: attempt_id,
-      redactor,
-      create: false,
-    });
-    runs.push({
-      role,
-      attempt_id,
-      outcome,
-      native_write_blocked:
-        !existsSync(nativeMarker) &&
-        adapterFor(plan.pin.vendor).nativeWriteDenied({
-          role: boundaryRole(role),
-          worktree: workspace.worktree,
-          marker: nativeMarker,
-          stdout: readAllRecords(files)
-            .filter((r) => r.kind === 'stdout')
-            .map((r) => r.data),
-          runPinned: pinnedRunner(plan.pin, scratch),
-        }),
-      marker_absent: !existsSync(join(workspace.worktree, DENIED_MARKER)),
-      auth_removed: plan.pin.home_files
-        .filter((h) => h.sha256 === undefined)
-        .every((h) => !existsSync(join(run, PRIVATE_HOME_DIR, h.to))),
-    });
-    if (o.proveResume && role === 'coder') {
-      resume = {
-        attempt_id: null,
-        remembered: false,
-        reason:
-          outcome.kind === 'failure'
-            ? `coder failed: ${outcome.failure}: ${outcome.detail}`
-            : outcome.kind === 'invalid_output'
-              ? `coder invalid output: ${JSON.stringify(outcome.issues)}`
-              : 'coder returned no session reference',
-        outcome,
-      };
-    }
-    if (
-      o.proveResume &&
-      role === 'coder' &&
-      outcome.kind === 'result' &&
-      outcome.session_ref !== null
-    ) {
-      const nextId = randomUUID();
+    const evidence = evidenceFromRuns(plan, all, o.now(), resume);
+    writeFileSync(tmp, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+    renameSync(tmp, o.out);
+    return evidence;
+  };
+  try {
+    for (const role of plan.roles) {
+      const attempt_id = randomUUID();
+      const operation_id = randomUUID();
+      const scratch = join(o.dataDir, 'worktrees', `proof-${attempt_id}`);
+      const workspace = disposableRepo(o.runtime, scratch);
       reserve(o.dataDir, o.harness, {
         at: new Date(o.now()).toISOString(),
         harness: o.harness,
         binary_sha256: plan.pin.binary.sha256,
-        role: 'fixer',
-        attempt_id: nextId,
+        role,
+        attempt_id,
         model: o.model,
         approval: o.budget.approval,
         max_invocations: o.budget.maxInvocations,
       });
-      const prompt =
-        'Return a done result whose summary is exactly the nonce I asked you to remember in the previous conversation. Do not read any files or call tools.';
-      try {
-        const resumed = await harness.run(
-          {
-            role: 'fixer',
-            operation_id: randomUUID(),
-            attempt_id: nextId,
-            revision: 1,
-            binding: {
-              harness: o.harness,
-              vendor: plan.pin.vendor,
-              model: o.model,
-              effort: o.effort,
-              permission_policy_hash: plan.permission_policy_hash,
-            },
-            context: { text: prompt, digest: hashText(prompt) },
-            schema: wireRoleSchema('fixer', {
-              omit_meta_schema: plan.pin.vendor === 'claude',
-            }),
-            wall_ms: WALL_MS,
-            deadline_at: (o.now() + WALL_MS) as EpochMs,
-            session: { ref: outcome.session_ref, from_attempt_id: attempt_id },
-            credentials: o.runtime.credential_refs,
-            workspace,
+      const nativeMarker = join(scratch, 'native-write-probe');
+      // Positive control: a normal host shell with this UID can write here before the native sandbox runs.
+      writeFileSync(nativeMarker, 'positive control');
+      rmSync(nativeMarker);
+      const nativeCommand = `/usr/bin/touch '${nativeMarker.replaceAll("'", "'\\''")}'`;
+      const nonce = randomUUID();
+      const text =
+        proofPrompt(
+          role,
+          nativeSandboxEnabled(plan.pin, boundaryRole(role)) ? nativeCommand : null,
+        ) +
+        (o.proveResume && role === 'coder'
+          ? `\nRemember this nonce for a later continuation: ${nonce}. Do not write it to a file.`
+          : '');
+      const outcome = await harness.run(
+        {
+          role,
+          operation_id,
+          attempt_id,
+          revision: 1,
+          binding: {
+            harness: o.harness,
+            vendor: plan.pin.vendor,
+            model: o.model,
+            effort: o.effort,
+            permission_policy_hash: plan.permission_policy_hash,
           },
-          new AbortController().signal,
-        );
-        const remembered =
-          resumed.kind === 'result' &&
-          resumed.resumed !== false &&
-          'status' in resumed.value &&
-          resumed.value.status === 'done' &&
-          resumed.value.summary.trim() === nonce &&
-          resumed.session_ref === outcome.session_ref;
+          context: { text, digest: hashText(text) },
+          schema: wireRoleSchema(role, {
+            omit_meta_schema: plan.pin.vendor === 'claude',
+          }),
+          wall_ms: WALL_MS,
+          deadline_at: (o.now() + WALL_MS) as EpochMs,
+          session: null,
+          credentials: o.runtime.credential_refs,
+          workspace,
+        },
+        new AbortController().signal,
+      );
+      const run = join(o.dataDir, 'runs', attempt_id);
+      const files = RunDir.open({
+        dataDir: o.dataDir,
+        kind: 'runs',
+        id: attempt_id,
+        redactor,
+        create: false,
+      });
+      runs.push({
+        role,
+        attempt_id,
+        outcome,
+        native_write_blocked:
+          !existsSync(nativeMarker) &&
+          adapterFor(plan.pin.vendor).nativeWriteDenied({
+            role: boundaryRole(role),
+            worktree: workspace.worktree,
+            marker: nativeMarker,
+            stdout: readAllRecords(files)
+              .filter((r) => r.kind === 'stdout')
+              .map((r) => r.data),
+            runPinned: pinnedRunner(plan.pin, scratch),
+          }),
+        marker_absent: !existsSync(join(workspace.worktree, DENIED_MARKER)),
+        auth_removed: plan.pin.home_files
+          .filter((h) => h.sha256 === undefined)
+          .every((h) => !existsSync(join(run, PRIVATE_HOME_DIR, h.to))),
+      });
+      if (o.proveResume && role === 'coder') {
         resume = {
-          attempt_id: nextId,
-          outcome: resumed,
-          reason: remembered
-            ? 'resumed the same session and recalled its transcript-only nonce'
-            : resumed.kind === 'failure'
-              ? `${resumed.failure}: ${resumed.detail}`
-              : resumed.kind === 'invalid_output'
-                ? `invalid output: ${JSON.stringify(resumed.issues)}`
-                : resumed.resume_fallback !== undefined
-                  ? `resume fallback: ${resumed.resume_fallback}`
-                  : resumed.session_ref !== outcome.session_ref
-                    ? 'resume returned a different session'
-                    : 'resume did not recall the transcript-only nonce in a done result',
-          remembered,
-        };
-      } catch (e) {
-        resume = {
-          attempt_id: nextId,
+          attempt_id: null,
           remembered: false,
-          reason: redactor.text(
-            `resume probe threw: ${e instanceof Error ? e.message : String(e)}`,
-          ),
+          reason:
+            outcome.kind === 'failure'
+              ? `coder failed: ${outcome.failure}: ${outcome.detail}`
+              : outcome.kind === 'invalid_output'
+                ? `coder invalid output: ${JSON.stringify(outcome.issues)}`
+                : 'coder returned no session reference',
+          outcome,
         };
       }
+      if (
+        o.proveResume &&
+        role === 'coder' &&
+        outcome.kind === 'result' &&
+        outcome.session_ref !== null
+      ) {
+        const nextId = randomUUID();
+        reserve(o.dataDir, o.harness, {
+          at: new Date(o.now()).toISOString(),
+          harness: o.harness,
+          binary_sha256: plan.pin.binary.sha256,
+          role: 'fixer',
+          attempt_id: nextId,
+          model: o.model,
+          approval: o.budget.approval,
+          max_invocations: o.budget.maxInvocations,
+        });
+        const prompt =
+          'Return a done result whose summary is exactly the nonce I asked you to remember in the previous conversation. Do not read any files or call tools.';
+        try {
+          const resumed = await harness.run(
+            {
+              role: 'fixer',
+              operation_id: randomUUID(),
+              attempt_id: nextId,
+              revision: 1,
+              binding: {
+                harness: o.harness,
+                vendor: plan.pin.vendor,
+                model: o.model,
+                effort: o.effort,
+                permission_policy_hash: plan.permission_policy_hash,
+              },
+              context: { text: prompt, digest: hashText(prompt) },
+              schema: wireRoleSchema('fixer', {
+                omit_meta_schema: plan.pin.vendor === 'claude',
+              }),
+              wall_ms: WALL_MS,
+              deadline_at: (o.now() + WALL_MS) as EpochMs,
+              session: { ref: outcome.session_ref, from_attempt_id: attempt_id },
+              credentials: o.runtime.credential_refs,
+              workspace,
+            },
+            new AbortController().signal,
+          );
+          const remembered =
+            resumed.kind === 'result' &&
+            resumed.resumed !== false &&
+            'status' in resumed.value &&
+            resumed.value.status === 'done' &&
+            resumed.value.summary.trim() === nonce &&
+            resumed.session_ref === outcome.session_ref;
+          resume = {
+            attempt_id: nextId,
+            seed_attempt_id: attempt_id,
+            outcome: resumed,
+            reason: remembered
+              ? 'resumed the same session and recalled its transcript-only nonce'
+              : resumed.kind === 'failure'
+                ? `${resumed.failure}: ${resumed.detail}`
+                : resumed.kind === 'invalid_output'
+                  ? `invalid output: ${JSON.stringify(resumed.issues)}`
+                  : resumed.resume_fallback !== undefined
+                    ? `resume fallback: ${resumed.resume_fallback}`
+                    : resumed.session_ref !== outcome.session_ref
+                      ? 'resume returned a different session'
+                      : 'resume did not recall the transcript-only nonce in a done result',
+            remembered,
+          };
+        } catch (e) {
+          resume = {
+            attempt_id: nextId,
+            remembered: false,
+            reason: redactor.text(
+              `resume probe threw: ${e instanceof Error ? e.message : String(e)}`,
+            ),
+          };
+        }
+      }
+      rmSync(scratch, { recursive: true, force: true });
+      // The next role would hit the same fault and spend for nothing.
+      if (outcome.kind === 'failure') break;
     }
-    rmSync(scratch, { recursive: true, force: true });
-    // The next role would hit the same fault and spend for nothing.
-    if (outcome.kind === 'failure') break;
+  } catch (e) {
+    write();
+    throw e;
   }
-
-  const tmp = `${o.out}.${process.pid}.tmp`;
-  const evidence = evidenceFromRuns(plan, runs, o.now(), resume);
-  writeFileSync(tmp, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, o.out);
+  const evidence = write();
   return ok({
     evidence: o.out,
     runs,
-    failures: proofFailures(plan.pin, evidence, runs),
+    reused: plan.reused,
+    failures: proofFailures(plan.pin, evidence, runs, plan.reused.length),
   });
 }

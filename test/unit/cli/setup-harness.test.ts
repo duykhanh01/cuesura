@@ -86,7 +86,7 @@ beforeEach(() => {
   mocks.commit.mockReturnValue({ ok: true, value: candidatePin });
   mocks.prove.mockResolvedValue({
     ok: true,
-    value: { evidence: '/evidence.json', failures: [] },
+    value: { evidence: '/evidence.json', runs: [], reused: [], failures: [] },
   });
   mocks.record.mockReturnValue({
     ok: true,
@@ -98,6 +98,8 @@ beforeEach(() => {
       pin: { binary: {} },
       identity: {},
       invocations_spent: 6,
+      roles: ['coder', 'fixer', 'reviewer', 'decider', 'deputy'],
+      reused: [],
     },
   });
 });
@@ -425,7 +427,7 @@ describe('setup-harness composition', () => {
       });
       return Promise.resolve({
         ok: true,
-        value: { evidence: values.out, failures: [] },
+        value: { evidence: values.out, runs: [], reused: [], failures: [] },
       });
     });
     expect((await run()).code).toBe(ExitCode.ok);

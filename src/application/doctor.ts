@@ -7,7 +7,7 @@
  * doctor (exit 1), and it names the fix for the operator to run.
  */
 import { lstatSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, HostProbePort } from '../adapters/ports.ts';
 import { ROLE_SCHEMA_DIGESTS } from '../adapters/harness/result-schema.ts';
@@ -17,6 +17,7 @@ import type { Workflow } from '../domain/workflow.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
+import { shellWord } from '../shared/shell.ts';
 import type { Store } from '../store/index.ts';
 import { snapshotDrift } from '../store/verify.ts';
 import { authorize, type Caller } from './authz.ts';
@@ -516,13 +517,18 @@ async function cachedProbe(
 }
 
 /** Whether deputy turns can run (007, FR-124): binding, harness, and a manifest that proved the role. */
-function deputyCheck(
+export function deputyCheck(
   user: {
     readonly roles: Readonly<Record<string, NormalizedRole>>;
-    readonly models: Readonly<Record<string, { readonly harness: string }>>;
+    readonly models: Readonly<Record<string, { readonly harness: string; readonly id?: string }>>;
   },
   manifests: Readonly<Record<string, CapabilityManifest | null | undefined>>,
   restart: ReadonlySet<string> = new Set(),
+  /** The config file and data directory this daemon runs with, so the command proves this installation. */
+  paths: { readonly config: string; readonly dataDir: string } = {
+    config: '<config>',
+    dataDir: '<data-dir>',
+  },
 ): DoctorCheck {
   const alias = user.roles['deputy'] === undefined && user.roles['decider'] !== undefined;
   const role = user.roles['deputy'] ?? user.roles['decider'];
@@ -540,12 +546,28 @@ function deputyCheck(
       'fix roles.deputy.binding',
     );
   const m = manifests[harness] ?? null;
-  const prove = restart.has(harness)
-    ? `the manifest of ${harness} on disk changed since cusrd started; ${RESTART_FIX}`
-    : 'prove the harness again (cusr-runner setup-harness, or record-manifest from evidence that ran the deputy role)';
-  if (m === null) return fail('deputy', `harness ${harness} has no capability manifest`, prove);
-  if (m.role_schemas['deputy'] !== ROLE_SCHEMA_DIGESTS.deputy)
-    return fail('deputy', `the manifest of ${harness} has no proof of the deputy role`, prove);
+  const where = `--config ${shellWord(paths.config)} --data-dir ${shellWord(paths.dataDir)} --harness ${shellWord(harness)}`;
+  const restartFix = `the manifest of ${harness} on disk changed since cusrd started; ${RESTART_FIX}`;
+  if (m === null)
+    return fail(
+      'deputy',
+      `harness ${harness} has no capability manifest`,
+      restart.has(harness)
+        ? restartFix
+        : `pin and prove the harness with cusr-runner setup-harness ${where} and the pin flags in deploy/README.md#harness-thật-pin-và-manifest\nthen restart cusrd`,
+    );
+  if (m.role_schemas['deputy'] !== ROLE_SCHEMA_DIGESTS.deputy) {
+    // setup-harness records the proof's --out as the manifest's reference.
+    const evidence = m.fixture_refs.find((f) => isAbsolute(f));
+    const id = user.models[model]?.id;
+    return fail(
+      'deputy',
+      `the manifest of ${harness} has no proof of the deputy role`,
+      restart.has(harness)
+        ? restartFix
+        : `cusr-runner setup-harness --from prove-harness ${where} --model ${id === undefined ? '<model-id>' : shellWord(id)} --out ${evidence === undefined ? '<evidence file of its last proof>' : shellWord(evidence)}\nthen restart cusrd (systemctl --user restart cusrd.service); roles that file still proves are not run again (deploy/README.md#bat-deputy)`,
+    );
+  }
   return ok_(
     'deputy',
     `model ${model} on harness ${harness}; turns run headless${alias ? "; role 'decider' is read as 'deputy', rename it" : ''}`,
@@ -692,7 +714,12 @@ export async function runDoctor(
               : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
       );
     }
-    checks.push(deputyCheck(config.user, inputs.manifests, restart));
+    checks.push(
+      deputyCheck(config.user, inputs.manifests, restart, {
+        config: resolve(inputs.user.file),
+        dataDir: deps.dataDir,
+      }),
+    );
   }
   const failed = checks.filter((c) => c.status === 'fail');
   const data = {
