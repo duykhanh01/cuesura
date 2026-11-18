@@ -18,12 +18,13 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { hostInnerMode, type VendorPin } from '../../src/adapters/harness/vendor.ts';
 import { CUSR_COMMANDS } from '../../src/cli/commands.ts';
 import { runCli } from '../../src/cli/program.ts';
 import { validateConfig } from '../../src/config/validate.ts';
+import { shortTmpDir } from '../../src/runner/sandbox.ts';
 import { harnessIdentity, recordManifest } from '../../src/runner/harness-records.ts';
 import type { FakeGitHubState } from './fake-github.ts';
 import { GIT_BIN } from './git-repo.ts';
@@ -346,6 +347,8 @@ export class Rehearsal extends SmokeDriver {
     git(this.project, 'commit', '-qm', 'initial');
     git(this.base, 'clone', '-q', '--bare', this.project, this.remote);
     git(this.project, 'remote', 'add', 'origin', `https://github.com/${REPO_SLUG(kind)}.git`);
+    // Preflight reads origin/main; the remote add above fetches nothing.
+    git(this.project, 'update-ref', 'refs/remotes/origin/main', 'HEAD');
   }
 
   #prepareHarnesses(): void {
@@ -546,12 +549,23 @@ export class Rehearsal extends SmokeDriver {
   }
 
   /** Scratch files of vendor processes that reached the hold, however many lives of the daemon ago. */
+  /**
+   * Marker files of held vendors. A run's TMPDIR is its scratch dir, or a short dir named from it for a
+   * binary that needs one (Claude); the latter is removed when the attempt ends.
+   */
   held(): string[] {
     const runs = join(this.dataDir, 'runs');
     if (!existsSync(runs)) return [];
-    return filesUnder(runs)
-      .filter((f) => basename(f).startsWith('running-'))
-      .map((f) => join(runs, f));
+    return readdirSync(runs).flatMap((attempt) => {
+      const scratch = join(runs, attempt, 'scratch');
+      return [scratch, shortTmpDir(scratch)].flatMap((dir) =>
+        existsSync(dir)
+          ? readdirSync(dir)
+              .filter((f) => f.startsWith('running-'))
+              .map((f) => join(dir, f))
+          : [],
+      );
+    });
   }
 
   release(): void {

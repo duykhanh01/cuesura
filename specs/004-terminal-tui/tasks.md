@@ -209,8 +209,8 @@ Chưa có bằng chứng start khi nhiều worker/reviewer cùng được đưa 
 
 **Purpose**: Bằng chứng còn lại và tài liệu. Tiêu chí chưa chạy phải ghi là chưa đạt.
 
-- [ ] T076 [P] Test tại `test/contract/tui/terminal-display.test.ts`: EC-002 đổi kích thước không mất vị trí và nội dung đang nhập; EC-003 `NO_COLOR`; EC-004 chữ nhiều byte không vỡ cột; EC-014 token và data dir không dùng được thì chỉ gặp lỗi kết nối như mọi client.
-- [ ] T077 Hoàn tất SC-011 tại `test/contract/tui/terminal-restore.test.ts` với giao diện thật và daemon thật: mọi đường thoát trả terminal về trạng thái ban đầu và task tiếp tục; `SIGKILL` được ghi là ngoài phạm vi.
+- [x] T076 [P] Test tại `test/contract/tui/terminal-display.test.ts`: EC-002 đổi kích thước không mất vị trí và nội dung đang nhập; EC-003 `NO_COLOR`; EC-004 chữ nhiều byte không vỡ cột; EC-014 token và data dir không dùng được thì chỉ gặp lỗi kết nối như mọi client.
+- [x] T077 Hoàn tất SC-011 tại `test/contract/tui/terminal-restore.test.ts` với giao diện thật và daemon thật: mọi đường thoát trả terminal về trạng thái ban đầu và task tiếp tục; `SIGKILL` được ghi là ngoài phạm vi.
 - [ ] T078 **Bỏ qua đợt này theo chỉ đạo người dùng (mốc 1 giờ và 8 giờ không chạy); ô giữ chưa hoàn thành, SC-009 và SC-013 chưa đạt.** Thêm phiên dài tại `test/reliability/tui/idle-session.test.ts` và `test/reliability/tui/long-session.test.ts`: SC-009 phiên 1 giờ tạo 0 event, 0 lượt agent, 0 token và không chiếm slot; SC-013 phiên 8 giờ log liên tục không tăng bộ nhớ liên tục, phản hồi phím dưới 200 ms ở 95% lần bấm; đo tải daemon (FR-039). Chạy và ghi kết quả vào `specs/004-terminal-tui/acceptance-report.md`.
 - [ ] T079 Thêm hành trình harness thật tại `test/smoke/tui-journey.test.ts`: SC-004 với mỗi harness thật ở cả hai chế độ, tổng thao tác dưới 3 phút; ghi riêng với lần chạy giả lập vào `specs/004-terminal-tui/acceptance-report.md`.
 - [ ] T080 Chạy SC-005 với một người chưa đọc tài liệu; ghi thời gian và chỗ bị vướng vào `specs/004-terminal-tui/acceptance-report.md`; không thay bằng test tự động.

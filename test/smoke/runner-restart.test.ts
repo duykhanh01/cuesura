@@ -177,7 +177,14 @@ describe.skipIf(!hostUsable())('local rehearsal of a daemon stop', () => {
       expectSameAttemptCompleted(before, after, active, stoppedAt);
       expect(ofType(after, 'AttemptRequested')).toEqual(ofType(before, 'AttemptRequested'));
       expect(ofType(after, 'BudgetConsumed')).toHaveLength(1);
-      expect(r.held()).toHaveLength(1);
+      // The marker may be gone with the attempt's short TMPDIR, so a second launch shows in the log instead.
+      expect(
+        ofType(after, 'OperationRegistered').filter(
+          (e) =>
+            e.payload['kind'] === 'agent' &&
+            e.payload['attempt_id'] === active.attempt.payload['attempt_id'],
+        ),
+      ).toHaveLength(1);
       expect(r.github().prs).toHaveLength(1);
       expect(waiting['head_sha']).toBe(r.github().prs[0]?.head.sha);
     },
