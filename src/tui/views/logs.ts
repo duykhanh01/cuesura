@@ -21,6 +21,7 @@ import { ending } from '../model/detail.ts';
 import { progressStages, STAGE_LABEL, stageOf, type StageName } from '../model/stages.ts';
 import {
   LOG_HEADER_ROWS,
+  latestAttempt,
   logColumns,
   logRows,
   visibleRows,
@@ -100,17 +101,36 @@ function followState(s: LogState): string {
   return s.scrolledAway ? 'Scrolled up' : 'Paused';
 }
 
+function modeAttemptId(logs: LogState, t: TuiState): string | null {
+  if (logs.attemptFilter !== null) return logs.attemptFilter;
+  const buffered = latestAttempt(logs);
+  const show = t.detail?.show.data;
+  const active = show?.provenance.active_attempt_id;
+  const explainedVersion = t.detail?.explain.data?.version;
+  // The log and the task are read separately. An older snapshot must not replace a newer log attempt.
+  if (
+    logs.mode === 'live' &&
+    !logs.complete &&
+    show != null &&
+    active != null &&
+    (explainedVersion === undefined || show.version >= explainedVersion) &&
+    (buffered === null || active >= buffered)
+  )
+    return active;
+  return buffered;
+}
+
 /** What is being read, and which lines when the buffer holds only part of it. */
-function modeLine(s: LogState, t: TuiState): SafeText {
+function modeLine(
+  s: LogState,
+  t: TuiState,
+  attempt: Pick<Attempt, 'step' | 'binding'> | undefined,
+): SafeText {
   if (s.gates !== null) return gatesModeLine(s.gates);
   const parts: SafeText[] = [];
   if (s.attemptFilter === null) parts.push(uiText(`${followState(s)} · latest step`));
-  else {
-    const a = t.detail?.show.data?.provenance.usage.find((u) => u.attempt_id === s.attemptFilter);
-    parts.push(
-      a === undefined ? uiText('One attempt') : joinSafe([stepName(a.step), a.binding], ' · '),
-    );
-  }
+  else parts.push(attempt === undefined ? uiText('One attempt') : stepName(attempt.step));
+  if (attempt?.binding) parts.push(attempt.binding);
   const first = s.buffer[0];
   const last = s.buffer.at(-1);
   if (first !== undefined && last !== undefined && (s.windowStart > 0 || s.moreForward))
@@ -471,24 +491,17 @@ export const logsBody =
     const narrow = logColumns(cols, logs.paneHidden).pane === 0;
     const stages = narrow ? stagesRow(s, cols - 1) : null;
     const news = newsLine(logs, s);
+    const usage = s.detail?.show.data?.provenance.usage ?? [];
+    const attemptId = logs.gates === null && logs.picker === null ? modeAttemptId(logs, s) : null;
+    const attempt = attemptId === null ? undefined : usage.find((a) => a.attempt_id === attemptId);
+    const mode = logs.picker === null ? modeLine(logs, s, attempt) : pickerSummary(s);
+    const showStages = stages !== null && (news === '' || !attempt?.binding);
     if (height > 1) {
-      if (stages !== null) putSegs(frame, 1, top + 1, stages, cols - 1);
-      else
-        frame.put(
-          1,
-          top + 1,
-          truncate(logs.picker === null ? modeLine(logs, s) : pickerSummary(s), cols - 1),
-          DIM,
-        );
+      if (showStages) putSegs(frame, 1, top + 1, stages, cols - 1);
+      else frame.put(1, top + 1, truncate(mode, cols - 1), DIM);
     }
     if (height > 2) {
-      if (news === '' && stages !== null)
-        frame.put(
-          1,
-          top + 2,
-          truncate(logs.picker === null ? modeLine(logs, s) : pickerSummary(s), cols - 1),
-          DIM,
-        );
+      if (news === '' && showStages) frame.put(1, top + 2, truncate(mode, cols - 1), DIM);
       else frame.put(1, top + 2, truncate(news, cols - 1), WARN);
     }
     const listTop = top + LOG_HEADER_ROWS;
@@ -519,9 +532,19 @@ export const logsBody =
       return;
     }
     // Scrolling counts rows wrapped at this same width (`logColumns`), so the place kept is the place shown.
-    visibleRows(logs, log, logRows(height)).forEach((row, i) =>
-      drawRow(frame, x, listTop + i, row, log),
-    );
+    visibleRows(logs, log, logRows(height)).forEach((row, i) => {
+      const binding =
+        row.attemptId == null
+          ? undefined
+          : usage.find((a) => a.attempt_id === row.attemptId)?.binding;
+      drawRow(
+        frame,
+        x,
+        listTop + i,
+        binding ? { ...row, text: joinSafe([row.text, binding], '  ') } : row,
+        log,
+      );
+    });
     if (newBelow(logs) && logRows(height) < room)
       frame.put(
         x + 1,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
+import { stripVTControlCharacters } from 'node:util';
+import type { TaskLogs, TaskProgress, TaskShow } from '../../../src/tui/client/schemas.ts';
 import {
   attemptGroups,
   attemptKey,
@@ -10,9 +11,11 @@ import {
 } from '../../../src/tui/model/attempt-tree.ts';
 import { initialDetail } from '../../../src/tui/model/detail.ts';
 import { onLogsCommand } from '../../../src/tui/model/detail-keys.ts';
+import { openGates } from '../../../src/tui/model/gates.ts';
 import type { Command } from '../../../src/tui/model/keymap.ts';
 import {
   applyLogPage,
+  filterAttempt,
   initialLogs,
   logRows,
   type LogEntry,
@@ -22,6 +25,7 @@ import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { Frame } from '../../../src/tui/terminal/screen.ts';
 import { logsBody } from '../../../src/tui/views/logs.ts';
+import { uuidOf } from '../../support/builders.ts';
 
 type Usage = TaskShow['provenance']['usage'][number];
 
@@ -330,6 +334,128 @@ describe('the chooser on screen', () => {
     logsBody({ ...initialState({ cols: 120, rows: 40 }), logs })(frame, 0, 10);
     expect(frame.rowBytes(1)).toContain('Finished · latest step');
     expect(frame.rowBytes(2)).toBe('');
+  });
+});
+
+describe('agent attempts on the Logs screen', () => {
+  const task = uuidOf(1);
+  const title = uiText('A task');
+  const [first, second] = usage(['code', 'code']) as [Usage, Usage];
+  const raised = { ...second, binding: uiText('sonnet/high') };
+  const initial = initialLogs(task, title, 2);
+  const record = (seq: number, attempt_id: string): TaskLogs['records'][number] => ({
+    seq,
+    cursor: seq,
+    operation_id: 'op',
+    attempt_id,
+    step: uiText('code'),
+    at: uiText('2026-11-01T10:20:30.000Z'),
+    kind: uiText('stdout'),
+    data: `output ${seq}`,
+  });
+  const tail = (logs: LogState, seq: number, id: string) =>
+    applyLogPage(
+      logs,
+      { kind: 'tail', after: 0 },
+      { task_id: task, records: [record(seq, id)], next_cursor: seq, complete: false },
+      0,
+    );
+
+  function draw(
+    cols: number,
+    logs: LogState,
+    attempts: readonly Usage[],
+    activeAttemptId?: string,
+  ): string[] {
+    const detail = initialDetail(task, title, 1);
+    const show = {
+      status: 'RUNNING',
+      version: 1,
+      provenance: { usage: attempts, active_attempt_id: activeAttemptId },
+    } as unknown as TaskShow;
+    const progress: TaskProgress = {
+      task_id: task,
+      version: 1,
+      mode: uiText('direct-pr'),
+      steps: [{ name: uiText('code'), state: 'current', visits: 2 }],
+      reason: null,
+      needs_user: false,
+      worktree_path: null,
+    };
+    const rows = 24;
+    const frame = new Frame(cols, rows, { color: false });
+    logsBody({
+      ...initialState({ cols, rows }),
+      detail: {
+        ...detail,
+        show: { ...detail.show, data: show },
+        progress: { ...detail.progress, data: progress },
+      },
+      logs,
+    })(frame, 0, rows);
+    return Array.from({ length: rows }, (_, y) => stripVTControlCharacters(frame.rowBytes(y)));
+  }
+
+  it.each([80, 120])('shows the binding of each run of the same step at %i columns', (cols) => {
+    const live = tail(initial, 2, raised.attempt_id);
+    const screen = draw(cols, live, [first, raised]);
+    expect(screen.slice(0, 3).join('\n')).toContain('Live · latest step · sonnet/high');
+    expect(screen.find((line) => line.includes('── code'))).toContain('sonnet/high');
+    expect(screen.join('\n')).not.toContain('opus/medium');
+
+    const historic = tail(filterAttempt(live, first.attempt_id), 1, first.attempt_id);
+    const archived = draw(
+      cols,
+      { ...historic, newActivity: true },
+      [first, raised],
+      raised.attempt_id,
+    );
+    expect(archived.slice(0, 3).join('\n')).toContain('Code · opus/medium');
+    expect(archived.slice(0, 3).join('\n')).toContain('New activity');
+    expect(archived.find((line) => line.includes('── code'))).toContain('opus/medium');
+    expect(archived.join('\n')).not.toContain('sonnet/high');
+  });
+
+  it('shows the new active binding before its first record and keeps the previous separator', () => {
+    const logs = tail(initial, 1, first.attempt_id);
+    const screen = draw(80, logs, [first, raised], raised.attempt_id);
+    expect(screen.slice(0, 3).join('\n')).toContain('Live · latest step · sonnet/high');
+    const separator = screen.find((line) => line.includes('── code'));
+    expect(separator).toContain('opus/medium');
+    expect(separator).not.toContain('sonnet/high');
+    expect(screen.join('\n')).toContain('output 1');
+    expect(screen.join('\n')).not.toContain('output 2');
+  });
+
+  it('uses the log when its attempt is newer than the task metadata', () => {
+    const logs = tail(initial, 2, raised.attempt_id);
+    const screen = draw(80, logs, [first], first.attempt_id).join('\n');
+    expect(screen).toContain('Live · latest step');
+    expect(screen).toContain('output 2');
+    expect(screen).not.toContain('opus/medium');
+  });
+
+  it('keeps archived output readable without metadata and shows model-only metadata as given', () => {
+    const logs = tail(filterAttempt(initial, first.attempt_id), 1, first.attempt_id);
+    const archive = draw(80, logs, [raised]).join('\n');
+    expect(archive).toContain('One attempt');
+    expect(archive).toContain('output 1');
+    expect(archive).not.toContain('sonnet/high');
+    expect(draw(80, logs, [{ ...first, binding: uiText('opus') }]).join('\n')).toContain(
+      'Code · opus',
+    );
+  });
+
+  it('keeps the agent binding out of gate logs', () => {
+    const logs = tail(initial, 2, raised.attempt_id);
+    const screen = draw(
+      80,
+      { ...logs, gates: openGates(null) },
+      [first, raised],
+      raised.attempt_id,
+    ).join('\n');
+    expect(screen).toContain('Gates · Live');
+    expect(screen).not.toContain('sonnet/high');
   });
 });
 

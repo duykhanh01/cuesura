@@ -283,6 +283,7 @@ export const TaskShowSchema = z.looseObject({
     })
     .nullable(),
   provenance: z.looseObject({
+    active_attempt_id: z.string().nullable().optional(),
     usage: z.array(
       z.looseObject({
         attempt_id: z.string(),

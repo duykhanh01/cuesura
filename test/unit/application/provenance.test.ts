@@ -17,6 +17,7 @@ describe('task_show provenance', () => {
       head_sha: null,
       base_sha: null,
       observation: null,
+      current_step: null,
       // Keys in another order than the attempts began, as a stored state's sorted keys may be.
       attempts: Object.fromEntries(
         [...attempts]
@@ -31,5 +32,22 @@ describe('task_show provenance', () => {
     } as unknown as TaskState;
     const usage = (provenance(state) as { usage: { attempt_id: string }[] }).usage;
     expect(usage.map((u) => u.attempt_id)).toEqual(['0001', '0002', '0003', '0004', '0005']);
+  });
+
+  it('identifies the active attempt from the current step, even before it reports usage', () => {
+    const active = { id: '0002', status: 'running', stop_requested: false, usage: null };
+    const state = {
+      status: 'RUNNING',
+      current_step: 'code',
+      current_attempt: { code: active.id, review: '0003' },
+      attempts: { [active.id]: active, '0003': { ...active, id: '0003' } },
+      budget: { reservations: {} },
+      artifacts: {},
+    } as unknown as TaskState;
+    expect(provenance(state).active_attempt_id).toBe(active.id);
+    expect(provenance({ ...state, current_step: 'gates' }).active_attempt_id).toBeNull();
+    expect(provenance({ ...state, status: 'CANCELLED' }).active_attempt_id).toBeNull();
+    active.stop_requested = true;
+    expect(provenance(state).active_attempt_id).toBeNull();
   });
 });

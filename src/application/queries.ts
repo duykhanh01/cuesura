@@ -524,6 +524,8 @@ const TaskQuerySchema = z.object({ kind: z.string(), task_id: UuidSchema }).stri
  * attempt that reported each usage, the reservations it spent and the artifacts the store committed.
  */
 export function provenance(s: TaskState): Record<string, unknown> {
+  const attemptId = s.current_step === null ? undefined : s.current_attempt[s.current_step];
+  const attempt = attemptId === undefined ? undefined : s.attempts[attemptId];
   return {
     pr: {
       ref: s.pr_ref,
@@ -531,6 +533,10 @@ export function provenance(s: TaskState): Record<string, unknown> {
       base_sha: s.base_sha,
       observation: s.observation?.last ?? null,
     },
+    active_attempt_id:
+      s.status === 'RUNNING' && attempt?.status === 'running' && !attempt.stop_requested
+        ? attempt.id
+        : null,
     // `n` counts attempts of one step; IDs are UUIDv7, so they order attempts across steps by when they began.
     usage: Object.values(s.attempts)
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : a.n - b.n))

@@ -473,6 +473,8 @@ export function failLogRead(s: LogState, error: SafeText, at: number): LogState 
 export type LogRow = {
   readonly kind: 'record' | 'separator' | 'gap';
   readonly text: SafeText;
+  /** The attempt named by a separator, for joining with task details when they arrive. */
+  readonly attemptId?: string | null;
   readonly tone?: Tone;
   /** Cells of the mark before the text. */
   readonly head?: number;
@@ -626,7 +628,9 @@ function entryRows(
 ): LogRow[] {
   const sep = separator(entry, prev);
   const rows = textRows(entry, cols, expanded);
-  return sep === null ? rows : [{ kind: 'separator', text: sep }, ...rows];
+  return sep === null
+    ? rows
+    : [{ kind: 'separator', text: sep, attemptId: entry.attemptId }, ...rows];
 }
 
 function indexOfSeq(buffer: readonly LogEntry[], seq: number): number {
