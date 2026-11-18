@@ -326,3 +326,103 @@ Riêng Logs khi đổi token: `forgetLogs` đã tăng `generation` nên phản h
 
 - Mục Actions bị làm mờ theo vai trò của token, không theo project: menu chỉ mở được trên task mà token đã đọc được.
 - SC-005 với người thật thuộc T080.
+
+## T079: SC-004 với harness thật (một phần)
+
+**Trạng thái: một phần.** Bốn tổ hợp harness × chế độ đã chạy thật một lần, nhưng người thao tác là script và merge cũng do script
+làm. Bản test hiện tại, có merge thủ công và các guard mới, chưa chạy lại hành trình trả phí. SC-004 với người thật chưa đo.
+
+### Bốn lượt chạy thật (bản test cũ, commit `40c19ac`)
+
+Chạy ngày 2026-11-18 trên bản build của `a4d183b`, host Ubuntu này, kernel 7.0.0-42, Node 24.22.1. Mỗi hành trình gõ phím vào
+`dist/cli/cusr.js` không lệnh con trên PTY, với `dist/cli/cusrd.js`, model thật (`claude-haiku-5-5`, `gpt-6-luna`, effort low) và repo
+sandbox private thật: tạo task, đề xuất và xác nhận cấu hình chạy, trả lời câu hỏi của agent, xem lối ra `Merge on GitHub`, rồi thấy
+`Finished` tăng một sau merge. Bằng chứng máy đọc được: [t079-smoke-ledger.jsonl](evidence/t079-smoke-ledger.jsonl), trong đó trường
+`keys_s` là số đo PTY dưới đây.
+
+| Harness worker | Chế độ | Reviewer | Task | PR | Head đã kiểm = head đã merge | Merge commit | PTY | Tổng |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Claude `claude-haiku-5-5`, low | `direct-pr` | không | `01a1ef3e-e15b-7735-9020-35e72d9a8153` | Node#7 | `bbe0540f9f` | `90807c5d09` | 8,7 s | 198 s |
+| Claude `claude-haiku-5-5`, low | `full-review` | Codex `gpt-6-luna`, low | `01a1ef4f-e5ba-7485-a113-7fbf32f0d2f5` | Node#8 | `7dd1e8b5de` | `d836facbec` | 9,8 s | 219 s |
+| Codex `gpt-6-luna`, low | `direct-pr` | không | `01a1ef49-6ec9-7762-91c7-84b033de883e` | Python#6 | `f6a1950f88` | `8c8ae81967` | 7,8 s | 209 s |
+| Codex `gpt-6-luna`, low | `full-review` | Claude `claude-haiku-5-5`, low | `01a1ef53-3e47-76f0-896e-7e842864c673` | Python#7 | `f0aa71b55c` | `09ff34a958` | 9,2 s | 227 s |
+
+- **Cột PTY** là thời gian các đoạn script tương tác với PTY: tạo task, đề xuất, xác nhận, trả lời, mở menu xem `Merge on GitHub` và
+  chờ `Finished` trên Home. Bước merge, việc đọc CI trước merge và thời gian chờ agent, CI hay drain nằm ngoài số đo này. **Cột Tổng**
+  là toàn bộ thời gian thực của ca, gồm cả các bước đó.
+- Mỗi task có `QuestionAsked`, câu trả lời gửi từ TUI được ghi `by: owner`, rồi lượt coder thứ hai làm xong. Hai PR `full-review`
+  có một review "Approved" ở vòng 1 của vendor còn lại. Cả bốn PR có check `build` và `test` thành công trên chính head đó.
+- Merge ở lượt này do script chạy `gh pr merge --squash --admin --match-head-commit <head>`, theo phép của lead chỉ cho phiên này.
+  Sandbox bắt buộc một review mà tài khoản owner không tự approve được. Bản test hiện tại không còn lệnh merge (xem dưới).
+- Usage: 10 lượt agent, gồm Claude 5 (4 coder, 1 reviewer) và Codex 5 (4 coder, 1 reviewer).
+- Lượt đầu, hai ca `full-review` hỏng trước khi gọi model: lựa chọn ở Home vẫn nằm trên dòng `Finished (1)` của hành trình trước, nên
+  `a` không mở menu của task mới. Hai task dở được hủy bằng CLI, không có lượt agent nào. Sau khi sửa cách chọn dòng, chạy lại một
+  lần thì đạt.
+
+- Đọc lại sau khi sửa review (commit `8f79d16`): một bản test tạm khởi động daemon trên hai data dir trên và đọc lại bốn task. Cả
+  bốn đều DONE trên head đã kiểm, history đúng binding, PR merged đúng merge commit, `build` và `test` thành công trên head, và TUI ghi
+  `Finished` trên đúng dòng của ID: 4/4 đạt. Phần này đã bị bỏ khỏi test (xem dưới), vì khởi động daemon thật trên data dir cũ có thể
+  resume task còn dở.
+
+### Bản test hiện tại
+
+`test/smoke/tui-journey.test.ts` có hai phần:
+
+- **Guard trên fixture.** Phần này luôn chạy, không đọc config người dùng, không khởi động daemon và không gọi mạng:
+  - `prNumber`: chỉ đọc và thao tác PR của đúng repo đã khai.
+  - `sandboxProblem`: chỉ ghi vào repo private có tên sandbox.
+  - `configProblem`: config phải tắt `yolo` và chỉ khai đúng project và data dir sandbox của hướng đó.
+  - `unfinishedTasks`: đọc store offline để tìm task chưa kết thúc mà daemon sẽ resume.
+  - `notGreen`: một head chỉ xanh khi mọi check bắt buộc (`build`, `test` theo `cusr.yaml` của fixture) có run thành công trên chính
+    head đó. Rollup rỗng hay thiếu check là chưa xanh.
+  - `notVerifiedDone`: DONE chỉ được tính khi `checked_head_sha = merged_head_sha = head`, `unverified: null` và có merge commit.
+  - `matrixProblem`: worker là Claude ở Node, Codex ở Python; reviewer là vendor còn lại ở `full-review` và không có ở `direct-pr`;
+    mọi lượt coder, fixer và review trong history phải chạy đúng binding đó.
+
+  Ledger bốn lượt thật được kiểm lại bằng các guard này. Kết quả: 8 test đạt, 4 skip.
+- **Hành trình trả phí.** Phần này chỉ chạy khi có cả `CUSR_SMOKE_REAL` và `CUSR_SMOKE_T079_JOURNEY=1`. Trước khi khởi động daemon,
+  `assertSafeStart()` kiểm offline rằng config tắt `yolo` và chỉ có đúng project sandbox, data dir không còn task chưa kết thúc, và
+  GitHub báo repo private có tên sandbox. Sai một điều kiện thì dừng, chưa tốn gì.
+
+  Tiêu đề có hậu tố riêng của lần chạy và task được chọn theo ID. Khi daemon chờ merge, test kiểm `pr_ref` thuộc repo đã khai, PR mở
+  trên đúng head và `build`/`test` xanh trên head đó. Sau đó test in URL và head để operator merge thủ công rồi theo dõi tới DONE. Test
+  không gọi merge và không ghi gì lên GitHub.
+
+  Thời gian PTY tính mọi đoạn tương tác, kể cả mở menu merge và xem `Finished`. Thời gian chờ agent, chờ merge wait và chờ operator
+  merge tới DONE được ghi riêng (`waits_s`); khoảng cuối gộp cả thao tác merge của operator. Bản ghi ledger chỉ được thêm sau khi mọi
+  assertion đạt. **Phần này chưa chạy lại trên bản test hiện tại.**
+
+### Chạy đủ bốn tổ hợp trên data dir sạch
+
+1. Tạo cho mỗi hướng một config và một data dir mới, chưa có `cusr.db`:
+   - Node: worker Claude, reviewer Codex, project duy nhất là `node-sandbox`.
+   - Python: worker Codex, reviewer Claude, project duy nhất là `python-sandbox`.
+
+   Mỗi config khai `runtime.data_dir` bằng data dir của nó, không có `yolo: true`, dùng profile `smoke` và model nhẹ.
+2. Chép `harnesses/claude/{pin,manifest}.json` và `harnesses/codex/{pin,manifest}.json` từ data dir có record đã chứng minh vào
+   `harnesses/` của từng data dir mới. Credential chỉ là đường dẫn trong `runtime.credential_refs`.
+3. Chạy `node dist/cli/cusr-runner.js check-records --config <config> --data-dir <data>` cho từng hướng; cả hai phải báo `ok`.
+4. Viết file `CUSR_SMOKE_REAL` theo `RealSmokeSchema` của `test/support/smoke-real.ts`:
+   - `node`: repo `<owner>/cuesura-sandbox-node`.
+   - `python`: repo `<owner>/cuesura-sandbox-python`.
+   - `ledger`: đường dẫn ledger mới.
+5. Chạy `pnpm build`, rồi
+   `CUSR_SMOKE_REAL=<file> CUSR_SMOKE_T079_JOURNEY=1 pnpm vitest run --project smoke test/smoke/tui-journey.test.ts`.
+
+   Mỗi ca in dòng `merge https://github.com/... at head <sha> by hand`. Operator merge đúng head đó trên GitHub sau khi CI xanh. Ca
+   tiếp theo của cùng hướng chỉ bắt đầu khi data dir không còn task dở.
+
+**Cấu hình:** thư mục riêng `~/.local/share/cuesura-t079`, gồm hai config (worker Claude cho Node, worker Codex cho Python; reviewer
+là vendor còn lại) và hai data dir riêng. Repo là bản clone của hai sandbox private `duykhanh01/cuesura-sandbox-node`, `-python` có
+sẵn từ feature 002; mỗi task chạy trên nhánh `cusr/...` riêng và merge vào `main` của sandbox. Pin và manifest harness chép từ data
+dir dogfood; credential chỉ là đường dẫn tham chiếu. Không sửa config, data dir hay daemon dogfood. `cusr doctor` báo mọi kiểm tra
+`ok` trước khi chạy.
+
+**Giới hạn:**
+
+- Người thao tác là script; SC-004 với người thật chưa đo.
+- Hành trình trả phí chưa chạy lại trên bản test hiện tại. Bằng chứng live là bốn lượt của bản cũ và lượt đọc lại ở `8f79d16`; phần đọc lại đã bỏ khỏi test.
+- Pin Codex ghi `codex-cli 0.167.0` cho launcher `codex.js`, trong khi `codex --version` trên host lúc chạy báo `0.169.1`. Doctor vẫn
+  báo `manifest:codex ok`.
+- Câu hỏi được gợi bằng mô tả task yêu cầu agent hỏi trước khi sửa file, không phải câu hỏi tự phát của agent.
+- Phát hiện về UX, chưa sửa: task vừa tạo không được chọn ở Home nên người dùng phải tự di chuyển tới nó trước khi bấm `a`.

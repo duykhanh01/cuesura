@@ -651,6 +651,34 @@ export async function openTask(s: PtySession, title: string): Promise<void> {
   await detailRead(s);
 }
 
+/**
+ * Moves the Home selection onto the task with this ID, which the footer under the list gives in full; a
+ * folded Finished group on the way is opened. Titles may repeat, IDs do not.
+ */
+export async function selectTaskId(s: PtySession, id: string): Promise<void> {
+  const on = (): boolean => flat(s.screenText()).includes(`ID ${id}`);
+  if (on()) return;
+  const start = selectedLine(s.screenText());
+  s.send('g');
+  // Already at the top, nothing moves.
+  await s.waitFor(() => selectedLine(s.screenText()) !== start, 1_000).catch(() => {});
+  for (let i = 0; i < 400 && !on(); i++) {
+    const before = selectedLine(s.screenText());
+    if (before.includes('▸ Finished')) {
+      s.send(KEY.enter);
+      await s.waitFor(() => selectedLine(s.screenText()).includes('▾ Finished'), 5_000);
+      continue;
+    }
+    s.send(KEY.down);
+    try {
+      await s.waitFor(() => on() || selectedLine(s.screenText()) !== before, 3_000);
+    } catch {
+      break; // The end of the list.
+    }
+  }
+  if (!on()) throw new Error(`no task ${id} on Home:\n${s.screenText()}`);
+}
+
 /** Enter opens a task on its stages and log; `d` goes on to Task detail. */
 export async function enterDetail(s: PtySession): Promise<void> {
   s.send(KEY.enter);
@@ -722,8 +750,17 @@ export async function pressAction(s: PtySession, label: string): Promise<void> {
       5_000,
     );
     if (!reading()) return;
+    // The read can land and clear the notice before the move is handled; Enter sent then would hit the
+    // entry the move goes to. Wait until the selection has really moved, upward from the last entry.
+    const before = selectedLine(s.screenText());
+    const moved = (): boolean => !reading() && selectedLine(s.screenText()) !== before;
     s.send(KEY.down);
-    await s.waitFor(() => !reading(), 5_000);
+    try {
+      await s.waitFor(moved, 2_000);
+    } catch {
+      s.send(KEY.up);
+      await s.waitFor(moved, 5_000);
+    }
   }
 }
 
