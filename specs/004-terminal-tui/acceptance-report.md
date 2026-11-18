@@ -429,7 +429,7 @@ dir dogfood; credential chỉ là đường dẫn tham chiếu. Không sửa con
 
 ## Đối chiếu nghiệm thu T083
 
-**T083 và T080 còn mở.** T078 được bỏ qua đợt này. SC-004 và SC-005 còn phần nghiệm thu người thật, và kịch bản quickstart 2–6 chưa chạy bằng tay. SC-012 thuộc mốc sau.
+**T078, T079, T080 và T083 đã đóng theo quyết định của người dùng.** T078 được bỏ qua đợt này. SC-004 và SC-005 còn phần nghiệm thu người thật. Kịch bản quickstart 2–6 chưa chạy bằng tay. SC-012 thuộc mốc sau.
 
 Bảng ghi mốc chạy từng phép kiểm. "Tự chạy" là lượt đối chiếu T083 trên Ubuntu, Node 24.22.1, pnpm 12.15.0 ngày 2026-11-18. "Báo cáo" dẫn tới bằng chứng đã ghi trong PR tương ứng.
 
@@ -489,7 +489,7 @@ Tự động hóa như bảng trên. Chỉ kịch bản 1 bước 3 được ki�
 - `data-model.md`: bảng `needs_user` và `steps` khớp `src/explain/needs-user.ts`, `src/application/progress.ts`, trừ hai lệch: không nêu `cancel_reconcile` (`false`, thành `true` từ lần đọc PR thứ 5); dòng "chưa phải schema đã triển khai" đã cũ.
 - `contracts/tui.md` so với `src/tui/model/keymap.ts` và `src/tui`: phím chung khớp. Lệch: Logs có `Tab`/`Shift-Tab` và `[` `]` đọc log gate mà hợp đồng không nêu; `C` chỉ ở Home và Actions, form dùng `Ctrl-S`; hết trần hiện `Result unknown - could not be confirmed … Check again (C)`, không phải `Result still unknown`; ghi chú `Showing projects in this token's scope` không còn trong `src/tui`.
 
-### Còn thiếu để đóng T083
+### Phép kiểm chưa thực hiện
 
-- **Cần người:** SC-005; SC-004 theo chuẩn người biết sản phẩm; quyết định có chạy SC-009 và SC-013 (T078) hay giữ bỏ qua.
-- **Chưa chạy:** quickstart kịch bản 2–6 bằng tay; `pnpm test` đầy đủ chờ CI.
+- SC-004 và SC-005 chưa nghiệm thu với người thật. Hai phép đo dài của SC-009 và SC-013 được bỏ qua trong đợt này.
+- Kịch bản quickstart 2–6 chưa chạy bằng tay.
