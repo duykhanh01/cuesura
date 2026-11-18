@@ -31,16 +31,19 @@ describe('US1 scenario 4 and SC-003: a change shows by itself', () => {
     const ids = seedReady(sd, SAMPLES);
     await sd.start();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText(`Tasks: READY ${SAMPLES}`);
+    await s.waitForText(`▲ ${SAMPLES} need you`);
     const tookMs: number[] = [];
     for (const [i, id] of ids.entries()) {
+      // Started before the command: the status changes inside it, so this bounds the delay from above.
+      const changedAt = Date.now();
       const r = await cancelTask(sd, id, i);
       expect(r.envelope.ok).toBe(true);
-      const changedAt = Date.now();
-      await s.waitForText(`CANCELLED ${i + 1}`, 10_000);
+      await s.waitForText(`■ ${i + 1} cancelled`, 10_000);
       tookMs.push(Date.now() - changedAt);
-      await s.waitForText(`Finished (${i + 1})`);
-      expect(s.screenText()).not.toContain(`Ready ${String(i + 1).padStart(2, '0')}`);
+      // The rows are past the viewport, so the counts line says whether the task left `Needs you`.
+      const left = SAMPLES - i - 1;
+      if (left > 0) await s.waitForText(`▲ ${left} need you`);
+      else expect(s.screenText()).not.toContain('need you');
     }
     const inTime = tookMs.filter((ms) => ms < 3_000).length;
     expect(inTime, `took ${tookMs.join(', ')} ms`).toBeGreaterThanOrEqual(
@@ -58,7 +61,7 @@ describe('SC-002: 100 tasks', () => {
     await sd.start();
     const startedAt = Date.now();
     const s = tui.cusr(sd.dataDir);
-    await s.waitForText('Tasks: RUNNING 100', 2_000);
+    await s.waitForText('▶ 100 running', 2_000);
     expect(Date.now() - startedAt).toBeLessThan(2_000);
     await quit(s);
 
