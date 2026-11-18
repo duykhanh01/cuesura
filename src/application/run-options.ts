@@ -52,11 +52,15 @@ export function configCheckError(
   message = 'cannot run a task',
 ): AppError {
   const at = c.base === null ? '' : ` at ${c.base.ref} (${c.base.sha})`;
+  const apply =
+    c.base === null
+      ? ''
+      : '. To apply cusr.yaml changes, commit and merge them into the base branch, then fetch origin in the project clone.';
   const kinds = [...new Set(c.problems.map((p) => p.check))];
   const checks = problemChecks(c.problems);
   return {
     code: 'config_invalid',
-    message: `the config${at} ${message}: ${kinds.join(', ')}`,
+    message: `the config${at} ${message}: ${kinds.join(', ')}${apply}`,
     details: {
       diagnostics: checks.map((p) => `${p.name}: ${p.detail}`),
       checks,
@@ -261,7 +265,11 @@ export async function computeRunOptions(
     profile: s.task.profile ?? null,
   });
   if (!checked.ok)
-    return err({ code: 'options_unavailable', message: checked.error.detail, details: {} });
+    return err({
+      code: 'options_unavailable',
+      message: checked.error.detail,
+      details: checked.error.base === null ? {} : { base: checked.error.base },
+    });
   if (checked.value.ready === null) return err(configCheckError(checked.value));
   const { validated, profile: chosen } = checked.value.ready;
   const { config } = validated;

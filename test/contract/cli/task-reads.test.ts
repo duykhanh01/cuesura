@@ -10,6 +10,7 @@ import {
   fakeGitHub,
   fakeHost,
   MANIFESTS,
+  SHA,
   userConfig,
 } from '../../support/preflight-fakes.ts';
 import { createGrantStart } from '../../support/runtime.ts';
@@ -246,24 +247,29 @@ describe('cusr task progress, for people', () => {
 
 describe('cusr task options', () => {
   const withGit =
-    (opts: { user?: string; missingBase?: boolean } = {}): SeededExtra =>
+    (
+      opts: { user?: string; missingBase?: boolean; mode?: string; readTimeout?: boolean } = {},
+    ): SeededExtra =>
     (store) => {
-      const git = fakeGit();
+      const git = fakeGit(opts.mode === undefined ? {} : { mode: opts.mode });
       return {
         confirm: {
           store,
           ports: {
             git: {
-              run: (c) =>
-                opts.missingBase === true && c.args[0] === 'rev-parse'
-                  ? Promise.resolve({
-                      kind: 'exited' as const,
-                      code: 1,
-                      stdout: '',
-                      stderr: '',
-                      truncated: false,
-                    })
-                  : git.run(c),
+              run: (c) => {
+                if (opts.missingBase === true && c.args[0] === 'rev-parse')
+                  return Promise.resolve({
+                    kind: 'exited' as const,
+                    code: 1,
+                    stdout: '',
+                    stderr: '',
+                    truncated: false,
+                  });
+                if (opts.readTimeout === true && c.args[0] === 'cat-file')
+                  return Promise.resolve({ kind: 'timeout' as const });
+                return git.run(c);
+              },
             },
             github: fakeGitHub(),
             host: fakeHost(),
@@ -297,6 +303,44 @@ describe('cusr task options', () => {
       code: ExitCode.ok,
       envelope: { data: { profile: { id: 'standard' } } },
     });
+  });
+
+  it('explains the local base and gate source in help', async () => {
+    const r = await cli(daemon(), 'task', 'options', '--help');
+    expect(r.code).toBe(ExitCode.ok);
+    expect(r.out).toContain('cusr.yaml (including gate definitions)');
+    expect(r.out).toContain('local origin/<base>');
+    expect(r.out).toContain('without fetching');
+    expect(r.out).toContain('Commit and merge');
+  });
+
+  it.each([
+    ['config_invalid', { mode: '120000' }, 'commit and merge'],
+    ['options_unavailable', { readTimeout: true }, 'git cat-file timed out'],
+  ] as const)('reports the resolved base on %s', async (code, opts, hint) => {
+    const { sd, t } = await seeded(withGit(opts));
+    expect(await json(sd, 'task', 'options', t.id)).toMatchObject({
+      code: ExitCode.failure,
+      envelope: { error: { code, details: { base: { ref: 'origin/main', sha: SHA } } } },
+    });
+    const r = await cli(sd, 'task', 'options', t.id);
+    expect(r.code).toBe(ExitCode.failure);
+    expect(r.err).toContain(`origin/main (${SHA})`);
+    expect(r.err).toContain(hint);
+  });
+
+  it('shows how to recover an unresolved ref without a SHA', async () => {
+    const { sd, t } = await seeded(withGit({ missingBase: true }));
+    const result = await json(sd, 'task', 'options', t.id);
+    expect(result).toMatchObject({
+      code: ExitCode.failure,
+      envelope: { error: { code: 'options_unavailable' } },
+    });
+    expect(result.envelope.error).toHaveProperty('details', {});
+    const r = await cli(sd, 'task', 'options', t.id);
+    expect(r.err).toContain('origin/main');
+    expect(r.err).toContain('git fetch origin');
+    expect(r.err).not.toMatch(/\b[0-9a-f]{40}\b/);
   });
 
   it.each([

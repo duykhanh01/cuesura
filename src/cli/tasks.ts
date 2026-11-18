@@ -1574,8 +1574,16 @@ export const progressCommand = taskRead(
   'Show visited, current, and remaining workflow steps.',
   renderProgress,
 );
-export const optionsCommand = taskRead(
-  'run_options',
-  'task options',
-  'List available execution modes and models for a task.',
-);
+export const optionsCommand: CliCommand = {
+  ...taskRead(
+    'run_options',
+    'task options',
+    'List available execution modes and models for a task.',
+  ),
+  help: `Reads cusr.yaml (including gate definitions) from the commit at local origin/<base>
+in the project clone without fetching. Commit and merge cusr.yaml changes into the
+base branch, then fetch origin in the project clone to see the changes here.
+
+Example:
+  cusr task options 019a0000-0000-7000-8000-000000000001`,
+};

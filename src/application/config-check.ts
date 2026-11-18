@@ -35,7 +35,7 @@ export type ConfigCheckInputs = {
 };
 
 export type ConfigCheck = {
-  /** The base the project config was read from; null when the check stopped before reading it. */
+  /** The resolved base of the project config; null when the check could not resolve it. */
   readonly base: { readonly ref: string; readonly sha: string } | null;
   readonly problems: readonly ConfigProblem[];
   /** Present only when there are no problems. */
@@ -45,8 +45,11 @@ export type ConfigCheck = {
   } | null;
 };
 
-/** The base could not be read at all: not a config verdict. */
-export type ConfigCheckUnavailable = { readonly detail: string };
+/** Git could not resolve the base or read its files. */
+export type ConfigCheckUnavailable = {
+  readonly detail: string;
+  readonly base: ConfigCheck['base'];
+};
 
 const where = (d: Diagnostic): string => `${d.file}:${String(d.line)}:${String(d.col)}`;
 
@@ -321,9 +324,20 @@ export async function checkProjectConfig(
   const ref = `origin/${subject.base_branch}`;
   const read = await readLocalBaseConfig(git, path, subject.base_branch);
   if (!read.ok) {
-    if (read.error.kind === 'unavailable') return err({ detail: read.error.detail });
+    if (read.error.kind === 'unavailable') {
+      const sha = read.error.base_sha;
+      if (sha === null)
+        return err({
+          base: null,
+          detail: `${read.error.detail}. Run git fetch origin in the project clone at ${path}, then verify ${ref} exists`,
+        });
+      return err({
+        base: { ref, sha },
+        detail: `could not read cusr.yaml at ${ref} (${sha}): ${read.error.detail}. Check the project clone at ${path} and retry`,
+      });
+    }
     return ok({
-      base: null,
+      base: { ref, sha: read.error.base_sha },
       problems: [
         {
           check: 'project_config',

@@ -924,10 +924,11 @@ async function checkStackedBase(
 }
 
 export type LocalBaseError = {
-  /** `invalid`: the file is there and cannot be used. `unavailable`: the base could not be read. */
-  readonly kind: 'invalid' | 'unavailable';
   readonly detail: string;
-};
+} & (
+  | { readonly kind: 'invalid'; readonly base_sha: string }
+  | { readonly kind: 'unavailable'; readonly base_sha: string | null }
+);
 
 /**
  * A config file at the base as this machine knows it, for a read that must stay quick: unlike preflight it
@@ -941,6 +942,7 @@ export async function readLocalBaseConfig(
 ): Promise<
   Result<{ readonly base_sha: string; readonly config: ConfigSource | null }, LocalBaseError>
 > {
+  let base_sha: string | null = null;
   try {
     const sha = await git(
       port,
@@ -952,16 +954,17 @@ export async function readLocalBaseConfig(
       return err({
         kind: 'unavailable',
         detail: `origin/${baseBranch} is not available in ${path}`,
+        base_sha,
       });
-    const base_sha = sha.stdout.trim();
+    base_sha = sha.stdout.trim();
     const config = await readBaseFile(port, path, base_sha, file);
     return config.ok
       ? ok({ base_sha, config: config.value })
-      : err({ kind: 'invalid', detail: config.error.message });
+      : err({ kind: 'invalid', detail: config.error.message, base_sha });
   } catch (e) {
-    if (e instanceof Infra) return err({ kind: 'unavailable', detail: e.detail });
+    if (e instanceof Infra) return err({ kind: 'unavailable', detail: e.detail, base_sha });
     if (e instanceof GitRefused)
-      return err({ kind: 'unavailable', detail: `git refused: ${e.reason}` });
+      return err({ kind: 'unavailable', detail: `git refused: ${e.reason}`, base_sha });
     throw e;
   }
 }
