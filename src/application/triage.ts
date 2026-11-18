@@ -12,6 +12,7 @@ import {
   type Trigger,
   type TriggerEnvelope,
 } from '../domain/trigger.ts';
+import { currentRunProposal } from '../engine/run-config.ts';
 import type { AcceptError, AcceptOutcome, Store } from '../store/index.ts';
 import type { Result } from '../shared/result.ts';
 import {
@@ -78,6 +79,13 @@ export function adoptionInput(s: TaskState): Pick<PreflightInput, 'adoption'> {
     : {
         adoption: { head_branch: s.adoption.head_branch, head_sha: s.adoption.head_sha },
       };
+}
+
+export function runConfigInput(s: TaskState): Pick<PreflightInput, 'mode' | 'proposed_profile'> {
+  return {
+    mode: s.run.proposal?.selection.mode ?? null,
+    proposed_profile: currentRunProposal(s)?.selection.profile ?? null,
+  };
 }
 
 /** Runs preflight once for this request; the result is a candidate, never a snapshot (FR-002.03). */

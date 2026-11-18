@@ -364,7 +364,7 @@ export async function checkedProposal(
   task: Parameters<typeof computeRunOptions>[1],
   proposal: RunProposal,
 ): Promise<Result<RunSelectionProposal, AppError>> {
-  const computed = await computeRunOptions(deps.confirm, task);
+  const computed = await computeRunOptions(deps.confirm, task, proposal.profile);
   if (!computed.ok) return computed;
   const resolved = resolveProposal(computed.value.options, computed.value.probe, proposal);
   if (!resolved.ok) return resolved;

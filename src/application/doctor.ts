@@ -184,7 +184,7 @@ async function projectReadinessChecks(
     profileId === null
       ? ok_(
           `profile:${project}`,
-          `no default profile: each task must name one (profile: in its --file); for a default, set profile: in cusr.yaml on ${base} to one of: ${profiles.join(', ') || '(none; add profiles to the user config)'}`,
+          `no default profile: each task must name one (set profile: in the task JSON file or supply --profile with cusr task propose); for a default, set profile: in cusr.yaml on ${base} to one of: ${profiles.join(', ') || '(none; add profiles to the user config)'}`,
         )
       : profile === null
         ? fail(

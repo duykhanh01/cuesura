@@ -20,6 +20,7 @@ import {
   type RunSelection,
 } from '../domain/run-config.ts';
 import { isTerminal, type TaskState } from '../domain/state.ts';
+import { currentRunProposal } from '../engine/run-config.ts';
 import { freezePolicy, type FreezeError } from '../policy/freeze.ts';
 import { UuidSchema } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -171,7 +172,7 @@ function pairFallbacks(
     prompts,
     conventions,
     mode,
-    selection: { worker, reviewer },
+    selection: { profile, worker, reviewer },
   });
   if (!frozen.ok) {
     problems.push(...freezeProblem(frozen.error));
@@ -258,11 +259,13 @@ export type PairProbe = (
 export async function computeRunOptions(
   deps: RunOptionsDeps,
   s: TaskRef,
+  proposedProfile: string | null = null,
 ): Promise<Result<{ options: RunOptions; probe: PairProbe }, AppError>> {
   const checked = await checkProjectConfig(deps.ports.git, await deps.configInputs(), {
     project: s.project,
     base_branch: s.task.base_branch,
-    profile: s.task.profile ?? null,
+    profile: s.task.profile,
+    proposed_profile: proposedProfile,
   });
   if (!checked.ok)
     return err({
@@ -399,7 +402,7 @@ export async function runOptions(
       message: 'the run config of this task can no longer change',
       details: { status: s.status },
     });
-  const computed = await computeRunOptions(deps, s);
+  const computed = await computeRunOptions(deps, s, currentRunProposal(s)?.selection.profile);
   if (!computed.ok) return computed;
   return ok({
     task_id: s.id,

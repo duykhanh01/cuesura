@@ -16,7 +16,7 @@ import type { AcceptError, Store } from '../store/index.ts';
 import { authorize, authzContext, type AuthzError, type Caller } from './authz.ts';
 import { terminalIgnored } from './engine-verdict.ts';
 import type { PreflightInput, PreflightPorts } from './preflight.ts';
-import { adoptionInput, checkConfig, submit } from './triage.ts';
+import { adoptionInput, checkConfig, runConfigInput, submit } from './triage.ts';
 
 /** Inputs read fresh for every request, so a fixed config is picked up by the next confirm/recheck. */
 export type ConfigInputs = () => Promise<
@@ -108,7 +108,7 @@ export async function recordConfigCheck(
   const check = await checkConfig(deps.ports, {
     task: state.task,
     ...(await deps.configInputs()),
-    mode: state.run.proposal?.selection.mode ?? null,
+    ...runConfigInput(state),
     ...adoptionInput(state),
   });
   if (check.kind === 'infra')

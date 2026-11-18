@@ -8,8 +8,10 @@ import type { GitPort } from '../adapters/ports.ts';
 import { validateConfig, type Validated } from '../config/validate.ts';
 import { loadYaml, type ConfigSource } from '../config/yaml-loader.ts';
 import type { Diagnostic } from '../domain/config.ts';
+import { resolveRunProfile } from '../domain/run-config.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { readLocalBaseConfig } from './preflight.ts';
+import { profileRecoveryCommand } from './run-config.ts';
 import { MINIMAL_PROJECT_CONFIG_LINE } from '../config/minimal-project.ts';
 
 const MINIMAL_HINT = `minimal cusr.yaml (profile from the user config): ${MINIMAL_PROJECT_CONFIG_LINE}`;
@@ -27,6 +29,7 @@ export type ConfigCheckSubject = {
   readonly base_branch: string;
   /** The task's own profile, which wins over the project's. */
   readonly profile: string | null;
+  readonly proposed_profile?: string | null;
 };
 
 export type ConfigCheckInputs = {
@@ -145,20 +148,20 @@ function rawProblems(
 ): ConfigProblem[] {
   const out: ConfigProblem[] = [];
   // The task's profile does not depend on the file, so it is checked even when the file does not parse.
-  if (
-    subject.profile !== null &&
-    !(subject.profile in userProfiles) &&
-    !reported.some(
-      (d) => d.code === 'unknown_profile' && d.message.includes(`'${subject.profile}'`),
-    )
-  )
-    out.push(unknownProfile(subject.profile, Object.keys(userProfiles)));
+  const profiles = Object.keys(userProfiles);
+  const missing = (id: string) =>
+    !profiles.includes(id) &&
+    !reported.some((d) => d.code === 'unknown_profile' && d.message.includes(`'${id}'`));
+  if (subject.profile !== null && missing(subject.profile))
+    out.push(unknownProfile(subject.profile, profiles));
   const doc = rawDoc(project);
   // Otherwise a document that does not parse has only its parse errors to report.
   if (doc === null) return out;
   const named = typeof doc['profile'] === 'string' ? doc['profile'] : null;
-  const id = subject.profile ?? named;
-  if (id === null) out.push(noProfile(Object.keys(userProfiles)));
+  const id = resolveRunProfile(subject.profile, named, subject.proposed_profile);
+  if (id === null) out.push(noProfile(profiles));
+  else if (subject.profile === null && named === null && missing(id))
+    out.push(unknownProfile(id, profiles));
   const ci = doc['ci'];
   const checks =
     typeof ci === 'object' && ci !== null
@@ -244,10 +247,10 @@ function ready(
   problems: ConfigProblem[],
 ): Pick<ConfigCheck, 'problems' | 'ready'> {
   const config = validated.config;
-  const id = subject.profile ?? config.project?.profile ?? null;
-  const profile = id === null ? undefined : config.profiles[id];
+  const projectProfile = config.project?.profile ?? null;
+  const id = resolveRunProfile(subject.profile, projectProfile, subject.proposed_profile);
   if (id === null) problems.push(noProfile(profiles));
-  else if (profile === undefined) problems.push(unknownProfile(id, profiles));
+  else if (!profiles.includes(id)) problems.push(unknownProfile(id, profiles));
   if ((config.project?.required_checks ?? []).length === 0) problems.push(noRequiredChecks());
 
   return problems.length > 0 || id === null
@@ -256,7 +259,10 @@ function ready(
         problems,
         ready: {
           validated,
-          profile: { id, source: subject.profile === null ? 'project' : 'task' },
+          profile: {
+            id,
+            source: subject.profile === null && projectProfile !== null ? 'project' : 'task',
+          },
         },
       };
 }
@@ -273,7 +279,10 @@ function noProfile(profiles: readonly string[]): ConfigProblem {
   return {
     check: 'profile',
     message: 'neither the task nor the project selects a profile',
-    fix: `set \`profile:\` in cusr.yaml to one of: ${profiles.join(', ') || '(none declared in the user config)'}`,
+    fix:
+      profiles.length === 0
+        ? `declare a profile in the user config, then run ${profileRecoveryCommand()}`
+        : `run ${profileRecoveryCommand()} with one of these profiles: ${profiles.join(', ')}`,
   };
 }
 

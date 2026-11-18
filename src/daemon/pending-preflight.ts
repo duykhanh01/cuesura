@@ -13,7 +13,7 @@
  */
 import type { TaskState } from '../domain/state.ts';
 import { needsConfigCheck, type ConfirmDeps } from '../application/confirm.ts';
-import { adoptionInput, checkConfig, submit } from '../application/triage.ts';
+import { adoptionInput, checkConfig, runConfigInput, submit } from '../application/triage.ts';
 import { awaitingAdoption, observeAdoptHead } from '../application/adopt.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -88,7 +88,7 @@ export class PendingPreflight {
     const check = await checkConfig(this.#deps.ports, {
       task: s.task,
       ...(await this.#deps.configInputs()),
-      mode: s.run.proposal?.selection.mode ?? null,
+      ...runConfigInput(s),
       ...adoptionInput(s),
     });
     if (check.kind === 'infra') return false;

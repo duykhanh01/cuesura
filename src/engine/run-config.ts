@@ -98,12 +98,17 @@ export function onConfirmRunConfig(ctx: Ctx, t: Confirm): void {
   });
 }
 
+export function currentRunProposal(
+  s: Pick<TaskState, 'revision' | 'run'>,
+): TaskState['run']['proposal'] {
+  const proposal = s.run.proposal;
+  return proposal?.selection.revision === s.revision ? proposal : null;
+}
+
 /** The current proposal of this revision, confirmed by digest. */
 export function runConfigConfirmed(s: Pick<TaskState, 'revision' | 'run'>): boolean {
-  const p = s.run.proposal;
-  return (
-    p !== null && p.selection.revision === s.revision && s.run.confirmation?.digest === p.digest
-  );
+  const proposal = currentRunProposal(s);
+  return proposal !== null && s.run.confirmation?.digest === proposal.digest;
 }
 
 /** Worker bindings the confirmation covers: the chosen one and the allowed fallbacks. */

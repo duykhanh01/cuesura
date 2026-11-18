@@ -24,6 +24,10 @@ export type SelectionProblem = {
   readonly message: string;
 };
 
+export function profileRecoveryCommand(id = '<id>'): string {
+  return `cusr task propose ${id} --profile <profile> --mode <mode> --worker <harness/model/effort> --expected-version <version>`;
+}
+
 const WORKER_ROLES = ['coder', 'fixer'];
 
 export function checkSelection(policy: FrozenPolicy, sel: RunSelection): SelectionProblem[] {

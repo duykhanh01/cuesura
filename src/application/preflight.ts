@@ -13,7 +13,8 @@ import { validateConfig, type Validated } from '../config/validate.ts';
 import type { ConfigSource } from '../config/yaml-loader.ts';
 import type { Diagnostic } from '../domain/config.ts';
 import type { CapabilityManifest } from '../domain/runtime.ts';
-import type { ExecutionMode } from '../domain/run-config.ts';
+import { resolveRunProfile, type ExecutionMode } from '../domain/run-config.ts';
+import { profileRecoveryCommand } from './run-config.ts';
 import type { Adoption } from '../domain/state.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { evalPredicate, type StepDef } from '../domain/workflow.ts';
@@ -93,6 +94,7 @@ export type PreflightInput = {
   readonly manifest_problems?: Readonly<Record<string, string>>;
   /** Mode of the run selection, when one is proposed; reviewer checks apply to `full-review` only. */
   readonly mode?: ExecutionMode | null;
+  readonly proposed_profile?: string | null;
   /** What each harness's sandbox can run; a harness not listed has its tools left unchecked. */
   readonly harness_tools?: Readonly<Record<string, SandboxTools>>;
   /** PATH of the gate sandbox; left unchecked when absent. */
@@ -307,7 +309,13 @@ async function run(
       ]),
     );
 
-  const support = checkSupport(validated.value, task, input.manifests, input.mode ?? null);
+  const support = checkSupport(
+    validated.value,
+    task,
+    input.manifests,
+    input.mode ?? null,
+    input.proposed_profile,
+  );
   support.problems.push(...(await checkTools(ports.host, input, validated.value, support)));
   const remote = await readRepoIdentity(ports.github, location.repo);
   if (!remote.ok) support.problems.push(remote.error);
@@ -977,6 +985,7 @@ export function checkSupport(
   task: CanonicalTask,
   manifests: Readonly<Record<string, CapabilityManifest | null>>,
   mode: ExecutionMode | null = null,
+  proposedProfile?: string | null,
 ): {
   problems: PreflightProblem[];
   capability_refs: Record<string, Hash>;
@@ -1002,7 +1011,7 @@ export function checkSupport(
     );
   }
 
-  const profileName = task.profile ?? config.project?.profile ?? null;
+  const profileName = resolveRunProfile(task.profile, config.project?.profile, proposedProfile);
   const profile = profileName === null ? undefined : config.profiles[profileName];
   const workflowName = profile?.workflow ?? null;
   const workflow = workflowName === null ? undefined : config.user.workflows[workflowName];
@@ -1014,6 +1023,7 @@ export function checkSupport(
         profileName === null
           ? 'neither the task nor the project selects a profile'
           : `profile '${profileName}' or its workflow does not exist`,
+        profileName === null ? { fix: `run ${profileRecoveryCommand(task.id)}` } : {},
       ),
     );
     return { problems, capability_refs, harness_roles };

@@ -13,6 +13,7 @@ import {
   type RunSelection,
 } from '../../src/domain/run-config.ts';
 import type { TaskState } from '../../src/domain/state.ts';
+import { emptyRuntime } from '../../src/engine/evolve.ts';
 import { freezePolicy } from '../../src/policy/freeze.ts';
 import type { Store } from '../../src/store/index.ts';
 import { buildTask } from '../support/builders.ts';
@@ -132,6 +133,7 @@ describe('truncated', () => {
       status: 'PENDING',
       policy_ref: null,
       task,
+      ...emptyRuntime(),
     } as unknown as TaskState;
     const r = await runOptions(
       {
@@ -172,6 +174,7 @@ describe('run_options against the code start runs', () => {
             status: 'PENDING',
             policy_ref: null,
             task,
+            ...emptyRuntime(),
           } as unknown as TaskState;
           const store = { readTask: () => state } as unknown as Store;
           const r = await runOptions(

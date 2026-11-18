@@ -16,7 +16,12 @@ import {
 } from '../domain/policy.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { isAgentStep, type StepDef, type Workflow } from '../domain/workflow.ts';
-import { sameChoice, type ExecutionMode, type RunSelection } from '../domain/run-config.ts';
+import {
+  resolveRunProfile,
+  sameChoice,
+  type ExecutionMode,
+  type RunSelection,
+} from '../domain/run-config.ts';
 import {
   goalFinalGraph,
   goalFinalWorkflowName,
@@ -54,8 +59,8 @@ export type FreezePolicyInput = {
   conventions?: DocContent[];
   /** 002: the confirmed execution mode; the graph is then `software_dev@2:<mode>` (task-execution-modes.md). */
   mode?: ExecutionMode;
-  /** 002: the confirmed bindings; each picks among the rules its role declares, it adds none. */
-  selection?: Pick<RunSelection, 'worker' | 'reviewer'>;
+  /** The bindings pick among declared rules. The profile fills in when neither task nor project names one. */
+  selection?: Pick<RunSelection, 'worker' | 'reviewer'> & Partial<Pick<RunSelection, 'profile'>>;
 };
 
 export type Frozen = { policy: FrozenPolicy; context: FrozenExecutionContext };
@@ -213,7 +218,11 @@ export function freezePolicy(input: FreezePolicyInput): Result<Frozen, FreezeErr
   const { config, task } = input;
   const userFile = config.files.user;
 
-  const profileName = task.profile ?? config.project?.profile ?? null;
+  const profileName = resolveRunProfile(
+    task.profile,
+    config.project?.profile,
+    input.selection?.profile,
+  );
   if (profileName === null)
     return invalid(
       userFile,

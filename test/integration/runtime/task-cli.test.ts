@@ -2,20 +2,29 @@ import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { startTask } from '../../../src/application/start.ts';
 import { ExitCode } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
-import { addCommand, confirmCommand, proposeCommand, showCommand } from '../../../src/cli/tasks.ts';
+import {
+  addCommand,
+  confirmCommand,
+  optionsCommand,
+  proposeCommand,
+  showCommand,
+} from '../../../src/cli/tasks.ts';
 import { startDaemon, type RunningDaemon } from '../../../src/daemon/main.ts';
 import { taskControl } from '../../../src/daemon/task-control.ts';
-import { asEpochMs } from '../../../src/shared/brand.ts';
+import { asEpochMs, type Uuid } from '../../../src/shared/brand.ts';
 import { PACKS } from '../../support/config-fixtures.ts';
 import {
+  CUSR,
   fakeGit,
   fakeGitHub,
   fakeHost,
   MANIFESTS,
   userConfig,
 } from '../../support/preflight-fakes.ts';
+import { StoreDriver } from '../../support/store-driver.ts';
 
 const dirs: string[] = [];
 const daemons: RunningDaemon[] = [];
@@ -28,10 +37,15 @@ const clock = { now: () => asEpochMs(1_800_000_000_000), monotonic: () => 0 };
 let seq = 0;
 const newId = (): string => `00000000-0000-7000-8000-${String(++seq).padStart(12, '0')}`;
 
-async function daemon() {
+async function daemon(git = fakeGit()) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-task-cli-')));
   dirs.push(base);
   const dataDir = join(base, 'data');
+  const configDeps = {
+    ports: { git, github: fakeGitHub(), host: fakeHost() },
+    configInputs: () => Promise.resolve({ user: userConfig(), packs: PACKS, manifests: MANIFESTS }),
+    now: () => clock.now(),
+  };
   const started = await startDaemon({
     dataDir,
     clock,
@@ -40,22 +54,12 @@ async function daemon() {
       taskControl({
         store,
         now: () => clock.now(),
-        confirm: {
-          store,
-          ports: { git: fakeGit(), github: fakeGitHub(), host: fakeHost() },
-          configInputs: () =>
-            Promise.resolve({
-              user: userConfig(),
-              packs: PACKS,
-              manifests: MANIFESTS,
-            }),
-          now: () => clock.now(),
-        },
+        confirm: { store, ...configDeps },
       }),
   });
   if (!started.ok) throw new Error(JSON.stringify(started.error));
   daemons.push(started.value);
-  return { dataDir, base };
+  return { dataDir, base, store: started.value.store, configDeps };
 }
 
 async function cli(
@@ -74,7 +78,7 @@ async function cli(
       { name: 'cusr', description: 'test', version: '0' },
       [...argv, '--json'],
       { stdout: (t) => out.push(t), stderr: () => undefined },
-      [addCommand, showCommand, confirmCommand, proposeCommand],
+      [addCommand, showCommand, confirmCommand, proposeCommand, optionsCommand],
     );
     const env1 = JSON.parse(out.join('')) as {
       ok: boolean;
@@ -397,6 +401,197 @@ describe('cusr task add/show/confirm over the control socket (T048)', () => {
     expect(proposed).toMatchObject({
       code: ExitCode.ok,
       data: { run_config: { status: 'stale', mode: 'full-review' } },
+    });
+  });
+
+  it('recovers a task blocked by a missing profile using task propose (#312)', async () => {
+    const { dataDir, store, configDeps } = await daemon(
+      fakeGit({
+        cusr: CUSR.replace('profile: standard\n', ''),
+      }),
+    );
+    const task = (command: string, ...args: string[]) =>
+      cli(['task', command, '--data-dir', dataDir, ...args]);
+    const added = await task(
+      'add',
+      '--project',
+      'acme',
+      '--title',
+      'Add search',
+      '--base',
+      'main',
+      '--acceptance',
+      'search works',
+    );
+    const id = added.data?.['task_id'] as Uuid;
+    const options = await task('options', id);
+    expect(options).toMatchObject({
+      code: ExitCode.failure,
+      error: { code: 'config_invalid' },
+    });
+    const blocked = await task(
+      'confirm',
+      id,
+      '--expected-version',
+      String(added.data?.['version']),
+    );
+    expect(blocked.data).toMatchObject({
+      status: 'PENDING',
+      wait: {
+        detail: {
+          code: 'config_invalid',
+          error: {
+            problems: [
+              {
+                check: 'profile',
+                fix: expect.stringContaining(
+                  `cusr task propose ${id} --profile <profile>`,
+                ) as string,
+              },
+            ],
+          },
+        },
+      },
+    });
+    const propose = (profile: string) =>
+      task(
+        'propose',
+        id,
+        '--expected-version',
+        String(blocked.data?.['version']),
+        '--profile',
+        profile,
+        '--mode',
+        'direct-pr',
+        '--worker',
+        'claude/sonnet/medium',
+      );
+    expect(await propose('does-not-exist')).toMatchObject({
+      code: ExitCode.failure,
+      error: { details: { checks: [{ name: 'unknown_profile' }] } },
+    });
+
+    const recovered = await propose('standard');
+    expect(recovered).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        task_id: id,
+        revision: added.data?.['revision'],
+        run_config: {
+          status: 'proposed',
+          selection: { profile: 'standard' },
+        },
+      },
+    });
+    expect(options.error).toMatchObject({
+      details: {
+        checks: [
+          {
+            name: 'profile',
+            fix: expect.stringContaining('cusr task propose <id> --profile <profile>') as string,
+          },
+        ],
+      },
+    });
+    expect(await task('options', id)).toMatchObject({
+      code: ExitCode.ok,
+      data: { task_id: id, profile: { id: 'standard', source: 'task' } },
+    });
+    const digest = (recovered.data?.['run_config'] as { digest: string }).digest;
+    expect(
+      await task(
+        'confirm',
+        id,
+        '--expected-version',
+        String(recovered.data?.['version']),
+        '--run-config',
+        digest,
+      ),
+    ).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        task_id: id,
+        status: 'READY',
+        config_check: 'checked',
+        run_config: { status: 'confirmed', selection: { profile: 'standard' } },
+      },
+    });
+
+    const driver = new StoreDriver(store);
+    driver.now = clock.now();
+    driver.must(id, { kind: 'request_execution' });
+    driver.grantNext();
+    expect(
+      await startTask(
+        {
+          ...configDeps,
+          store,
+          newId,
+          docs: {
+            prompts: (names) => Promise.resolve(names.map((name) => ({ name, content: name }))),
+            attachments: () => Promise.resolve([]),
+          },
+        },
+        id,
+      ),
+    ).toMatchObject({ kind: 'submitted', frozen: true });
+    expect(store.readPolicy(id, 1)?.profile).toBe('standard');
+
+    expect((await task('options', '--help')).data?.['help']).toContain('cusr task propose --help');
+    expect((await task('propose', '--help')).data?.['help']).toContain(
+      'use --profile to supply one for this task',
+    );
+  });
+
+  it('requires a new profile proposal after a task revision (#312)', async () => {
+    const { dataDir, store } = await daemon(
+      fakeGit({
+        cusr: CUSR.replace('profile: standard\n', ''),
+      }),
+    );
+    const task = (command: string, ...args: string[]) =>
+      cli(['task', command, '--data-dir', dataDir, ...args]);
+    const added = await task(
+      'add',
+      '--project',
+      'acme',
+      '--title',
+      'Add search',
+      '--base',
+      'main',
+      '--acceptance',
+      'search works',
+      '--profile',
+      'standard',
+      '--mode',
+      'direct-pr',
+      '--worker',
+      'claude/sonnet/medium',
+    );
+    expect(added.code).toBe(ExitCode.ok);
+    const id = added.data?.['task_id'] as Uuid;
+    const driver = new StoreDriver(store);
+    driver.now = clock.now();
+    driver.must(id, {
+      kind: 'source_updated',
+      task: { ...driver.task(id).task, description: 'Revised search requirements' },
+    });
+    const revised = driver.task(id);
+    expect(revised).toMatchObject({
+      revision: 2,
+      run: { proposal: { selection: { profile: 'standard', revision: 1 } } },
+    });
+
+    expect(await task('options', id)).toMatchObject({
+      code: ExitCode.failure,
+      error: { code: 'config_invalid', details: { checks: [{ name: 'profile' }] } },
+    });
+    expect(await task('confirm', id, '--expected-version', String(revised.version))).toMatchObject({
+      code: ExitCode.ok,
+      data: {
+        status: 'PENDING',
+        wait: { detail: { code: 'config_invalid', error: { problems: [{ check: 'profile' }] } } },
+      },
     });
   });
 

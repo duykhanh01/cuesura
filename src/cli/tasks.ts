@@ -713,7 +713,10 @@ export const proposeCommand: CliCommand = {
   name: 'task propose',
   description: 'Propose a task execution mode and model bindings for confirmation',
   help: `Pick the values from cusr task options <id>: a choice {harness, model, effort} is written
-harness/model/effort, e.g. claude/opus/high. ${FROM_SHOW}
+harness/model/effort, e.g. claude/opus/high. If neither the task nor cusr.yaml selects a
+profile, use --profile to supply one for this task. Use cusr dispatch --project <project>
+for configured run guidance and cusr project list for profile names. With full-review,
+also pass --reviewer <harness/model/effort>. ${FROM_SHOW}
 Confirm afterwards with cusr task confirm --run-config <digest>.
 
 Example:
@@ -1589,6 +1592,8 @@ export const optionsCommand: CliCommand = {
   help: `Reads cusr.yaml (including gate definitions) from the commit at local origin/<base>
 in the project clone without fetching. Commit and merge cusr.yaml changes into the
 base branch, then fetch origin in the project clone to see the changes here.
+If neither the task nor cusr.yaml selects a profile, supply one with cusr task propose
+<id> --profile <profile>. See cusr task propose --help for the other required flags.
 
 Example:
   cusr task options 019a0000-0000-7000-8000-000000000001`,

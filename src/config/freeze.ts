@@ -9,11 +9,11 @@ import {
   type FrozenRuntimeContext,
 } from '../domain/runtime.ts';
 import type { MergeMethod } from '../domain/merge-method.ts';
-import type {
-  ExecutionMode,
-  PrTemplate,
-  RunConfigSnapshot,
-  RunSelection,
+import {
+  resolveRunProfile,
+  type ExecutionMode,
+  type PrTemplate,
+  type RunConfigSnapshot,
 } from '../domain/run-config.ts';
 import type { CanonicalTask } from '../domain/task.ts';
 import { DAEMON_COMPLETION_MODE } from './capabilities.ts';
@@ -23,6 +23,7 @@ import {
   type AttachmentContent,
   type Frozen,
   type FreezeError,
+  type FreezePolicyInput,
 } from '../policy/freeze.ts';
 import type { Locator } from './checks.ts';
 import { applyOverrides, type TaskOverrides } from './merge.ts';
@@ -40,7 +41,7 @@ export type FreezeInput = {
   prompts?: DocContent[];
   conventions?: DocContent[];
   mode?: ExecutionMode;
-  selection?: Pick<RunSelection, 'worker' | 'reviewer'>;
+  selection?: NonNullable<FreezePolicyInput['selection']>;
 };
 
 const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
@@ -51,7 +52,11 @@ const atOverrides: Locator = () => ({ file: '<overrides>', line: 1, col: 1 });
  */
 export function freeze(input: FreezeInput): Result<Frozen, FreezeError> {
   const overrides = input.overrides ?? {};
-  const profileName = input.task.profile ?? input.config.project?.profile ?? null;
+  const profileName = resolveRunProfile(
+    input.task.profile,
+    input.config.project?.profile,
+    input.selection?.profile,
+  );
   if (
     Object.keys(overrides).length === 0 ||
     profileName === null ||

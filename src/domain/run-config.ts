@@ -86,6 +86,15 @@ export const RunProposalSchema = RunSelectionFields.omit({
 export type RunProposal = z.infer<typeof RunProposalSchema>;
 export type RunSelection = z.infer<typeof RunSelectionSchema>;
 
+/** A proposal supplies a profile only when the task and its project leave the choice open. */
+export function resolveRunProfile(
+  taskProfile: string | null,
+  projectProfile: string | null | undefined,
+  proposedProfile?: string | null,
+): string | null {
+  return taskProfile ?? projectProfile ?? proposedProfile ?? null;
+}
+
 export function selectionDigest(s: RunSelection): Hash {
   return hashCanonical(s);
 }

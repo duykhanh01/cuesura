@@ -29,7 +29,7 @@ import {
   type TemplateError,
   type SelectionProblem,
 } from './run-config.ts';
-import { adoptionInput, checkConfig, submit } from './triage.ts';
+import { adoptionInput, checkConfig, runConfigInput, submit } from './triage.ts';
 import { integrationInput, integrationStartProblem } from './goal-tip.ts';
 
 /** Documents frozen into the execution context that do not live in the repo's base commit. */
@@ -251,7 +251,7 @@ export async function startTask(deps: StartDeps, taskId: string): Promise<StartR
   const check = await checkConfig(deps.ports, {
     task: s.task,
     ...(await deps.configInputs()),
-    mode: s.run.proposal?.selection.mode ?? null,
+    ...runConfigInput(s),
     ...adoptionInput(s),
     ...integrationInput(deps.store, s),
   });
