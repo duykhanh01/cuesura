@@ -153,9 +153,10 @@ Trước publish, kiểm ref/tree/worktree và artifact còn khớp checkpoint/e
 đã lưu, không lấy HEAD mới nhất theo phỏng đoán. Git commit bất biến là căn cứ; khóa phối hợp không
 được coi là đủ để ngăn mọi thay đổi từ bên ngoài. Có thay đổi thì giữ dữ liệu và chặn publish để đối
 chiếu. Muốn đưa code mới vào PR phải gates, commit mới và review lại khi ở `full-review`; không commit
-thêm file hoặc chạy formatter sau approval rồi dùng approval cũ. Ngoại lệ duy nhất là lượt sửa finding
-minor ở [mục dưới](#finding-minor-sau-approve), với điều kiện phạm vi được Git trên host kiểm. Body đổi cần được reviewer đối chiếu
-lại trong `full-review`; retry không dựng lại body khác cho cùng create intent.
+thêm file hoặc chạy formatter sau approval rồi dùng approval cũ. Ngoại lệ là lượt sửa finding
+minor ở [mục dưới](#finding-minor-sau-approve), với điều kiện phạm vi được Git trên host kiểm, và lượt
+[sửa CI sau approve](#sửa-ci-sau-approve) đã qua gate rồi commit checkpoint mới. Ngoài lượt sửa CI, body
+đổi cần được reviewer đối chiếu lại trong `full-review`; retry không dựng lại body khác cho cùng create intent.
 
 ## Review trên PR (quyết định 2026-11-04)
 
@@ -228,8 +229,49 @@ bao giờ được chặn merge.
 - Đổi file khác, hoặc daemon không đọc được diff, thì không mang approval sang: checkpoint mới đi qua
   publish và review như mọi thay đổi khác.
 - Approval chỉ mang sang khi lượt review đó vẫn là verdict mới nhất của revision và head đúng là
-  checkpoint của lượt sửa. Commit sau đó (sửa CI, tích hợp base có sửa code) cần review như thường.
-  Tích hợp base chạy bước `gates` của task, không chạy `minor_gates`.
+  checkpoint của lượt sửa. Commit sửa CI sau đó theo [mục dưới](#sửa-ci-sau-approve); tích hợp base có
+  sửa code cần review như thường. Tích hợp base chạy bước `gates` của task, không chạy `minor_gates`.
+
+## Sửa CI sau approve
+
+Head đã được approve (bởi reviewer hoặc approval mang sang) thì lượt sửa CI sau đó không tốn thêm
+lượt reviewer, bất kể file nào đổi, diff lớn cỡ nào hay title/body PR có đổi không (quyết định của chủ
+dự án ngày 2026-11-18).
+
+- Vào `ci_fix` hoặc `ci_autofix` trong `full-review` khi checkpoint đã publish là head CI vừa đọc, không
+  có remote drift, không có lượt tích hợp base đang mở và approval mới nhất của revision bao phủ head
+  đó: approval đã duyệt hay mang sang head đó, hoặc head đó là kết quả tích hợp base có chứng nhận
+  (§14.2) của một head approval ấy bao phủ. Lúc bắt đầu tích hợp base, engine ghi lượt approval bao phủ
+  head trước tích hợp vào bản ghi tích hợp (`approved_via`), nên liên kết giữ được qua nhiều lần tích
+  hợp liên tiếp; verdict mới hơn của revision hoặc revision khác làm liên kết mất hiệu lực. Log ghi
+  trước khi có `approved_via`: khi replay, mỗi lượt tích hợp mới được tính `approved_via` theo cùng quy
+  tắc từ state lúc đó (chứng nhận trước còn trong state); các bản ghi tiếp theo của cùng lượt tích
+  hợp giữ liên kết vừa suy ra, nên chuỗi tích hợp cũ vẫn giữ approval thật.
+  Engine ghi `CiRepairStarted` (lượt review, head bắt đầu). Vòng sửa gồm bước sửa CI, `gates` và
+  `fix_gates`; vào bất kỳ bước nào khác thì vòng kết thúc.
+- Log ghi trước khi có `CiRepairStarted` (nâng release khi lượt sửa CI đang chạy hoặc đang pause): vào
+  `gates` mà chưa có vòng mở thì engine dựng lại vòng từ log khi CI mới nhất của head đang kiểm đỏ,
+  không có lượt tích hợp base đang mở, và bước vừa xong là `ci_fix`/`ci_autofix`, hoặc là `fix_gates`
+  mà lượt worker gần nhất của revision (ngoài `fix_gates`) là `ci_fix`. Điều kiện head, drift và
+  approval như trên vẫn áp dụng; vòng sửa review, vòng sửa xung đột base hay vòng khác không nhận
+  approval. Gate đã được release cũ yêu cầu và trả kết quả sau khi nâng release (không vào lại bước)
+  được xét như vậy, với bước trước lấy từ `StepEntered.from` dẫn tới đúng lượt gate đó. Log cũ có vòng
+  `ci_autofix` → gate đỏ → `fix_gates` mà chưa có worker CI nào thì vẫn review.
+- Gate của vòng đó đạt và commit checkpoint từ đúng head bắt đầu: engine ghi `CiFixApprovalCarried`
+  (lượt review, SHA đã approve, head bắt đầu, checkpoint), dù checkpoint có commit mới, nội dung PR mới,
+  cả hai, hay không đổi gì. Checkpoint được publish, bước review thấy approval mang sang thì đi tiếp mà
+  không gọi reviewer, không tính lượt review và không bị trần lượt review chặn, rồi PR chuyển ready và
+  chờ CI trên head mới như thường.
+- Không bịa verdict: lượt review của head mới không được ghi; bằng chứng là event mang sang kèm lượt
+  review thật. Approval chỉ áp cho head mới khi lượt review đó vẫn là verdict mới nhất của revision.
+- Sửa CI nhiều lần nối tiếp nhau: mỗi vòng bắt đầu từ head mang sang của vòng trước và mang cùng
+  approval sang head mới; head cũ hơn không còn được approve.
+- Title/body PR mà lượt sửa CI ghi được nhận và đẩy lên PR như thường; approval vẫn mang sang.
+- Không mang sang khi lượt gate thuộc một lượt tích hợp base đang mở (kể cả gate sau fixer xung đột),
+  khi có remote drift, khi revision đổi hoặc khi
+  approval mới nhất của revision không bao phủ head bắt đầu: head mới đi qua review như thường. Nội
+  dung PR đổi ngoài vòng sửa CI (vd lượt sửa review) vẫn cần review lại. Required CI trên head mới,
+  gate, merge guard và recovery không đổi.
 
 ## Vòng review và sửa không tiến triển (#141)
 
@@ -286,7 +328,7 @@ Attempt ID, timestamp, receipt gate/CI mới, log resume hoặc summary worker t
 làm đổi đầu vào review: cùng code thì cùng verdict.
 Chỉ dùng lại kết quả đã validate và ghi bền, còn hiệu lực, khi mọi đầu vào trên khớp;
 không suy từ việc worker nói không sửa.
-Trừ ngoại lệ tích hợp base bên dưới, code hoặc nội dung PR đổi thì review lại; acceptance/policy/base dùng tính diff đổi thì không được
+Trừ ngoại lệ tích hợp base bên dưới và [sửa CI sau approve](#sửa-ci-sau-approve), code hoặc nội dung PR đổi thì review lại; acceptance/policy/base dùng tính diff đổi thì không được
 dùng kết quả cũ. Base tip ngoài frozen base chỉ đổi không tự thay đầu vào, theo FR-041.04.
 Chỉ việc worker chạy không tự vô hiệu evidence; phải đối chiếu tree/diff/body thực tế với checkpoint.
 
@@ -367,7 +409,7 @@ Các mã M dưới đây bổ sung coverage 117 nghĩa vụ FR hiện có; chưa
 | --- | --- |
 | M01 | Agent đề xuất từ chỉ dẫn; daemon không suy size/rủi ro; thiếu hoặc giả xác nhận không spawn |
 | M02 | Xác nhận gắn đúng bộ lựa chọn; thay đổi/restart/replay/quota không bỏ qua xác nhận hoặc tự đổi chế độ; merge.method default/enum/freeze đúng, config mới không đổi task đang chạy |
-| M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor, riêng session/chỉ đọc; reuse approve hoặc findings đúng đầu vào, no-op không gọi lại reviewer, đầu vào đổi buộc review mới |
+| M03 | `direct-pr` không gọi reviewer; `full-review` cùng vendor, riêng session/chỉ đọc; reuse approve hoặc findings đúng đầu vào, no-op không gọi lại reviewer, đầu vào đổi buộc review mới; sửa CI sau approve (`ci_fix`/`ci_autofix`, kể cả nhiều lần và khi đổi title/body) mang approval sang, không gọi reviewer |
 | M04 | Gate/review/CI fail quay lại worker; cả resume và fallback nhận packet nguyên nhân sửa/trạng thái mới nhất, packet stale/thiếu bị chặn; fallback có lý do, không gọi chồng |
 | M05 | Template frozen, lựa chọn nhiều template, artifact hợp lệ và được cập nhật sau fixer/CI; từ chối marker điều khiển giả trong title/body worker ở cả hai mode; không thêm writer agent |
 | M06 | Gate/formatter sửa code buộc kiểm tập gate trên tree cuối trong giới hạn; mutation/writer hoặc remote drift H01–H04 chặn publish; approve A muộn không gỡ blocker/duyệt B, push đúng SHA đã kiểm |

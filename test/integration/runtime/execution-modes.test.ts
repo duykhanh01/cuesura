@@ -4,7 +4,9 @@ import type { MergeProof } from '../../../src/domain/runtime.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import type { Uuid } from '../../../src/shared/brand.ts';
 import { claimable } from '../../../src/engine/claim.ts';
+import type { DomainEventDraft } from '../../../src/domain/event.ts';
 import { replay } from '../../../src/engine/evolve.ts';
+import { SOFTWARE_DEV } from '../../../src/engine/workflows/software-dev.ts';
 import { BASE_REPAIR_WAIT_MS } from '../../../src/engine/interpreter.ts';
 import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict, reviewOf } from '../../../src/engine/head-evidence.ts';
@@ -21,6 +23,7 @@ import {
 import {
   agentData,
   ciData,
+  gatesData,
   PREPARE_DATA,
   publishData,
   reviewData,
@@ -674,7 +677,7 @@ describe('direct-pr and full-review graphs (T137, M03/M08)', () => {
 });
 
 describe('review evidence reuse (T137, M03)', () => {
-  /** After CI on A failed: the worker writes `content` (same commit A), up to the review of that input. */
+  /** The fixer pending now writes `content` (same commit A), up to the review of that input. */
   const fixTo = (d: StoreDriver, t: CanonicalTask, content: string): void => {
     d.complete(
       t.id,
@@ -701,20 +704,41 @@ describe('review evidence reuse (T137, M03)', () => {
   const attemptOf = (d: StoreDriver, t: CanonicalTask, i: number) =>
     d.task(t.id).run.reviews[i]?.attempt_id;
 
-  it('a reused verdict posts the attempt it reuses, never a later one of another input', () => {
-    const d = setup();
-    const t = buildTask();
+  const wrongBody = [{ severity: 'major', msg: 'wrong body' }];
+  /** A full-review task whose first review rejected A with its first body. */
+  const rejectedFirst = (d: StoreDriver, t: CanonicalTask): void => {
     createGrantStart(d, t, 'full-review');
     toPublish(d, t, A);
-    toCiFix(d, t);
-    // Body B is rejected, then the worker restores the original body: the approval of A is reused.
-    fixTo(d, t, hashCanonical('body B'));
+    publishToReview(d, t.id, A);
     d.complete(
       t.id,
       d.pendingOne(t.id, 'start_agent').id,
       'succeeded',
       reviewData('request_changes', A, {
-        findings: [{ severity: 'major', msg: 'wrong body' }],
+        findings: wrongBody,
+        input_digest: currentReviewInput(d, t.id),
+      }),
+    );
+  };
+  const slot = (d: StoreDriver, t: CanonicalTask) => {
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+  };
+
+  it('a reused verdict posts the attempt it reuses, never a later one of another input', () => {
+    const d = setup();
+    const t = buildTask();
+    rejectedFirst(d, t);
+    completePost(d, t.id);
+    slot(d, t);
+    // The review fixer writes body B: PR content changed outside a CI repair is reviewed again.
+    fixTo(d, t, hashCanonical('body B'));
+    expect(reviewerRuns(d, t)).toBe(2);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', msg: 'still wrong' }],
         input_digest: currentReviewInput(d, t.id),
       }),
     );
@@ -723,42 +747,25 @@ describe('review evidence reuse (T137, M03)', () => {
       round: 2,
     });
     completePost(d, t.id);
-    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    slot(d, t);
+    // The fixer restores the first body: the first rejection is reused, and it is on the PR already.
     fixTo(d, t, CONTENT_DIGEST);
     expect(types(d, t)).toContain('ReviewReused');
+    expect(reviewerRuns(d, t)).toBe(2);
     expect(d.task(t.id).run.verdict_attempt_id).toBe(attemptOf(d, t, 0));
-    // That approval is on the PR already: nothing is posted, the rejection of B least of all.
     expect(d.pending(t.id, 'post_review')).toEqual([]);
-    expect(
-      d.store
-        .readEvents(t.id)
-        .filter((e) => e.type === 'StepSkipped' && e.payload.step === 'post_review')
-        .at(-1)?.payload,
-    ).toMatchObject({ step: 'post_review', reason: 'review_posted' });
-    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(d.task(t.id).current_step).toBe('fix_review');
   });
 
   it('a post whose outcome is unknown is never sent again for that attempt', () => {
     const d = setup();
     const t = buildTask();
-    createGrantStart(d, t, 'full-review');
-    toPublish(d, t, A);
-    toCiFix(d, t);
-    fixTo(d, t, hashCanonical('body B'));
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      reviewData('request_changes', A, {
-        findings: [{ severity: 'major', msg: 'wrong body' }],
-        input_digest: currentReviewInput(d, t.id),
-      }),
-    );
+    rejectedFirst(d, t);
     completePost(d, t.id, 'unknown');
-    expect(d.task(t.id).run.posted_reviews).toContain(attemptOf(d, t, 1));
-    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    expect(d.task(t.id).run.posted_reviews).toContain(attemptOf(d, t, 0));
+    slot(d, t);
     // The fixer changes nothing: the same rejection is reused and its send is not repeated.
-    fixTo(d, t, hashCanonical('body B'));
+    fixTo(d, t, CONTENT_DIGEST);
     expect(types(d, t)).toContain('ReviewReused');
     autoAnswered(d, t);
     expect(d.pending(t.id, 'post_review')).toEqual([]);
@@ -768,25 +775,13 @@ describe('review evidence reuse (T137, M03)', () => {
   it('a post that was refused outright is sent again when the verdict is reused', () => {
     const d = setup();
     const t = buildTask();
-    createGrantStart(d, t, 'full-review');
-    toPublish(d, t, A);
-    toCiFix(d, t);
-    fixTo(d, t, hashCanonical('body B'));
-    d.complete(
-      t.id,
-      d.pendingOne(t.id, 'start_agent').id,
-      'succeeded',
-      reviewData('request_changes', A, {
-        findings: [{ severity: 'major', msg: 'wrong body' }],
-        input_digest: currentReviewInput(d, t.id),
-      }),
-    );
+    rejectedFirst(d, t);
     completePost(d, t.id, 'not_posted');
-    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
-    fixTo(d, t, hashCanonical('body B'));
+    slot(d, t);
+    fixTo(d, t, CONTENT_DIGEST);
     autoAnswered(d, t);
     expect(d.pendingOne(t.id, 'post_review').request).toMatchObject({
-      attempt_id: attemptOf(d, t, 1),
+      attempt_id: attemptOf(d, t, 0),
     });
   });
 
@@ -814,46 +809,52 @@ describe('review evidence reuse (T137, M03)', () => {
     });
     expect(d.pendingOne(t.id, 'publish').request).toMatchObject({ sha: A });
     d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
-    expect(types(d, t)).toContain('ReviewReused');
+    // A CI repair that changed nothing is carried by the approval like any other CI repair.
+    expect(types(d, t)).toContain('CiFixApprovalCarried');
     expect(reviewerRuns(d, t)).toBe(1);
-    // The reused verdict is the one already on the PR: it is not posted again.
+    // The approval is the one already on the PR: it is not posted again.
     expect(d.pending(t.id, 'post_review')).toEqual([]);
     expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
   });
 
-  it('changed PR content or a new commit needs a new review', () => {
-    for (const change of ['content', 'commit'] as const) {
+  it('a CI fix that changes the PR content, the commit or both is carried by the approval', () => {
+    for (const change of ['content', 'commit', 'both'] as const) {
       const d = setup();
       const t = buildTask();
       createGrantStart(d, t, 'full-review');
       toPublish(d, t, A);
       toCiFix(d, t);
+      const approval = attemptOf(d, t, 0);
+      const body = change !== 'commit';
+      const head = change === 'content' ? A : C;
       d.complete(
         t.id,
         d.pendingOne(t.id, 'start_agent').id,
         'succeeded',
         agentData(
           'done',
-          change === 'content'
-            ? {
-                content: {
-                  digest: hashCanonical('new body'),
-                  ref: '/c/new.json',
-                },
-              }
-            : {},
+          body ? { content: { digest: hashCanonical('new body'), ref: '/c/new.json' } } : {},
         ),
       );
-      d.complete(
-        t.id,
-        d.pendingOne(t.id, 'run_gates').id,
-        'succeeded',
-        checkpointGates(change === 'commit' ? C : A),
-      );
-      publishToReview(d, t.id, change === 'commit' ? C : A);
+      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(head));
+      publishToReview(d, t.id, head);
       expect(types(d, t)).not.toContain('ReviewReused');
-      expect(reviewerRuns(d, t)).toBe(2);
+      expect(reviewerRuns(d, t)).toBe(1);
+      expect(d.task(t.id).run.ci_fix_carry).toMatchObject({
+        review_attempt_id: approval,
+        approved_sha: A,
+        from_sha: A,
+        sha: head,
+      });
+      const run = d.task(t.id).run;
+      expect(run.content?.digest ?? run.checkpoint?.content_digest).toBe(
+        body ? hashCanonical('new body') : CONTENT_DIGEST,
+      );
+      // Only the real approval of A is recorded; nothing is posted for the carried head.
+      expect(d.task(t.id).run.reviews.map((r) => [r.attempt_id, r.sha])).toEqual([[approval, A]]);
       expect(d.pending(t.id, 'post_review')).toEqual([]);
+      expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+      expect(reviewOf(d.task(t.id), head)).toBe('approved');
     }
   });
 
@@ -2033,7 +2034,7 @@ describe('minor findings of an approving review (fix_minor)', () => {
       ciData(A, { build: 'success', test: 'failure' }),
     );
     d.store.grantNext(d.now as never, [uuidOf(990), uuidOf(991), uuidOf(992), uuidOf(993)]);
-    // The CI fix changes nothing the review reads: the approval of A is reused.
+    // The CI fix changes nothing: the approval of A carries to the same checkpoint.
     d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
     d.complete(
       t.id,
@@ -2044,7 +2045,7 @@ describe('minor findings of an approving review (fix_minor)', () => {
       }),
     );
     publishToReview(d, t.id, A);
-    expect(types(d, t)).toContain('ReviewReused');
+    expect(types(d, t)).toContain('CiFixApprovalCarried');
     expect(Object.values(d.task(t.id).effects).filter((e) => e.step === 'fix_minor')).toHaveLength(
       1,
     );
@@ -2121,5 +2122,406 @@ describe('minor findings of an approving review (fix_minor)', () => {
       head_sha: A,
       review: 'approved',
     });
+  });
+});
+
+describe('CI repair of an approved head (full-review)', () => {
+  const D = 'd'.repeat(40);
+  const covered = {
+    kind: 'covered' as const,
+    github_required: 'none' as const,
+    github: [],
+    snapshot_only: ['build'],
+  };
+  const green = (head: string) => ({
+    head_sha: head,
+    checks: [{ name: 'build', state: 'success' as const }],
+    collisions: [],
+    complete: true,
+  });
+  const carried = (d: StoreDriver, t: CanonicalTask) =>
+    d.store.readEvents(t.id).flatMap((e) => (e.type === 'CiFixApprovalCarried' ? [e.payload] : []));
+  const agentStep = (d: StoreDriver, t: CanonicalTask) => {
+    const e = d.pendingOne(t.id, 'start_agent');
+    return { id: e.id, step: d.task(t.id).effects[e.id]?.step };
+  };
+
+  /** The CI fixer commits `head`; its publish leads to the review step and on to the ready PR. */
+  function repairTo(d: StoreDriver, t: CanonicalTask, head: string): void {
+    const fixer = agentStep(d, t);
+    expect(fixer.step).toBe('ci_fix');
+    d.complete(t.id, fixer.id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(head));
+    publishToReview(d, t.id, head);
+  }
+
+  /** The ready PR's CI on `head`: mark_ready is answered, then the checks come back. */
+  function ciOn(d: StoreDriver, t: CanonicalTask, head: string, test: 'success' | 'failure'): void {
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: d.task(t.id).pr_ref,
+      ready_at: null,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ciData(head, { build: 'success', test }),
+    );
+    if (test === 'failure' && d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+  }
+
+  it('approved A, CI fails, the fix commits B, CI passes: B is approved without a reviewer run', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    const approval = d.task(t.id).run.reviews[0]!.attempt_id;
+    expect(d.task(t.id).run.ci_repair).toMatchObject({ review_attempt_id: approval, from_sha: A });
+    repairTo(d, t, B);
+    expect(carried(d, t)).toEqual([
+      {
+        carry: {
+          revision: d.task(t.id).revision,
+          review_attempt_id: approval,
+          approved_sha: A,
+          from_sha: A,
+          sha: B,
+          tree: TREE,
+        },
+      },
+    ]);
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(d.task(t.id).step_visits['review']).toBe(1);
+    expect(
+      d.store
+        .readEvents(t.id)
+        .filter((e) => e.type === 'StepSkipped' && e.payload.step === 'review')
+        .at(-1)?.payload,
+    ).toMatchObject({ reason: 'approval_carried' });
+    // The round ended once the repaired head was published.
+    expect(d.task(t.id).run.ci_repair).toBeUndefined();
+    // No reviewer verdict is made up for B: the only one recorded is the approval of A.
+    expect(d.task(t.id).run.reviews.map((r) => r.sha)).toEqual([A]);
+    expect(d.pending(t.id, 'post_review')).toEqual([]);
+    ciOn(d, t, B, 'success');
+    expect(reviewOf(d.task(t.id), B)).toBe('approved');
+    expect(headVerdict(d.task(t.id), ['build'], B, covered, green(B))).toEqual({
+      kind: 'green',
+      head_sha: B,
+      review: 'approved',
+    });
+    expect(d.task(t.id).current_step).toBe('merge_gate');
+    expect(reviewerRuns(d, t)).toBe(1);
+  });
+
+  it('repeated CI fixes each carry the same approval, and a gate fix inside the round is part of it', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    repairTo(d, t, B);
+    ciOn(d, t, B, 'failure');
+    // Second round from the carried head B: the gates fail first and the gate fixer repairs them.
+    const fixer = agentStep(d, t);
+    expect(fixer.step).toBe('ci_fix');
+    d.complete(t.id, fixer.id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      ...checkpointGates(C, { build: false, unit: true }),
+      checkpoint: undefined,
+    });
+    const gateFixer = agentStep(d, t);
+    expect(gateFixer.step).toBe('fix_gates');
+    d.complete(t.id, gateFixer.id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(C));
+    publishToReview(d, t.id, C);
+    ciOn(d, t, C, 'failure');
+    repairTo(d, t, D);
+    expect(carried(d, t).map((p) => [p.carry.approved_sha, p.carry.from_sha, p.carry.sha])).toEqual(
+      [
+        [A, A, B],
+        [A, B, C],
+        [A, C, D],
+      ],
+    );
+    expect(reviewerRuns(d, t)).toBe(1);
+    ciOn(d, t, D, 'success');
+    expect(headVerdict(d.task(t.id), ['build'], D, covered, green(D))).toMatchObject({
+      kind: 'green',
+      review: 'approved',
+    });
+    // An earlier carried head is not approved any more: only the latest repair carries.
+    expect(reviewOf(d.task(t.id), C)).toBe('missing');
+  });
+
+  it.each([false, true])('ci_autofix carries approval with an old pending gate: %s', (upgrade) => {
+    let d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review', {
+      ci_rules: [{ match: { check: 'format' }, class: 'autofix' }],
+      gates: { build: 'true', unit: 'true', lint: 'true', format_fix: 'true format' },
+    });
+    toPublish(d, t, A);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ciData(A, { build: 'success', format: 'failure' }),
+    );
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    const autofix = d.pendingOne(t.id, 'run_gates');
+    expect(d.task(t.id).effects[autofix.id]?.step).toBe('ci_autofix');
+    const approval = d.task(t.id).run.reviews[0]!.attempt_id;
+    expect(d.task(t.id).run.ci_repair).toMatchObject({ review_attempt_id: approval, from_sha: A });
+    d.complete(t.id, autofix.id, 'succeeded', {
+      ...gatesData({ format_fix: true }),
+      tree: TREE,
+      stable: true,
+    });
+    const gates = d.pendingOne(t.id, 'run_gates');
+    expect(d.task(t.id).effects[gates.id]?.step).toBe('gates');
+    if (upgrade) d = upgraded(d, t);
+    d.complete(t.id, gates.id, 'succeeded', checkpointGates(B));
+    publishToReview(d, t.id, B);
+    expect(carried(d, t).map((p) => p.carry)).toEqual([
+      {
+        revision: d.task(t.id).revision,
+        review_attempt_id: approval,
+        approved_sha: A,
+        from_sha: A,
+        sha: B,
+        tree: TREE,
+      },
+    ]);
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(reviewOf(d.task(t.id), B)).toBe('approved');
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+  });
+
+  it('a remote head drift during the CI repair carries nothing: the task waits on head_changed', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    const fixer = d.pendingOne(t.id, 'start_agent');
+    d.claim(fixer.id);
+    d.must(t.id, {
+      kind: 'head_drift',
+      expected: A,
+      observed: D,
+      source: 'observation',
+      evidence_ref: 'obs:D',
+    });
+    d.send(t.id, {
+      kind: 'effect_result',
+      effect_id: fixer.id as Uuid,
+      outcome: 'succeeded',
+      data: agentData('done'),
+    });
+    const s = d.task(t.id);
+    expect(s.wait?.detail['code']).toBe('head_changed');
+    expect(d.pending(t.id, 'run_gates')).toEqual([]);
+    expect(carried(d, t)).toEqual([]);
+    expect(reviewOf(s, D)).toBe('missing');
+  });
+
+  /**
+   * The task's log copied into a fresh SQLite store without `CiRepairStarted`, as a release before it
+   * wrote it would have left an in-flight CI repair; the daemon upgraded and goes on from that log.
+   */
+  const upgraded = (d: StoreDriver, t: CanonicalTask): StoreDriver => {
+    const events = d.store.readEvents(t.id);
+    expect(events.map((e) => e.type)).toContain('CiRepairStarted');
+    const old = setup();
+    injectEvents(
+      old.store,
+      t.id,
+      events
+        .filter((e) => e.type !== 'CiRepairStarted')
+        .map(
+          ({ type, revision, actor, payload }) =>
+            ({ type, revision, actor, payload }) as DomainEventDraft,
+        ),
+    );
+    old.now = d.now;
+    expect(old.task(t.id).run.ci_repair).toBeUndefined();
+    return old;
+  };
+
+  it.each(['ci_fix', 'fix_gates'] as const)(
+    'an in-flight CI repair from a log without its start (upgrade at %s) still carries the approval',
+    (at) => {
+      const d0 = setup();
+      const t = buildTask();
+      createGrantStart(d0, t, 'full-review');
+      toPublish(d0, t, A);
+      toCiFix(d0, t);
+      if (at === 'fix_gates') {
+        d0.complete(t.id, d0.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+        d0.complete(t.id, d0.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+          ...checkpointGates(B, { build: false, unit: true }),
+          checkpoint: undefined,
+        });
+      }
+      const d = upgraded(d0, t);
+      const fixer = agentStep(d, t);
+      expect(fixer.step).toBe(at);
+      d.complete(t.id, fixer.id, 'succeeded', agentData('done'));
+      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+      publishToReview(d, t.id, B);
+      const approval = d.task(t.id).run.reviews[0]!.attempt_id;
+      expect(carried(d, t).map((p) => p.carry)).toEqual([
+        {
+          revision: d.task(t.id).revision,
+          review_attempt_id: approval,
+          approved_sha: A,
+          from_sha: A,
+          sha: B,
+          tree: TREE,
+        },
+      ]);
+      expect(reviewerRuns(d, t)).toBe(1);
+      expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+      expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    },
+  );
+
+  it('gates the old release already requested for a CI repair still carry the approval when they report', () => {
+    const d0 = setup();
+    const t = buildTask();
+    createGrantStart(d0, t, 'full-review');
+    toPublish(d0, t, A);
+    toCiFix(d0, t);
+    d0.complete(t.id, agentStep(d0, t).id, 'succeeded', agentData('done'));
+    const gates = d0.pendingOne(t.id, 'run_gates');
+    // Upgrade with the gates out: their result comes back without the step being entered again.
+    const d = upgraded(d0, t);
+    expect(d.pendingOne(t.id, 'run_gates').id).toBe(gates.id);
+    d.complete(t.id, gates.id, 'succeeded', checkpointGates(B));
+    expect(d.task(t.id).run.ci_fix_carry).toMatchObject({
+      review_attempt_id: d.task(t.id).run.reviews[0]!.attempt_id,
+      approved_sha: A,
+      from_sha: A,
+      sha: B,
+    });
+    publishToReview(d, t.id, B);
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(reviewOf(d.task(t.id), B)).toBe('approved');
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+  });
+
+  it.each(['before', 'after'])(
+    'old CI gates retain their source when upgraded %s a tree-stability rerun',
+    (timing) => {
+      let d = setup();
+      const t = buildTask();
+      createGrantStart(d, t, 'full-review');
+      toPublish(d, t, A);
+      toCiFix(d, t);
+      d.complete(t.id, agentStep(d, t).id, 'succeeded', agentData('done'));
+      if (timing === 'before') d = upgraded(d, t);
+      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+        ...gatesData({ build: true, unit: true }),
+        tree: TREE,
+        stable: false,
+      });
+      if (timing === 'after') d = upgraded(d, t);
+      d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+      expect(d.task(t.id).run.ci_fix_carry).toMatchObject({ approved_sha: A, from_sha: A, sha: B });
+      publishToReview(d, t.id, B);
+      expect(reviewerRuns(d, t)).toBe(1);
+      expect(reviewOf(d.task(t.id), B)).toBe('approved');
+      expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+      expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    },
+  );
+
+  it('an upgraded log does not take an unrelated approval: a review fix round past the gate fixer is reviewed', () => {
+    const d0 = setup();
+    const t = buildTask();
+    createGrantStart(d0, t, 'full-review');
+    toPublish(d0, t, A);
+    publishToReview(d0, t.id, A);
+    d0.complete(
+      t.id,
+      d0.pendingOne(t.id, 'start_agent').id,
+      'succeeded',
+      reviewData('request_changes', A, {
+        findings: [{ severity: 'major', file: 'src/a.ts', msg: 'wrong' }],
+        input_digest: currentReviewInput(d0, t.id),
+      }),
+    );
+    completePost(d0, t.id);
+    if (d0.task(t.id).wait?.detail['code'] === 'execution_slot') d0.grantNext();
+    d0.complete(t.id, d0.pendingOne(t.id, 'start_agent').id, 'succeeded', agentData('done'));
+    d0.complete(t.id, d0.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      ...checkpointGates(B, { build: false, unit: true }),
+      checkpoint: undefined,
+    });
+    const fixer = agentStep(d0, t);
+    expect(fixer.step).toBe('fix_gates');
+    d0.complete(t.id, fixer.id, 'succeeded', agentData('done'));
+    d0.complete(t.id, d0.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(B));
+    publishToReview(d0, t.id, B);
+    expect(types(d0, t)).not.toContain('CiRepairStarted');
+    expect(carried(d0, t)).toEqual([]);
+    expect(reviewerRuns(d0, t)).toBe(2);
+  });
+
+  it('a CI repair that changed nothing goes on past a spent review visit limit', () => {
+    const d = setup();
+    const t = buildTask();
+    const workflow = structuredClone(SOFTWARE_DEV);
+    workflow.steps['review']!.max_visits = 1;
+    createGrantStart(d, t, 'full-review', { workflow });
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    expect(d.task(t.id).step_visits['review']).toBe(1);
+    d.complete(t.id, agentStep(d, t).id, 'succeeded', agentData('done'));
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'run_gates').id,
+      'succeeded',
+      checkpointGates(A, undefined, {
+        checkpoint: { ...(checkpointGates(A)['checkpoint'] as object), committed: false },
+      }),
+    );
+    expect(d.task(t.id).run.ci_fix_carry).toMatchObject({ approved_sha: A, from_sha: A, sha: A });
+    publishToReview(d, t.id, A);
+    expect(types(d, t)).not.toContain('StepExhausted');
+    expect(d.task(t.id).wait?.detail['code']).not.toBe('loop_exhausted');
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(d.pending(t.id, 'mark_ready')).toHaveLength(1);
+  });
+
+  it('a carried approval holds only while it is the latest verdict of the same revision', () => {
+    const d = setup();
+    const t = buildTask();
+    createGrantStart(d, t, 'full-review');
+    toPublish(d, t, A);
+    toCiFix(d, t);
+    repairTo(d, t, B);
+    const s = d.task(t.id);
+    expect(reviewOf(s, B)).toBe('approved');
+    const later = structuredClone(s);
+    later.run.reviews.push({
+      ...s.run.reviews[0]!,
+      attempt_id: 'later',
+      verdict: 'request_changes',
+    });
+    expect(reviewOf(later, B)).toBe('missing');
+    const next = structuredClone(s);
+    next.revision += 1;
+    expect(reviewOf(next, B)).toBe('missing');
   });
 });

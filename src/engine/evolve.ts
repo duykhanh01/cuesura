@@ -1,4 +1,6 @@
 import { assertNever } from '../shared/assert-never.ts';
+import { CI_REPAIR_ROUND_STEPS } from './workflows/software-dev.ts';
+import { approvalCovering } from './head-evidence.ts';
 import type { DomainEvent, DomainEventDraft } from '../domain/event.ts';
 import type { Hash } from '../shared/brand.ts';
 import { BaseUpdateSchema, cancelReadRef } from '../domain/runtime.ts';
@@ -199,11 +201,17 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       break;
 
     case 'StepEntered':
+      if (event.payload.step !== 'gates' || s.current_step !== 'gates') delete s.run.gates_from;
+      if (event.payload.step === 'gates' && event.payload.from !== null)
+        s.run.gates_from = event.payload.from.step;
       s.current_step = event.payload.step;
       s.step_visits[event.payload.step] = event.payload.visit;
       s.ci_polls = 0;
+      // A CI repair round spans its fix and gate steps only; anything else entered ends it.
+      if (!CI_REPAIR_ROUND_STEPS.includes(event.payload.step)) delete s.run.ci_repair;
       break;
     case 'StepSkipped':
+      delete s.run.gates_from;
       s.current_step = event.payload.step;
       if (event.payload.kind === 'review')
         s.evidence.review_skipped.push({ revision: s.revision, valid: true });
@@ -1028,6 +1036,12 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'MinorFixRecorded':
       s.run.minor_fix = event.payload.fix;
       break;
+    case 'CiRepairStarted':
+      s.run.ci_repair = event.payload.repair;
+      break;
+    case 'CiFixApprovalCarried':
+      s.run.ci_fix_carry = event.payload.carry;
+      break;
     case 'MinorFixStarted':
     case 'MinorFixDropped': {
       const started = s.run.minor_started ?? [];
@@ -1046,8 +1060,18 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
     case 'ReviewReused':
       s.run.verdict_attempt_id = event.payload.from_attempt_id;
       break;
-    case 'BaseUpdateRecorded':
-      s.run.base_update = event.payload.update;
+    case 'BaseUpdateRecorded': {
+      const prev = s.run.base_update;
+      const next = event.payload.update;
+      // A log written before `approved_via` existed: a new update records the approval covering its head
+      // the way the engine does now, while the previous update's certificate is still in the state.
+      const via =
+        next.approved_via === undefined
+          ? prev?.revision === next.revision && prev.head_sha === next.head_sha
+            ? prev.approved_via
+            : approvalCovering(s, next.head_sha)?.attempt_id
+          : undefined;
+      s.run.base_update = via === undefined ? next : { ...next, approved_via: via };
       if (event.payload.update.superseded_reads !== undefined)
         s.run.superseded_reads = [
           ...new Set([...(s.run.superseded_reads ?? []), ...event.payload.update.superseded_reads]),
@@ -1061,6 +1085,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         s.blockers = s.blockers.filter((b) => b.code !== 'head_changed');
       }
       break;
+    }
     case 'HeadDriftRecorded':
       s.run.head_drift = event.payload.drift;
       addBlocker(s, {

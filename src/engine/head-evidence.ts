@@ -1,4 +1,4 @@
-import type { TaskState } from '../domain/state.ts';
+import type { ReviewEvidence, TaskState } from '../domain/state.ts';
 import { type Check, checkPasser } from '../domain/trigger.ts';
 import type { RequiredVerdict } from './required-checks.ts';
 
@@ -174,7 +174,7 @@ export function reviewOf(
     const last = state.run.reviews
       .filter((r) => r.valid && r.revision === rev && r.sha === head)
       .at(-1);
-    if (last === undefined && minorFixApproved(state, head)) return 'approved';
+    if (last === undefined && approvalCarried(state, head)) return 'approved';
     return last?.verdict === 'approve' ? 'approved' : 'missing';
   }
   return state.evidence.reviews.some(
@@ -200,4 +200,59 @@ export function minorFixApproved(
     last.verdict === 'approve' &&
     last.sha === fix.approved_sha
   );
+}
+
+/**
+ * `head` is the checkpoint of a CI repair round whose approval is still the latest verdict of this
+ * revision: the round started on a head that approval covered, and its gates passed on `head`.
+ */
+export function ciFixApproved(state: Pick<TaskState, 'revision' | 'run'>, head: string): boolean {
+  const carry = state.run.ci_fix_carry;
+  if (carry === undefined || carry.revision !== state.revision || carry.sha !== head) return false;
+  const last = state.run.reviews.filter((r) => r.valid && r.revision === state.revision).at(-1);
+  return (
+    last?.attempt_id === carry.review_attempt_id &&
+    last.verdict === 'approve' &&
+    last.sha === carry.approved_sha
+  );
+}
+
+/** An approval of this revision carried to `head` without a reviewer run: a minor fix or a CI repair. */
+export function approvalCarried(state: Pick<TaskState, 'revision' | 'run'>, head: string): boolean {
+  return minorFixApproved(state, head) || ciFixApproved(state, head);
+}
+
+/** The latest verdict of this revision when it is an approval covering `head` (approved or carried). */
+function latestApprovalOn(
+  state: Pick<TaskState, 'revision' | 'run'>,
+  head: string,
+): ReviewEvidence | undefined {
+  const last = state.run.reviews.filter((r) => r.valid && r.revision === state.revision).at(-1);
+  if (last?.verdict !== 'approve') return undefined;
+  return last.sha === head || approvalCarried(state, head) ? last : undefined;
+}
+
+/**
+ * The latest approval of this revision when it covers `head`: it approved `head`, carried to it, or
+ * `head` is the certified base integration (no review needed) of a head it covered. That last link is
+ * kept on the update (`approved_via`), so it holds across repeated integrations.
+ */
+export function approvalCovering(
+  state: Pick<TaskState, 'revision' | 'evidence' | 'run'>,
+  head: string,
+): ReviewEvidence | undefined {
+  const direct = latestApprovalOn(state, head);
+  if (direct !== undefined) return direct;
+  const u = state.run.base_update;
+  if (
+    u?.revision !== state.revision ||
+    u.certificate?.head_sha !== head ||
+    u.head_sha === head ||
+    reviewOf(state, head) !== 'not_required'
+  )
+    return undefined;
+  const approval = latestApprovalOn(state, u.head_sha);
+  if (approval !== undefined) return approval;
+  const last = state.run.reviews.filter((r) => r.valid && r.revision === state.revision).at(-1);
+  return last?.verdict === 'approve' && u.approved_via === last.attempt_id ? last : undefined;
 }

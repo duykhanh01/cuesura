@@ -148,6 +148,12 @@ export const SOFTWARE_DEV: Workflow = WorkflowSchema.parse(RAW);
 
 export const SOFTWARE_DEV_V2 = 'software_dev@2';
 
+/** Steps that start a CI repair round on a failed head. */
+export const CI_REPAIR_STEPS: readonly string[] = ['ci_fix', 'ci_autofix'];
+
+/** Steps a CI repair round runs through until its gates commit the repaired checkpoint. */
+export const CI_REPAIR_ROUND_STEPS: readonly string[] = [...CI_REPAIR_STEPS, 'gates', 'fix_gates'];
+
 /** The fixer step that takes the minor findings of an approving review before the PR turns ready. */
 export const MINOR_FIX_STEP = 'fix_minor';
 
@@ -165,7 +171,9 @@ export function modeWorkflowName(mode: ExecutionMode): string {
  *   stays within the findings' files and tests is carried by the approval, anything short of that is
  *   dropped or reviewed again, never waited on;
  * - no review skip by size; `direct-pr` has no review step at all, so nothing approves on its behalf;
- * - an autofix that changed code goes back through the gates, which commit the final tree.
+ * - an autofix that changed code goes back through the gates, which commit the final tree;
+ * - in `full-review`, a CI repair (`ci_fix`, `ci_autofix`) of an approved head is carried by that approval
+ *   to the checkpoint its gates commit, so the review step after its publish runs no reviewer.
  */
 export function modeGraph(w: Workflow, mode: ExecutionMode): Workflow {
   const steps = structuredClone(w.steps);

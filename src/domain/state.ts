@@ -499,6 +499,30 @@ export type MinorFix = {
   paths: string[];
 };
 
+/**
+ * A CI repair round that started on a head the latest approval of this revision covers (`from_sha`),
+ * directly or through a certified base integration: set when `ci_fix` or `ci_autofix` is entered (or
+ * its gates, resuming a log without it), cleared when the round leaves its fix and gate steps.
+ */
+export type CiRepair = {
+  revision: number;
+  review_attempt_id: string;
+  from_sha: string;
+};
+
+/**
+ * The approval carried from `from_sha` to the checkpoint `sha` a CI repair round committed: its gates
+ * passed there. No reviewer ran for `sha` or for PR content the round wrote.
+ */
+export type CiFixCarry = {
+  revision: number;
+  review_attempt_id: string;
+  approved_sha: string;
+  from_sha: string;
+  sha: string;
+  tree: string;
+};
+
 /** A remote head nobody in this task expected: blocks business work until reconciled (FR-041.03, H01–H05). */
 export type HeadDrift = {
   expected: string | null;
@@ -559,6 +583,12 @@ export type RunState = {
   superseded_reads?: string[];
   /** The latest minor fix carried by an approval; absent until the first one. */
   minor_fix?: MinorFix;
+  /** The open CI repair round on an approved head; absent outside one. */
+  ci_repair?: CiRepair;
+  /** Source of the current gates visit, retained when an old in-flight gate reports after upgrade. */
+  gates_from?: string;
+  /** The latest CI repair commit carried by an approval; absent until the first one. */
+  ci_fix_carry?: CiFixCarry;
   /** Approving review attempts whose one minor fixer run started or was dropped. */
   minor_started?: string[];
   /** Set while a failing task publishes its work as a draft PR before it ends (#247). */

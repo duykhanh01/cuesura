@@ -55,6 +55,11 @@ export type BaseUpdateRun = BaseUpdate & {
   scope?: BaseRepairScope;
   manual_resolution?: { by: string; at: number };
   certificate?: { head_sha: string; tree: string };
+  /**
+   * The latest approval of the revision that covered `head_sha` when the update started (a review attempt
+   * id); with the certificate, a CI repair of the integrated head starts under it.
+   */
+  approved_via?: string;
   /** CI reads of the checked head still out when a remote merge was taken; their answers are history. */
   superseded_reads?: string[];
 };

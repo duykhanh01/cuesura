@@ -1,5 +1,5 @@
 import type { EventPayloads } from '../domain/event.ts';
-import { minorFixApproved, reviewOf } from './head-evidence.ts';
+import { approvalCarried, approvalCovering, reviewOf } from './head-evidence.ts';
 import type { BaseUpdate, BaseUpdateRun } from '../domain/runtime.ts';
 import type { z } from 'zod';
 import { assertNever } from '../shared/assert-never.ts';
@@ -9,6 +9,7 @@ import {
   streakKey,
   type Attempt,
   type AttemptKind,
+  type CheckpointState,
   type EffectMirror,
   type ResumeAction,
   type ReviewEvidence,
@@ -70,6 +71,7 @@ import { restartCadence, waitMergeEvidence, waitPrClosed } from './observation.t
 import { isPaused, stoppedByPause, waitPaused } from './pause.ts';
 import { afterMessageStop, stoppedByMessage } from './message.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
+import { CI_REPAIR_STEPS } from './workflows/software-dev.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
 import { gatesPass, reviewWaived, reviewWaivers } from './waivers.ts';
 
@@ -291,9 +293,10 @@ export function enterStep(
     return skip(ctx, step, 'when');
   if (def.skip_when !== undefined && evalPredicate(def.skip_when, facts(ctx, step)))
     return skip(ctx, step, 'skip_when');
-  // The approval carries a minor fix to its checkpoint: no reviewer runs, so no review visit counts.
+  // The approval carries a minor fix or a CI repair to its checkpoint: no reviewer runs, so no review
+  // visit counts.
   const cp = ctx.state.run.checkpoint;
-  if (def.kind === 'review' && cp !== null && minorFixApproved(ctx.state, cp.sha))
+  if (def.kind === 'review' && cp !== null && approvalCarried(ctx.state, cp.sha))
     return skip(ctx, step, 'approval_carried');
   const visits = ctx.state.step_visits[step] ?? 0;
   let limit = visitLimit(ctx, step);
@@ -318,6 +321,11 @@ export function enterStep(
     return;
   }
   ctx.emit('StepEntered', { step, visit: visits + 1, from });
+  if (
+    CI_REPAIR_STEPS.includes(step) ||
+    (step === 'gates' && baseUpdate === undefined && resumesCiRepair(ctx, from?.step))
+  )
+    startCiRepair(ctx);
   runStep(ctx, step, attemptKind, baseUpdate);
 }
 
@@ -1508,7 +1516,17 @@ function routeSuccess(ctx: Ctx, e: EffectMirror, data: unknown): void {
         });
         return;
       }
-      if (passed && d.checkpoint !== undefined) recordCheckpoint(ctx, step as string, d.checkpoint);
+      if (passed && d.checkpoint !== undefined) {
+        if (
+          step === 'gates' &&
+          e.base_update === undefined &&
+          resumesCiRepair(ctx, ctx.state.run.gates_from)
+        )
+          startCiRepair(ctx);
+        const before = ctx.state.run.checkpoint;
+        recordCheckpoint(ctx, step as string, d.checkpoint);
+        if (e.base_update === undefined) carryCiFixApproval(ctx, before, d.checkpoint);
+      }
       if (
         passed &&
         d.checkpoint !== undefined &&
@@ -2561,6 +2579,94 @@ function onMinorGates(ctx: Ctx, e: EffectMirror, d: z.infer<typeof GateDataSchem
     },
   });
   proceed(ctx, { kind: 'route', step, outcome: 'pass' });
+}
+
+// ---------- CI repair of an approved head ----------
+
+/** A base update of this revision still running: its gates and fixers belong to it, not to a CI repair. */
+function openBaseUpdate(s: TaskState): boolean {
+  const u = s.run.base_update;
+  return u !== undefined && u.revision === s.revision && u.certificate === undefined;
+}
+
+/**
+ * A CI repair entered on the published checkpoint a real approval of this revision covers opens a round
+ * that approval carries (`full-review`).
+ */
+function startCiRepair(ctx: Ctx): void {
+  const s = ctx.state;
+  const cp = s.run.checkpoint;
+  if (
+    !modeReview(ctx) ||
+    cp === null ||
+    cp.revision !== s.revision ||
+    cp.sha !== s.head_sha ||
+    s.run.head_drift !== null
+  )
+    return;
+  if (openBaseUpdate(s)) return;
+  const approval = approvalCovering(s, cp.sha);
+  if (approval === undefined) return;
+  ctx.emit('CiRepairStarted', {
+    repair: { revision: s.revision, review_attempt_id: approval.attempt_id, from_sha: cp.sha },
+  });
+}
+
+/**
+ * Gates entered with no open round although they continue a CI repair: a log written before the round
+ * was recorded (an upgrade while the repair ran or was paused). The round is taken from what the log
+ * holds, bound to the current one: CI failed on the checked head, no base update is open, and the gates
+ * come from a CI repair step or from the gate fixer after a CI worker. Gates already requested by the
+ * old release report back without being entered: `from` comes from the recorded gates transition.
+ */
+function resumesCiRepair(ctx: Ctx, from: string | undefined): boolean {
+  const s = ctx.state;
+  if (from === undefined || s.run.ci_repair?.revision === s.revision || openBaseUpdate(s))
+    return false;
+  const head = s.run.checkpoint?.sha;
+  const ci = head === undefined ? undefined : latestCi(s, head);
+  if (ci === undefined || taskCiVerdict(s, ctx.frozen, ci).kind !== 'fail') return false;
+  if (CI_REPAIR_STEPS.includes(from)) return true;
+  if (from !== 'fix_gates') return false;
+  const last = Object.values(s.attempts)
+    .filter((a) => a.revision === s.revision && a.step !== 'fix_gates')
+    .at(-1);
+  return last !== undefined && CI_REPAIR_STEPS.includes(last.step);
+}
+
+/**
+ * Gates of an open CI repair round committed a checkpoint: the approval the round started under carries
+ * to it, whatever the repair changed (PR title/body included) or when it changed nothing, so the review
+ * after the publish runs no reviewer and spends no review visit.
+ */
+function carryCiFixApproval(
+  ctx: Ctx,
+  before: CheckpointState | null,
+  cp: z.infer<typeof CheckpointDataSchema>,
+): void {
+  const s = ctx.state;
+  const repair = s.run.ci_repair;
+  const approval = latestApproval(s);
+  if (
+    repair === undefined ||
+    repair.revision !== s.revision ||
+    openBaseUpdate(s) ||
+    approval?.attempt_id !== repair.review_attempt_id ||
+    s.run.head_drift !== null ||
+    before?.sha !== repair.from_sha ||
+    before.revision !== s.revision
+  )
+    return;
+  ctx.emit('CiFixApprovalCarried', {
+    carry: {
+      revision: s.revision,
+      review_attempt_id: repair.review_attempt_id,
+      approved_sha: approval.sha,
+      from_sha: repair.from_sha,
+      sha: cp.sha,
+      tree: cp.tree,
+    },
+  });
 }
 
 /** A path conventionally holding tests: a minor fix may add or change them beside the findings' files. */

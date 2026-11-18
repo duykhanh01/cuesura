@@ -1419,12 +1419,13 @@ describe.each(['full-review', 'direct-pr'] as const)(
             resume_fallback: 'no_session',
           });
         }
-        if (mode === 'full-review')
+        // The CI fix is carried by the approval of the first head: no reviewer runs for the second.
+        if (mode === 'full-review') {
           expect(s.run.reviews.filter((r) => r.verdict === 'approve').map((r) => r.sha)).toEqual([
             first,
-            second,
           ]);
-        else expect(codex.calls).toEqual([]);
+          expect(s.run.ci_fix_carry).toMatchObject({ approved_sha: first, sha: second });
+        } else expect(codex.calls).toEqual([]);
         // CI of the old head is history; the merge of the new head is verified.
         github.merge(7, 'e'.repeat(40));
         const seen = await observeTask(deps, task.id, 'obs:merge');

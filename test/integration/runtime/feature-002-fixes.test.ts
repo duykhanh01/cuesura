@@ -352,7 +352,13 @@ describe('repair loops (US2.1–US2.3, M03/M04/M06)', () => {
       },
     });
     expect(d.task(t.id).pr_ref).toBe('acme#7');
-    reviewToCi(d, t.id);
+    // The approval of A carries to the CI fix, new title/body included: no reviewer runs for B.
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.task(t.id).run.ci_fix_carry).toMatchObject({ approved_sha: A, sha: B });
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      ready_at: null,
+    });
     expect(d.pendingOne(t.id, 'await_ci').request).toMatchObject({
       head_sha: B,
     });

@@ -9,6 +9,8 @@ import type {
   HeadDrift,
   LocalRemainder,
   MessageBehavior,
+  CiFixCarry,
+  CiRepair,
   MinorFix,
   PublishContentState,
   ResumeAction,
@@ -434,6 +436,10 @@ export type EventPayloads = {
   };
   BaseUpdateRecorded: { update: BaseUpdateRun };
   MinorFixRecorded: { fix: MinorFix };
+  /** A CI repair round started on a head the latest approval covers. */
+  CiRepairStarted: { repair: CiRepair };
+  /** The approval of `carry.review_attempt_id` covers the CI repair commit `carry.sha`; no reviewer ran. */
+  CiFixApprovalCarried: { carry: CiFixCarry };
   /** The task is ending with `reason`; its unpublished work goes up as a draft PR first (#247). */
   FailureSalvageStarted: { reason: string };
   /** The one minor fixer run an approving review gets has started; it never starts again for it. */
@@ -617,6 +623,8 @@ export const EVENT_TYPES = [
   'ReviewReused',
   'BaseUpdateRecorded',
   'MinorFixRecorded',
+  'CiRepairStarted',
+  'CiFixApprovalCarried',
   'FailureSalvageStarted',
   'MinorFixStarted',
   'MinorFixDropped',

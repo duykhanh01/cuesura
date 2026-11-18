@@ -2,7 +2,7 @@ import type { FrozenPolicy } from '../domain/policy.ts';
 import type { Evidence, TaskState } from '../domain/state.ts';
 import { type Check, checkPasser, type RequiredSet } from '../domain/trigger.ts';
 import { canonicalJson } from '../shared/canonical-json.ts';
-import { minorFixApproved } from './head-evidence.ts';
+import { approvalCarried } from './head-evidence.ts';
 import { unlistedWaivers, waivedChecks } from './waivers.ts';
 
 export type CiVerdict =
@@ -117,7 +117,7 @@ export function mergeGuard(state: TaskState, policy: FrozenPolicy): GuardResult 
     (r) => r.valid && r.revision === rev && r.head_sha === head,
   );
   const skipped = state.evidence.review_skipped.some((r) => r.valid && r.revision === rev);
-  if (review?.verdict !== 'approve' && !skipped && !minorFixApproved(state, head))
+  if (review?.verdict !== 'approve' && !skipped && !approvalCarried(state, head))
     return { ok: false, code: 'review_missing' };
 
   const ci = latestCi(state, head);

@@ -3,11 +3,13 @@ import { writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { FileContentStore } from '../../../src/adapters/publish-content.ts';
 import { productionControl } from '../../../src/daemon/production.ts';
+import type { DomainEventDraft } from '../../../src/domain/event.ts';
 import { replay } from '../../../src/engine/evolve.ts';
+import { approvalCovering, reviewOf } from '../../../src/engine/head-evidence.ts';
 import { ci, observation } from '../../support/observation.ts';
 import { observeTaskPr } from '../../../src/daemon/handlers.ts';
 import { createGrantStart } from '../../support/runtime.ts';
-import { publishData } from '../../support/scenario.ts';
+import { agentData, publishData } from '../../support/scenario.ts';
 import { toPublish, checkpointGates, reviewToCi } from '../../support/store-flows.ts';
 import { readMergeReadiness } from '../../../src/adapters/github/merge.ts';
 import { GhPort } from '../../../src/adapters/github/gh-port.ts';
@@ -18,7 +20,7 @@ import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs } from '../../../src/shared/brand.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
 import { err, ok } from '../../../src/shared/result.ts';
-import { openFileStoreForTest } from '../../../src/store/testing.ts';
+import { injectEvents, openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { fixtureExec } from '../../support/gh-fixture.ts';
 import { A, merge, toGreen } from '../../support/observation.ts';
@@ -857,6 +859,268 @@ describe('yolo merge', () => {
       expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
     },
   );
+
+  it('a CI repair after a certified clean base update carries the approval of the head it integrated', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const approval = d.task(t.id).run.reviews[0]!.attempt_id;
+    expect(await advanceTaskPr(deps(d, github({ compare: { ahead_by: 1 } }).port), t.id)).toBe(
+      'updating_base',
+    );
+    const integrated = 'c'.repeat(40);
+    const repaired = 'd'.repeat(40);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(integrated));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(integrated));
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: d.task(t.id).pr_ref,
+      ready_at: null,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(integrated, { build: 'success', test: 'failure' }),
+    );
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    const fixer = d.pendingOne(t.id, 'start_agent');
+    expect(d.task(t.id).effects[fixer.id]?.step).toBe('ci_fix');
+    expect(d.task(t.id).run.ci_repair).toMatchObject({
+      review_attempt_id: approval,
+      from_sha: integrated,
+    });
+    d.complete(t.id, fixer.id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(repaired));
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(repaired));
+    // No reviewer for the repair: the approval of A carries through the certified integration.
+    expect(d.pending(t.id, 'start_agent')).toEqual([]);
+    expect(d.task(t.id).run.ci_fix_carry).toMatchObject({
+      review_attempt_id: approval,
+      approved_sha: A,
+      from_sha: integrated,
+      sha: repaired,
+    });
+    expect(d.task(t.id).run.reviews.map((r) => r.sha)).toEqual([A]);
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: d.task(t.id).pr_ref,
+      ready_at: null,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(repaired, { build: 'success', test: 'success' }),
+    );
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+  });
+
+  /** Publishes `head` after its gates, turns the PR ready and reads CI on it. */
+  const publishAndCi = (
+    d: StoreDriver,
+    t: CanonicalTask,
+    head: string,
+    test: 'success' | 'failure',
+  ) => {
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(head));
+    const pr = d.pending(t.id, 'create_pr');
+    if (pr.length === 1)
+      d.complete(t.id, pr[0]!.id, 'succeeded', { pr_ref: 'acme#7', head_sha: head });
+    d.complete(t.id, d.pendingOne(t.id, 'mark_ready').id, 'succeeded', {
+      pr_ref: d.task(t.id).pr_ref,
+      ready_at: null,
+    });
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(head, { build: 'success', test }),
+    );
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+  };
+  const ciFixTo = (d: StoreDriver, t: CanonicalTask, head: string) => {
+    const fixer = d.pendingOne(t.id, 'start_agent');
+    expect(d.task(t.id).effects[fixer.id]?.step).toBe('ci_fix');
+    d.complete(t.id, fixer.id, 'succeeded', agentData('done'));
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(head));
+  };
+  const carries = (d: StoreDriver, t: CanonicalTask) =>
+    d.store
+      .readEvents(t.id)
+      .flatMap((e) =>
+        e.type === 'CiFixApprovalCarried' ? [[e.payload.carry.from_sha, e.payload.carry.sha]] : [],
+      );
+  const reviewerRuns = (d: StoreDriver, t: CanonicalTask) =>
+    Object.values(d.task(t.id).effects).filter(
+      (e) => e.kind === 'start_agent' && e.step === 'review',
+    ).length;
+  /** A full-review task approved on A whose CI failed and whose CI fix B was carried and went green. */
+  const repairedGreen = (d: StoreDriver, t: CanonicalTask, b: string) => {
+    createGrantStart(d, t, 'full-review', { required_checks: REQUIRED });
+    toPublish(d, t, A, { content: { digest: CONTENT_DIGEST, ref: '/content/a.json' } });
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(A));
+    d.complete(t.id, d.pendingOne(t.id, 'create_pr').id, 'succeeded', {
+      pr_ref: 'acme#7',
+      head_sha: A,
+    });
+    reviewToCi(d, t.id);
+    d.complete(
+      t.id,
+      d.pendingOne(t.id, 'await_ci').id,
+      'succeeded',
+      ci(A, { build: 'success', test: 'failure' }),
+    );
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    ciFixTo(d, t, b);
+    publishAndCi(d, t, b, 'success');
+    expect(carries(d, t)).toEqual([[A, b]]);
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+  };
+
+  it('a base conflict fixed with outside files after an earlier CI repair is reviewed, not carried', async () => {
+    const d = setup();
+    const t = buildTask();
+    const b = 'c'.repeat(40);
+    const merged = 'd'.repeat(40);
+    const conflictTree = 'f'.repeat(40);
+    repairedGreen(d, t, b);
+    const stale = github({ pull: { head: { sha: b } }, compare: { ahead_by: 1 } });
+    expect(await advanceTaskPr(deps(d, stale.port), t.id)).toBe('updating_base');
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', {
+      results: [],
+      tree: conflictTree,
+      stable: true,
+      base_conflict: { tree: conflictTree, files: ['src/y.ts'] },
+    });
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    const fixer = d.pendingOne(t.id, 'start_agent');
+    expect(d.task(t.id).effects[fixer.id]?.step).toBe('fix_gates');
+    // The last worker before the gate fixer is still the earlier ci_fix; this round is the base update's.
+    d.complete(
+      t.id,
+      fixer.id,
+      'succeeded',
+      agentData('done', {
+        worktree_tree: 'e'.repeat(40),
+        base_repair: { tree: 'e'.repeat(40), outside_files: ['src/x.ts'], unresolved: false },
+      }),
+    );
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(merged));
+    const s = d.task(t.id);
+    expect(s.run.ci_repair).toBeUndefined();
+    expect(carries(d, t)).toEqual([[A, b]]);
+    expect(s.run.base_update?.scope?.outside_files).toEqual(['src/x.ts']);
+    expect(reviewOf(s, merged)).toBe('missing');
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(merged));
+    if (d.task(t.id).wait?.detail['code'] === 'execution_slot') d.grantNext();
+    expect(reviewerRuns(d, t)).toBe(2);
+  });
+
+  it('two clean certified base updates in a row keep the approval of A for the next CI repair', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const approval = d.task(t.id).run.reviews[0]!.attempt_id;
+    const first = 'c'.repeat(40);
+    const second = 'd'.repeat(40);
+    const repaired = 'e'.repeat(40);
+    expect(await advanceTaskPr(deps(d, github({ compare: { ahead_by: 1 } }).port), t.id)).toBe(
+      'updating_base',
+    );
+    expect(d.task(t.id).run.base_update?.approved_via).toBe(approval);
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(first));
+    publishAndCi(d, t, first, 'success');
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    const moved = github({
+      pull: { head: { sha: first } },
+      targetSha: 'f'.repeat(40),
+      compare: { ahead_by: 1 },
+    });
+    expect(await advanceTaskPr(deps(d, moved.port), t.id)).toBe('updating_base');
+    // The second update replaced the first one's record, yet keeps the approval that covered its head.
+    expect(d.task(t.id).run.base_update).toMatchObject({ head_sha: first, approved_via: approval });
+    d.complete(t.id, d.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(second));
+    publishAndCi(d, t, second, 'failure');
+    ciFixTo(d, t, repaired);
+    expect(d.task(t.id).run.ci_fix_carry).toMatchObject({
+      review_attempt_id: approval,
+      approved_sha: A,
+      from_sha: second,
+      sha: repaired,
+    });
+    publishAndCi(d, t, repaired, 'success');
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(d.task(t.id).wait?.detail.code).toBe('merge');
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    // A newer verdict of the revision breaks the link: the certified head is no longer covered.
+    const later = structuredClone(d.task(t.id));
+    later.run.reviews.push({
+      ...later.run.reviews[0]!,
+      attempt_id: 'later',
+      verdict: 'request_changes',
+    });
+    expect(approvalCovering(later, second)).toBeUndefined();
+  });
+
+  it('an old log of two certified base updates without approved_via keeps the approval of A on replay', async () => {
+    const d0 = setup();
+    const t = buildTask();
+    green(d0, t);
+    const approval = d0.task(t.id).run.reviews[0]!.attempt_id;
+    const first = 'c'.repeat(40);
+    const second = 'd'.repeat(40);
+    const repaired = 'e'.repeat(40);
+    expect(await advanceTaskPr(deps(d0, github({ compare: { ahead_by: 1 } }).port), t.id)).toBe(
+      'updating_base',
+    );
+    d0.complete(t.id, d0.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(first));
+    publishAndCi(d0, t, first, 'success');
+    const moved = github({
+      pull: { head: { sha: first } },
+      targetSha: 'f'.repeat(40),
+      compare: { ahead_by: 1 },
+    });
+    expect(await advanceTaskPr(deps(d0, moved.port), t.id)).toBe('updating_base');
+    d0.complete(t.id, d0.pendingOne(t.id, 'run_gates').id, 'succeeded', checkpointGates(second));
+    publishAndCi(d0, t, second, 'failure');
+    // Both certificates already exist when the old release is replaced.
+    // The same log as a release before `approved_via` wrote it, loaded into a fresh SQLite store.
+    const events = d0.store.readEvents(t.id);
+    const old = events.map(({ type, revision, actor, payload }): DomainEventDraft => {
+      if (type !== 'BaseUpdateRecorded')
+        return { type, revision, actor, payload } as DomainEventDraft;
+      const { approved_via: _via, ...update } = payload.update;
+      return { type, revision, actor, payload: { update } };
+    });
+    expect(JSON.stringify(old)).not.toContain('approved_via');
+    expect(
+      old.filter(
+        (e) => e.type === 'BaseUpdateRecorded' && e.payload.update.certificate !== undefined,
+      ),
+    ).toHaveLength(2);
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())), 7);
+    injectEvents(d.store, t.id, old);
+    d.now = d0.now;
+    expect(d.task(t.id).run.base_update).toMatchObject({ head_sha: first, approved_via: approval });
+    ciFixTo(d, t, repaired);
+    expect(d.task(t.id).run.ci_fix_carry).toMatchObject({
+      review_attempt_id: approval,
+      approved_sha: A,
+      from_sha: second,
+      sha: repaired,
+    });
+    publishAndCi(d, t, repaired, 'success');
+    expect(reviewerRuns(d, t)).toBe(1);
+    expect(replay(d.store.readEvents(t.id))).toEqual(d.task(t.id));
+    // A newer verdict of the revision breaks the derived link as it does a recorded one.
+    const later = structuredClone(d.task(t.id));
+    later.run.reviews.push({
+      ...later.run.reviews[0]!,
+      attempt_id: 'later',
+      verdict: 'request_changes',
+    });
+    expect(approvalCovering(later, second)).toBeUndefined();
+  });
 
   it('a base-update retry retains its durable head/base intent and remains subject to cancellation', async () => {
     const d = setup();

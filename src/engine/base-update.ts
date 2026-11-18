@@ -3,6 +3,7 @@ import { invalidatePending } from './cancel.ts';
 import { isMinorStep } from '../domain/workflow.ts';
 import type { Ctx } from './context.ts';
 import { verifiedHead } from './external-completion.ts';
+import { approvalCovering } from './head-evidence.ts';
 import { commitsCheckpoint, proceed } from './interpreter.ts';
 
 /** Reuse the normal gate → review (when required) → publish → CI path for an intentional base update. */
@@ -29,12 +30,14 @@ export function onUpdateBase(
     });
     return;
   }
+  const via = approvalCovering(s, t.head_sha)?.attempt_id;
   ctx.emit('BaseUpdateRecorded', {
     update: {
       head_sha: t.head_sha,
       base_sha: t.base_sha,
       revision: s.revision,
       gate_step: step,
+      ...(via === undefined ? {} : { approved_via: via }),
       ...(s.run.base_update?.fixer_attempt_id === undefined ||
       s.run.base_update.fix_step !== undefined
         ? {}
@@ -117,6 +120,7 @@ export function adoptRemoteMerge(ctx: Ctx, t: HeadDriftTrigger): boolean {
   for (const tm of Object.values(s.timers))
     if (tm.status === 'armed' && (tm.kind === 'ci_poll' || tm.kind === 'ci_timeout'))
       ctx.emit('TimerCancelled', { timer_id: tm.id });
+  const via = approvalCovering(s, t.expected)?.attempt_id;
   ctx.emit('BaseUpdateRecorded', {
     update: {
       head_sha: t.expected,
@@ -124,6 +128,7 @@ export function adoptRemoteMerge(ctx: Ctx, t: HeadDriftTrigger): boolean {
       remote_head: t.observed,
       revision: s.revision,
       gate_step: step,
+      ...(via === undefined ? {} : { approved_via: via }),
       ...(reads.length === 0 ? {} : { superseded_reads: reads }),
     },
   });
