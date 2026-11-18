@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // Local fake child for spike-002 runner/harness tests. Never calls a model or the network.
 import { spawn } from 'node:child_process';
-import { writeFileSync } from 'node:fs';
+import { renameSync, writeFileSync } from 'node:fs';
 
 const [mode, ...args] = process.argv.slice(2);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -41,7 +41,8 @@ switch (mode) {
     const inGroup = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 600000)'], { stdio: 'ignore' });
     const escaped = spawn(process.execPath, ['-e', 'setTimeout(()=>{}, 600000)'], { stdio: 'ignore', detached: true });
     escaped.unref();
-    writeFileSync(args[0], JSON.stringify({ in_group: inGroup.pid, escaped: escaped.pid }));
+    writeFileSync(`${args[0]}.tmp`, JSON.stringify({ in_group: inGroup.pid, escaped: escaped.pid }));
+    renameSync(`${args[0]}.tmp`, args[0]);
     process.stdout.write('{"type":"spawned"}\n');
     if (args[1] === 'exit') process.exit(0);
     await sleep(600_000);

@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { callDaemon } from '../../../src/cli/client.ts';
 import { createDaemonPort } from '../../../src/tui/client/daemon-port.ts';
 import {
+  COMMAND_TIMEOUT_MS,
   MAX_CHECKS,
   MutationTracker,
   type MutationCommand,
 } from '../../../src/tui/client/mutations.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
+import type { PtySession } from '../../support/pty.ts';
 import {
   cliJson,
   daemonSocket,
@@ -26,6 +28,12 @@ const tui = useTui();
 const recheckSetup = (): ReturnType<typeof recheckScene> => recheckScene(tui);
 
 const ids = (sent: { id: string }[]): string[] => [...new Set(sent.map((x) => x.id))];
+
+const checking = (s: PtySession): Promise<void> =>
+  s.waitFor(
+    () => flat(s.screenText()).includes('Result unknown - checking'),
+    COMMAND_TIMEOUT_MS + 5_000,
+  );
 
 describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () => {
   it('finds the stored result and sends nothing again', async () => {
@@ -96,14 +104,16 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     const { s, sent, holdDaemon, release, observed, shows } = await recheckSetup();
     // The daemon keeps the request in progress: the command times out, and every check is answered `in_progress`.
     holdDaemon();
-    await sendRecheck(s);
-    await s.waitFor(() => shows() >= 59, 110_000);
-    // Still checking after 59 looks; the 60th is the last and only then does the screen give up.
-    expect(flat(s.screenText())).not.toContain('Check again (C)');
-    await s.waitFor(() => flat(s.screenText()).includes('Check again (C)'), 20_000);
-    expect(shows()).toBe(60);
-    expect(ids(sent)).toHaveLength(1);
-    release();
+    try {
+      await sendRecheck(s);
+      await checking(s);
+      // The proxy count and the PTY update arrive independently. Check the count at the UI transition.
+      await s.waitFor(() => flat(s.screenText()).includes('Check again (C)'), 130_000);
+      expect(shows()).toBe(60);
+      expect(ids(sent)).toHaveLength(1);
+    } finally {
+      release();
+    }
     s.send('C');
     await s.waitFor(() => /Done \(request /.test(s.screenText()), 15_000);
     expect(ids(sent)).toHaveLength(1);
@@ -131,13 +141,18 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
   it.each(['SIGTERM', 'SIGHUP'] as const)(
     'exits 3 with the request ID on stderr when %s ends it with a result unknown',
     async (signal) => {
-      const { proxy, s, sent } = await recheckSetup();
-      proxy.mode = 'drop_response';
-      await sendRecheck(s);
-      await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
-      s.signal(signal, await s.programPid());
-      expect((await s.waitForExit()).status).toBe(3);
-      expect(s.screenText()).toContain(`request ID: ${sent[0]?.id ?? ''}`);
+      const { s, sent, holdDaemon, release } = await recheckSetup();
+      const pid = await s.programPid();
+      holdDaemon();
+      try {
+        await sendRecheck(s);
+        await checking(s);
+        s.signal(signal, pid);
+        expect((await s.waitForExit()).status).toBe(3);
+        expect(s.screenText()).toContain(`request ID: ${sent[0]?.id ?? ''}`);
+      } finally {
+        release();
+      }
     },
   );
 
@@ -147,12 +162,18 @@ describe('US4 scenario 8: Recheck on the Actions screen with a lost answer', () 
     await sendRecheck(s);
     await s.waitFor(() => flat(s.screenText()).includes('Result unknown - checking'));
     s.send('q');
-    expect((await s.waitForExit()).status).toBe(3);
+    const exit = await s.waitForExit();
+    expect(exit.status).toBe(3);
+    expect(exit.sttyAfter).toBe(exit.sttyBefore);
     const id = sent[0]?.id ?? '';
     expect(s.screenText()).toContain(`request ID: ${id}`);
-    expect(s.screenText()).toContain(`cusr request show ${id}`);
-    // The printed command, as it is, finds what the daemon did while the answer was lost.
-    const found = await cliJson(sd, 'request', 'show', id);
+    const command = s.screenText().match(/look it up with: (cusr request show \S+)/)?.[1];
+    expect(command).toBe(`cusr request show ${id}`);
+    const output = s.rawOutput();
+    const restored = output.lastIndexOf('\x1b[?1049l');
+    expect(restored).toBeGreaterThanOrEqual(0);
+    expect(output.indexOf(`request ID: ${id}`, restored)).toBeGreaterThan(restored);
+    const found = await cliJson(sd, ...command!.split(' ').slice(1));
     expect(found.code).toBe(0);
     expect(found.envelope.data?.['state']).toBe('completed');
   });

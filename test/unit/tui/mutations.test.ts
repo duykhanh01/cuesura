@@ -163,7 +163,9 @@ describe('MutationTracker', () => {
     const { tracker, port } = make();
     port.onCommand = lost;
     await tracker.submit(CMD);
-    for (let i = 0; i < MAX_CHECKS; i++) await tracker.poll('id-1');
+    for (let i = 0; i < MAX_CHECKS - 1; i++) await tracker.poll('id-1');
+    expect(tracker.get('id-1')?.state).toBe('unknown');
+    await tracker.poll('id-1');
     // Unresolved as soon as the 60th check leaves it unknown, not at the next poll.
     expect(tracker.get('id-1')?.state).toBe('unresolved');
     for (let i = 0; i < 5; i++) await tracker.poll('id-1');

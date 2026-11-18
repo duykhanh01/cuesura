@@ -215,8 +215,11 @@ function runDir(f: Fixture, attempt: string): RunDir {
   });
 }
 
-function pidRecord(f: Fixture, attempt: string): PidRecord {
-  const r = runDir(f, attempt).readFinal(RUN_FILES.pid, PidRecordSchema);
+async function pidRecord(f: Fixture, attempt: string): Promise<PidRecord> {
+  const run = runDir(f, attempt);
+  const read = () => run.readFinal(RUN_FILES.pid, PidRecordSchema);
+  await expect.poll(read, { timeout: 20_000 }).toMatchObject({ state: 'valid' });
+  const r = read();
   if (r.state !== 'valid') throw new Error(`pid.json ${r.state}`);
   return r.value;
 }
@@ -334,7 +337,7 @@ describe.skipIf(!available)(
 
         writeFileSync(f.gate, '');
         expect(await until(() => existsSync(f.pids))).toBe(true);
-        const pid = pidRecord(f, attempt);
+        const pid = await pidRecord(f, attempt);
         const later = await reconcileOperations(deps(f, d));
         expect(later.operations).toMatchObject([
           {
@@ -354,11 +357,15 @@ describe.skipIf(!available)(
         expect(tree.every(alive)).toBe(true);
         expect(await supervisor(f).stop(f.op, STOP)).toBe('stopped');
         expect(await until(() => !tree.some(alive))).toBe(true);
-        const exit = runDir(f, attempt).readFinal(RUN_FILES.exit, RunnerExitSchema);
-        expect(exit).toMatchObject({
-          state: 'valid',
-          value: { outcome: 'cancelled', spawned: true },
-        });
+        const run = runDir(f, attempt);
+        await expect
+          .poll(() => run.readFinal(RUN_FILES.exit, RunnerExitSchema), {
+            timeout: STOP.kill_verify_ms,
+          })
+          .toMatchObject({
+            state: 'valid',
+            value: { outcome: 'cancelled', spawned: true },
+          });
 
         const done = await reconcileOperations(deps(f, d));
         expect(done.operations).toMatchObject([
@@ -384,7 +391,7 @@ describe.skipIf(!available)(
       expect(await until(() => existsSync(f.pids))).toBe(true);
       await sigkill(child);
       const attempt = attemptOf(f);
-      const pid = pidRecord(f, attempt);
+      const pid = await pidRecord(f, attempt);
 
       const { d, report } = await restart(f);
       try {
@@ -470,7 +477,7 @@ describe.skipIf(!available)(
       expect(await logged(f, 'launched'), JSON.stringify(logOf(f))).toBe(true);
       expect(await until(() => existsSync(f.pids))).toBe(true);
       const attempt = attemptOf(f);
-      const pid = pidRecord(f, attempt);
+      const pid = await pidRecord(f, attempt);
       const invocation = (await inspectUnit(f.op)).invocation_id;
       expect(invocation).toMatch(/^[0-9a-f]{32}$/);
       const tree = [pid.pid, ...harnessPids(f)];

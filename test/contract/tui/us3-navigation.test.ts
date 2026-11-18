@@ -291,7 +291,7 @@ describe('US3 scenario 4: Help shows every key by context and closes where it wa
     s.send(KEY.down);
     await s.waitFor(() => selectedLine(s.screenText()).includes('Task 002'));
     s.send('?');
-    await s.waitForText('Keys on Home');
+    await s.waitForText('Keys in a text field');
     const help = s.screenText();
     // The keys of this screen, those of every screen, and those of the others.
     for (const text of [
