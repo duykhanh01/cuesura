@@ -79,6 +79,32 @@ cusr task add --file "$TASK_FILE" --request-id "$ID" --json
 - Run flags on add (`--profile --mode --worker ...`) make the proposal in the same call, checked against
   `task options` before the task exists.
 
+### Write the task brief
+
+Aim for about 10 lines across `--description` and `--acceptance`. Put longer context in a repository document
+the worker can read and link to it.
+
+- In `--description`, state the outcome and link the source issue or document. Name the files or interfaces
+  the task owns and what is out of scope. Include relevant dependencies, settled decisions to keep, and
+  exceptions the worker could miss, such as a known flaky test or a behavior that is changing.
+- In `--acceptance`, write one observable result per line that a reviewer can verify within the task's scope.
+- Leave out copied issue text, rules from `AGENTS.md`, standard check commands, daemon-managed worktree, PR and
+  gate steps, and step-by-step implementation instructions.
+
+```text
+Description
+Explain how to tell when a paused task can resume.
+Source: docs/dogfooding.md#vòng-làm-một-việc
+Scope: docs/dogfooding.md only. CLI output and pause behavior are out of scope.
+Example dependency: a separate task will document the resume condition first.
+Keep the existing decision that the user chooses when to resume.
+Acceptance
+The pause instructions identify where to read the resume condition.
+The instructions distinguish a paused task from a paused queue.
+```
+
+See [Questions and messages](#questions-and-messages) for follow-ups on an existing task.
+
 ## Run settings
 
 ```sh
@@ -297,6 +323,8 @@ printf '%s\n' "$MESSAGE" | cusr task message "$TASK_ID" --file - \
   its session continues with the message; a reviewer, a paused task or `--behavior queue` gets it next turn. Never
   use it to widen the task or its acceptance (agents ignore that). The stopped turn counts against the budget;
   send messages the user asked for.
+- In a fix or recheck follow-up, send only the new finding or settled decision and the affected file or behavior.
+  Omit the original brief and any acceptance criteria already recorded on the task.
 
 ```sh
 cusr report --project "$PROJECT" --since 24h --json
