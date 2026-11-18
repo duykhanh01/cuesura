@@ -6,9 +6,27 @@ import { isTerminal, TERMINAL_STATUSES } from '../../domain/state.ts';
 import type { BoardRow } from '../client/schemas.ts';
 import type { TuiState } from './state.ts';
 
+/** The groups under `Needs you`, in screen order; `Finished` is the fold after them. */
+export const TASK_GROUPS = ['progress', 'waiting', 'open'] as const;
+export type TaskGroup = (typeof TASK_GROUPS)[number];
+
+/**
+ * Where a task that does not need the user and has not finished belongs. Only status and wait code decide it,
+ * so a page of the board never has to be read as a whole to place one row.
+ */
+export function taskGroup(
+  t: Pick<BoardRow, 'status' | 'wait_code' | 'queued' | 'paused'>,
+  queuePaused = false,
+): TaskGroup {
+  if (t.status === 'RUNNING') return 'progress';
+  if (t.status === 'WAITING' || t.wait_code !== null || t.queued === true) return 'waiting';
+  // A queue pause holds every task not started yet; a task paused on its own is not the queue's to hold.
+  return t.status === 'READY' && queuePaused && (t.paused ?? null) === null ? 'waiting' : 'open';
+}
+
 export type HomeRow =
   | { readonly kind: 'attention'; readonly task: BoardRow }
-  | { readonly kind: 'task'; readonly task: BoardRow }
+  | { readonly kind: 'task'; readonly group: TaskGroup; readonly task: BoardRow }
   | {
       readonly kind: 'finished_toggle';
       readonly count: number;
@@ -41,14 +59,16 @@ export function homeRows(s: TuiState): readonly HomeRow[] {
   }));
   // A status filter names what the user wants to see, so nothing under it is folded away.
   const folds = status === null;
-  for (const task of rest)
-    if (!folds || !isTerminal(task.status)) rows.push({ kind: 'task', task });
+  for (const group of TASK_GROUPS)
+    for (const task of rest)
+      if (!isTerminal(task.status) && taskGroup(task, s.queuePaused !== null) === group)
+        rows.push({ kind: 'task', group, task });
   if (folds) {
     const count = finishedCount(s);
     if (count > 0) rows.push({ kind: 'finished_toggle', count, open: s.finishedOpen });
-    if (s.finishedOpen)
-      for (const task of rest) if (isTerminal(task.status)) rows.push({ kind: 'finished', task });
   }
+  if (!folds || s.finishedOpen)
+    for (const task of rest) if (isTerminal(task.status)) rows.push({ kind: 'finished', task });
   return rows;
 }
 

@@ -5,7 +5,7 @@
  */
 import { TASK_STATUSES, isTerminal, type TaskStatus } from '../../domain/state.ts';
 import { activity, markLegend, statusGlyph, timeInStatus, todo } from '../model/activity.ts';
-import { homeRows, selectedRowIndex, type HomeRow } from '../model/home-rows.ts';
+import { homeRows, selectedRowIndex, type HomeRow, type TaskGroup } from '../model/home-rows.ts';
 import { rowStages } from '../model/stages.ts';
 import { PAGE_LIMIT, type TuiState } from '../model/state.ts';
 import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
@@ -125,6 +125,12 @@ type Line =
 const actionOf = (row: TaskRow): SafeText | null =>
   row.kind === 'attention' ? todo(row.task) : null;
 
+const GROUP_HEADING: Readonly<Record<TaskGroup, string>> = {
+  progress: 'In progress',
+  waiting: 'Waiting',
+  open: 'Open',
+};
+
 const BLANK: Line = { kind: 'static', segs: [] };
 
 function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] {
@@ -142,15 +148,24 @@ function listLines(s: TuiState, rows: readonly HomeRow[], cols: number): Line[] 
       segs: ruleHeading(`Needs you (${attention}${more})`, cols, WARN),
     });
   }
-  let inTasks = false;
+  let group: TaskGroup | null = null;
+  let finishedHeaded = false;
   rows.forEach((row, i) => {
-    if (row.kind === 'task' && !inTasks) {
-      inTasks = true;
+    if (row.kind === 'task' && row.group !== group) {
+      group = row.group;
       gap();
       lines.push({
         kind: 'static',
-        segs: ruleHeading('Tasks', cols, FOCUS),
+        segs: ruleHeading(GROUP_HEADING[group], cols, FOCUS),
       });
+    }
+    // Under a status filter there is no toggle, so the finished tasks get a heading of their own.
+    if (row.kind === 'finished' && !finishedHeaded) {
+      finishedHeaded = true;
+      if (rows.every((r) => r.kind !== 'finished_toggle')) {
+        gap();
+        lines.push({ kind: 'static', segs: ruleHeading('Finished', cols, FOCUS) });
+      }
     }
     if (row.kind === 'finished_toggle') {
       gap();

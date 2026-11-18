@@ -76,6 +76,8 @@ const BoardRowSchema = z.looseObject({
   needs_user: z.boolean(),
   /** Absent from a daemon older than this TUI. */
   paused: PauseSchema.nullable().optional(),
+  /** Waiting for an execution slot. Absent from a daemon older than this TUI. */
+  queued: z.boolean().optional(),
 });
 export type BoardRow = z.infer<typeof BoardRowSchema>;
 

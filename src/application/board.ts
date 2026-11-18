@@ -115,6 +115,8 @@ function row(s: TaskState, since: StatusSince, now?: number): Record<string, unk
     pr_ref: s.pr_ref,
     needs_user: needsUser(s, now, () => since(s)),
     paused: s.pause ?? null,
+    // Asked for a slot and not running yet; only a READY task can be in this state.
+    queued: s.status === 'READY' && s.execution.request !== null,
   };
 }
 

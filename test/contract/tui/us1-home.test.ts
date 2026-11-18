@@ -77,6 +77,17 @@ describe('US1 scenario 1: the main screen, with no arguments', () => {
     expect(bar).toContain('project: all');
     expect(screen).toContain('Task 003');
     expect(rowOf(screen, 'Sample queued')).toContain('Queued');
+    // Queued for the slot is a wait for a resource, so it sits under Waiting and Open stays empty.
+    const lines = screen.split('\n');
+    const waiting = lines.findIndex((l) => l.startsWith('Waiting ─'));
+    expect(waiting).toBeGreaterThan(-1);
+    expect(lines.findIndex((l) => l.includes('Sample queued'))).toBeGreaterThan(waiting);
+    expect(lines.some((l) => l.startsWith('Open ─'))).toBe(false);
+    const board = (await sd.query('owner', { kind: 'task_board' })).envelope.data as {
+      items: { title: string; queued: boolean; wait_code: string | null }[];
+    };
+    const queued = board.items.find((i) => i.title === 'Sample queued');
+    expect(queued).toMatchObject({ queued: true, wait_code: null });
     await quit(s);
   });
 
@@ -164,7 +175,9 @@ describe('Home says what it holds', () => {
     await s.waitForText('more');
     const rows = s.screenText().split('\n');
     expect(rows.some((r) => /^ +↓ 6 more/.test(r))).toBe(true);
-    expect(rows.some((r) => r.startsWith('Tasks ─'))).toBe(false);
+    const more = rows.findIndex((r) => /^ +↓ \d+ more/.test(r));
+    const above = rows.slice(0, more).filter((r) => r.trim() !== '');
+    expect(above.at(-1)).not.toMatch(/^(Needs you|In progress|Waiting|Open|Finished)\b.*─/);
     await quit(s);
   });
 });
@@ -207,9 +220,13 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     await s.waitForText('Needs you (4)');
     const lines = s.screenText().split('\n');
     const heading = lines.findIndex((l) => l.startsWith('Needs you (4)'));
-    const tasks = lines.findIndex((l) => l.startsWith('Tasks '));
-    expect(tasks).toBeGreaterThan(heading);
-    const group = lines.slice(heading, tasks).join('\n');
+    const at = (name: string): number => lines.findIndex((l) => l.startsWith(`${name} ─`));
+    const [progress, waiting] = [at('In progress'), at('Waiting')];
+    expect(heading).toBeLessThan(progress);
+    expect(progress).toBeLessThan(waiting);
+    // Nothing here is queued or unstarted, so the empty group takes no row.
+    expect(at('Open')).toBe(-1);
+    const group = lines.slice(heading, progress).join('\n');
     for (const [title, action] of [
       ['Sample question', 'Answer the question'],
       ['Sample unconfirmed', 'Confirm how to run this task'],
@@ -218,9 +235,12 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     ] as const)
       expect(rowOf(group, title)).toContain(`→ ${action}`);
     // Waiting within its limits is not the user's to solve.
-    for (const title of ['Sample waiting CI', 'Sample cooldown', 'Sample coding']) {
+    const rest = (from: number, to: number): string => lines.slice(from, to).join('\n');
+    expect(group).not.toContain('Sample coding');
+    expect(rest(progress, waiting)).toContain('Sample coding');
+    for (const title of ['Sample waiting CI', 'Sample cooldown']) {
       expect(group).not.toContain(title);
-      expect(lines.slice(tasks).join('\n')).toContain(title);
+      expect(rest(waiting, lines.length)).toContain(title);
     }
     await quit(s);
   });

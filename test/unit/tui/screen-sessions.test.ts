@@ -85,7 +85,11 @@ function logsAnswer(s: TuiState, request: LogRequest, logPage: TaskLogs): LogsMe
 
 /** Enter on the task's row of Home. */
 const reopen = (s: TuiState): TuiState =>
-  openDetail(s, { kind: 'task', task: { task_id: TASK, title: uiText('T') } as BoardRow }).state;
+  openDetail(s, {
+    kind: 'task',
+    group: 'open',
+    task: { task_id: TASK, title: uiText('T') } as BoardRow,
+  }).state;
 
 describe('finding 2: Logs closed and opened again on the same task', () => {
   it('drops the answer to what the former Logs asked', () => {

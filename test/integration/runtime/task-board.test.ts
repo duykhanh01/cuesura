@@ -94,6 +94,7 @@ describe('task_board', () => {
       step_visits: {},
       needs_user: true,
       paused: null,
+      queued: false,
     });
     expect(r.next_cursor).toBeNull();
   });
