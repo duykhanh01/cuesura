@@ -77,7 +77,9 @@ describe('SC-003: after the automatic attempts run out', () => {
     s.send(KEY.esc);
     await s.waitForText('Made during the outage', RETRY_BUDGET_MS);
     expect(Date.now() - retriedAt).toBeLessThan(RETRY_BUDGET_MS);
-    expect(s.screenText()).toContain('Filters: project all · status all');
+    // Home shows the Filters line only while a filter is applied, so no line plus both tasks listed means unfiltered.
+    expect(s.screenText()).not.toContain('Filters:');
+    expect(s.screenText()).toContain('Before the outage');
 
     // A second loss: `R` starts a new round with the same limit, from 1.
     await sd.stop();
