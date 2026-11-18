@@ -81,27 +81,10 @@ cusr task add --file "$TASK_FILE" --request-id "$ID" --json
 
 ### Write the task brief
 
-Aim for about 10 lines across `--description` and `--acceptance`. Put longer context in a repository document
-the worker can read and link to it.
-
-- In `--description`, state the outcome and link the source issue or document. Name the files or interfaces
-  the task owns and what is out of scope. Include relevant dependencies, settled decisions to keep, and
-  exceptions the worker could miss, such as a known flaky test or a behavior that is changing.
-- In `--acceptance`, write one observable result per line that a reviewer can verify within the task's scope.
-- Leave out copied issue text, rules from `AGENTS.md`, standard check commands, daemon-managed worktree, PR and
-  gate steps, and step-by-step implementation instructions.
-
-```text
-Description
-Explain how to tell when a paused task can resume.
-Source: docs/dogfooding.md#vòng-làm-một-việc
-Scope: docs/dogfooding.md only. CLI output and pause behavior are out of scope.
-Example dependency: a separate task will document the resume condition first.
-Keep the existing decision that the user chooses when to resume.
-Acceptance
-The pause instructions identify where to read the resume condition.
-The instructions distinguish a paused task from a paused queue.
-```
+Copy the [task brief template](assets/task-brief.md) and fill it in for the current project. Use its
+Description and Acceptance sections for `--description` and `--acceptance`. Aim for about 10 lines
+across both sections. Leave out copied issue text, rules from `AGENTS.md`, standard check commands,
+daemon-managed worktree, PR and gate steps, and step-by-step implementation instructions.
 
 See [Questions and messages](#questions-and-messages) for follow-ups on an existing task.
 
@@ -257,7 +240,7 @@ asked for (a FAILED task may still have a draft PR). Only tasks that end while a
 lease before you submit, or read `task show` once before you wait. To watch one task's output until it ends or
 needs the user, run `cusr task logs "$TASK_ID" --follow --json` in the background instead.
 
-**With the hooks** `cusr init` installs (Claude Code, Codex, pi; deploy/README.md): take the lease only when the
+**With the hooks** `cusr init` installs (Claude Code, Codex, pi), take the lease only when the
 user tells you to. If a `cusr:` note at session start says tasks are waiting, ask the user once:
 
 ```sh
