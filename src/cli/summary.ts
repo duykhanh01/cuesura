@@ -206,6 +206,7 @@ export function showSummary(data: unknown): unknown {
     terminal: clip(data['terminal'] ?? null),
     unverified: record(data['completion'])['unverified'] ?? null,
     run_config: compact(pick(run, ['status', 'digest', 'mode'])),
+    review_policy: data['review_policy'],
     details: `cusr task show ${id} --full`,
   });
 }

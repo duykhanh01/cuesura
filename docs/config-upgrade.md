@@ -60,6 +60,10 @@ bảng thì không nhận tham số nào.
 | `run`, `required` | Bước gate: `gates`, `ci_autofix` | Tên gate logic chạy và gate bắt buộc; `required` phải nằm trong `run` |
 | `poll`, `timeout` | Bước chờ CI: `ci` | Chu kỳ poll và tổng thời gian chờ required checks |
 
+Sửa `max_visits` (kể cả trần review) áp dụng cho task chưa đóng băng policy (task mới và task đã tạo nhưng chưa start): task đã start, kể cả
+đang RUNNING, giữ trần đã đóng băng. `cusr task show` hiện trần đó ở `review_policy` (`max_review_rounds`, `used`; `status` là `frozen`,
+`not_frozen` trước khi start, hoặc `no_review`), và `cusr doctor` ghi chú điều này (cả khi có check khác lỗi) khi workflow hiệu lực có giới hạn lượt.
+
 Các bước chưa có giới hạn lượt (`triage`, `prepare`, `pr`, `merge_gate`, `complete`) không nhận
 `max_visits`, để mọi bước có giới hạn luôn có đích `on_exhausted` trong graph.
 

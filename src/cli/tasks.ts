@@ -77,14 +77,22 @@ const CHOICE_LISTS = [
   ['models', 'configured models'],
 ] as const;
 
-type FailedCheck = { name: string; status: string; detail: string; fix: string | null };
+type FailedCheck = {
+  name: string;
+  status: string;
+  detail: string;
+  fix: string | null;
+  note?: string;
+};
 
 function printChecks(checks: readonly FailedCheck[] | undefined, io: CliIo, prefix = ''): void {
-  for (const c of checks ?? [])
+  for (const c of checks ?? []) {
     if (c.status === 'fail')
       io.stderr(
         `cusr: ${prefix}${c.name}: ${c.detail}${c.fix === null ? '' : `; fix: ${c.fix}`}\n`,
       );
+    if (c.note !== undefined) io.stderr(`cusr: ${prefix}note: ${c.name}: ${c.note}\n`);
+  }
 }
 
 /** `task add` succeeded but the project config would stop the task: say so where a person looks. */

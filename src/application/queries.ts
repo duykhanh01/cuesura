@@ -12,6 +12,8 @@ import {
 } from '../domain/task.ts';
 import { DeclaredScopeSchema } from './scope-match.ts';
 import type { TaskState } from '../domain/state.ts';
+import type { FrozenPolicy } from '../domain/policy.ts';
+import { stepVisitLimit } from '../engine/interpreter.ts';
 import { failureSignature } from '../engine/failure-signature.ts';
 import {
   loopSignals,
@@ -570,6 +572,27 @@ export function provenance(s: TaskState): Record<string, unknown> {
   };
 }
 
+/**
+ * The review cap the engine enforces for this task: read from the frozen policy, so a later workflow
+ * config edit never shows here. `not_frozen` before start (the policy does not exist yet); `no_review`
+ * when the frozen workflow has no bounded review step.
+ */
+export function reviewPolicy(
+  s: TaskState,
+  policy: FrozenPolicy | null,
+): {
+  status: 'frozen' | 'not_frozen' | 'no_review';
+  max_review_rounds: number | null;
+  used: number;
+} {
+  const used = s.step_visits['review'] ?? 0;
+  if (policy === null) return { status: 'not_frozen', max_review_rounds: null, used };
+  const max = stepVisitLimit(policy, s, 'review');
+  return max === null
+    ? { status: 'no_review', max_review_rounds: null, used }
+    : { status: 'frozen', max_review_rounds: max, used };
+}
+
 /** `task_show` query: read role and the task's project in the caller's allowlist. */
 export function taskShow(
   store: Store,
@@ -585,6 +608,12 @@ export function taskShow(
     ...taskView(s.value, mergeOf(store, s.value)),
     step: s.value.current_step,
     provenance: provenance(s.value),
+    review_policy: reviewPolicy(
+      s.value,
+      s.value.policy_ref === null
+        ? null
+        : store.readPolicy(s.value.id as Uuid, s.value.policy_ref.revision),
+    ),
     ...liveTurn(store, s.value.id),
     ...loopView(store, s.value, redact),
     deputy_decisions: taskDecisions(store, s.value, redact),

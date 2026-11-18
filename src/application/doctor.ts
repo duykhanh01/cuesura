@@ -13,6 +13,7 @@ import type { GitPort, HostProbePort } from '../adapters/ports.ts';
 import { ROLE_SCHEMA_DIGESTS } from '../adapters/harness/result-schema.ts';
 import type { Diagnostic, NormalizedRole } from '../domain/config.ts';
 import { CapabilityManifestSchema, type CapabilityManifest } from '../domain/runtime.ts';
+import type { Workflow } from '../domain/workflow.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -96,6 +97,8 @@ export type DoctorCheck = {
   readonly status: 'ok' | 'fail';
   readonly detail: string;
   readonly fix: string | null;
+  /** Informational, shown by plain `cusr doctor` even when another check fails. */
+  readonly note?: string;
 };
 
 const DoctorQuerySchema = z
@@ -104,6 +107,29 @@ const DoctorQuerySchema = z
     project: z.string().min(1).optional(),
   })
   .strict();
+
+/**
+ * Informational, never a failure. Built from the effective workflows (built-in limits included), so
+ * dropping the last override still explains that future freezes return to the built-in cap.
+ */
+export function limitsNote(
+  workflows: Readonly<Record<string, Workflow>> | undefined,
+): string | null {
+  const bounded = Object.values(workflows ?? {}).some((w) =>
+    Object.values(w.steps).some((s) => s.max_visits !== undefined),
+  );
+  return bounded
+    ? 'workflow max_visits (including the review cap) applies to tasks whose policy is not frozen yet, including tasks already created but not started; a started task, even RUNNING, keeps the cap it froze; see it with cusr task show'
+    : null;
+}
+
+const configOk = (note: string | null): DoctorCheck => ({
+  name: 'config',
+  status: 'ok',
+  detail: 'user config is valid',
+  fix: null,
+  ...(note === null ? {} : { note }),
+});
 
 const ok_ = (name: string, detail: string): DoctorCheck => ({
   name,
@@ -570,7 +596,7 @@ export async function runDoctor(
         message: `no project ${project} in the user config`,
         details: { projects: Object.keys(locations).sort() },
       });
-    checks.push(ok_('config', 'user config is valid'));
+    checks.push(configOk(limitsNote(config.user.workflows)));
     const problems = await checkHost(host, runtime);
     if (problems.length === 0)
       checks.push(ok_('host', 'systemd user manager is usable; commands run on host'));
