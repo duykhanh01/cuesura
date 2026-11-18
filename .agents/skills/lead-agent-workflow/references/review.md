@@ -51,7 +51,7 @@ new delegate for re-check; preserve the narrow scope and records instead of clai
 High-risk changes require behavioral evidence: a reproducing test or verification in a real
 environment, with command, result, commit and unverified limits. Diff statistics do not prove tests.
 For privacy/security, identify the relevant input class that can evade the guard, verify that class
-and ask the coder to try to break it; do not demand an unlimited scan of all Unicode/variants.
+and ask the coder to try to break it. Bound the input classes by the changed behavior and threat model.
 Trust adequate checks; repeat them for an actual gap, contradiction or changed code.
 
 After conflicts, tell the coder which base change matters and the intended combined behavior.

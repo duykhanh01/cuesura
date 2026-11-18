@@ -20,14 +20,20 @@ authority to switch backend, create replacement agents or configure the harness.
   instructions allow; separate checkouts use the tool's isolation, never shell-created substitutes.
 - `delegate_task` owns tracked async work; follow its returned `next`. Do not poll a running child.
   Use `task_cancel` for obsolete delegates, rather than interrupting a child thread underneath it.
-- The tool exposes `t3_thread_send` for child continuation, with `childThreadId`; actual use depends
-  on current harness restrictions. Some harness versions require every review/re-check to be a new
-  `delegate_task`. In that case obey it and provide open findings, settled decisions and fix range
-  for a narrow re-check. The same-reviewer policy does not override higher-priority instructions.
-  Do not change external T3 configuration as part of running or editing this skill.
+- T3 default is resume: for fix rounds, re-checks and follow-ups, always continue the existing
+  coder/reviewer thread with `t3_thread_send` (its `childThreadId`; `t3_thread_wait` or
+  `t3_thread_read` for the result). This keeps context and avoids wasting tokens on a fresh agent.
+  Send open findings, settled decisions and fix range for a narrow re-check. This applies to
+  re-checks too, regardless of any generic "new delegate per review" default.
+  The user has authorized this skill's rule for reviewers: re-check with the same reviewer thread
+  via `t3_thread_send`; do not start a new reviewer `delegate_task` unless a replacement condition holds.
+- Create a new `delegate_task` only under the replacement conditions in review.md (thread gone or
+  unusable, context no longer useful, demonstrably stuck, foundational change needing an
+  independent view) or for unrelated new work. Record why in the task record. Harness
+  configuration changes still require separate authorization.
 - Record the actual child's ID in Owner, not the lead's ID. Check recipient role/task before send.
-  A completion may be intermediate; accept only a matching revision/output/head report. Continuation
-  and retained reviewer context have not been live-verified by this skill's offline tests.
+  A completion may be intermediate; accept only a matching revision/output/head report. Confirm
+  the thread still exists before sending.
 - Link created/pushed PRs with `link_pull_request`. A lead waiting on GitHub uses
   `watch_pull_request`, then ends its turn; children never watch. Unwatch at handoff. Use pr-ci once
   for a verdict, not `--wait`. Follow runtime rules about when PR watches are required.

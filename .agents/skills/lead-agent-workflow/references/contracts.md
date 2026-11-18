@@ -95,7 +95,7 @@ unverified limits and next step. Keep relevant history below this summary.
 Coder: behavior, validation evidence at the named commit, one answer per finding, queued requests
 still open. Reviewer: exact reviewed SHA, stable F IDs, quoted code/file/line, concrete scenario,
 impact, route and resolution evidence. Advisor: decision records per [advisor.md](advisor.md).
-Scout: ranked evidence/reproductions and uncovered areas in notes; no invented timing minimum.
+Investigation tasks: ranked evidence/reproductions and uncovered areas in notes.
 Reply concisely with status, PR/head or decision IDs, conclusion and report path.
 
 Replacement workers read current brief and report summary first; follow links only as needed. A
