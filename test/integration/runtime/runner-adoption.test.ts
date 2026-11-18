@@ -520,7 +520,10 @@ describe.skipIf(!available)(
         expect(report.operations).toMatchObject([
           { finding: { status: 'running' }, effect: 'kept' },
         ]);
-        expect(d.task(f.task.id).operations[f.op]?.status).toBe('running');
+        expect(d.task(f.task.id).operations[f.op]).toMatchObject({
+          status: 'running',
+          attempt_id: attempt,
+        });
         expect(d.pending(f.task.id, 'start_agent')).toEqual([]);
       } finally {
         d.store.close();

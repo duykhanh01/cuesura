@@ -68,6 +68,15 @@ describe('help (#269)', () => {
     expect(stdout).toContain('cusr task confirm --run-config');
   });
 
+  it('doctor --help explains what happens to agent attempts on restart', async () => {
+    const { code, stdout } = await cusr('doctor', '--help');
+    expect(code).toBe(0);
+    expect(stdout).toContain('takes over the same attempt without relaunching it');
+    expect(stdout).toContain('shutting down the host or WSL');
+    expect(stdout).toContain('recorded as lost');
+    expect(stdout).toContain('Gate, Git and GitHub operations running in the daemon');
+  });
+
   it.each([['task', 'add'], ['task', 'propose'], ['task', 'confirm'], ['dispatch'], ['status']])(
     '%s %s --help has an example',
     async (...words) => {

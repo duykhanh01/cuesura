@@ -92,8 +92,7 @@ tắt hoặc full access. Codex không nhận flag `--sandbox` này; chế độ
 
 Daemon gọi `spawn` cho `systemd-run --user`; runner transient service độc lập, `Restart=no`,
 `KillMode=control-group`, không dependency vòng đời vào daemon. Không coi PID1 là systemd là đủ:
-doctor kiểm user bus và chạy thử một transient unit tới khi xong rồi thu dọn. Việc runner sống qua lúc dừng
-daemon cần dừng chính daemon, nên được kiểm bằng `test/integration/runtime/supervisor-systemd.test.ts`.
+doctor kiểm user bus và chạy thử một transient unit tới khi xong rồi thu dọn.
 
 Trên WSL2, `/etc/wsl.conf` cần:
 
@@ -105,8 +104,7 @@ systemd=true
 Sau thay đổi, người dùng chạy `wsl.exe --shutdown` từ Windows rồi mở distro lại; doctor kiểm runtime
 thực tế. Xem [Microsoft WSL systemd](https://learn.microsoft.com/en-us/windows/wsl/systemd).
 `systemctl --user is-system-running` có thể `degraded` do unit không liên quan; pass/fail dựa vào
-probe unit riêng của Cuesura, không chỉ chuỗi trạng thái này. Logout/distro shutdown không tương
-đương daemon restart; không cam kết runner sống qua việc tắt máy/WSL, recovery phải đối chiếu lost.
+probe unit riêng của Cuesura, không chỉ chuỗi trạng thái này.
 
 Thiếu user bus thì `systemctl --user` và `systemd-run --user` báo `Failed to connect to bus: No such
 file or directory`, doctor báo check `systemd_unit` thất bại, dù `user@<uid>.service` vẫn chạy. Chạy
@@ -152,10 +150,9 @@ cusr doctor --project "$PROJECT" --json
 ```
 
 Yêu cầu version: Node đúng `engines` trong `package.json`, `systemd-run` và `systemctl` tại
-`/usr/bin`. Trên WSL2 cần user manager như mục trên; `wsl.exe --shutdown` dừng cả daemon lẫn runner,
-restart đối chiếu `lost`. Trên server headless cần `loginctl enable-linger` như bảng `cause`. Đường dẫn
-thực tế (data dir, socket `control.sock`) theo `--data-dir`/`runtime.data_dir`; socket
-phải ngắn hơn 108 byte.
+`/usr/bin`. Trên WSL2 cần user manager như mục trên. Trên server headless cần `loginctl enable-linger`
+như bảng `cause`. Đường dẫn thực tế (data dir, socket `control.sock`) theo
+`--data-dir`/`runtime.data_dir`; socket phải ngắn hơn 108 byte.
 
 `cusr doctor` chỉ đọc: không gọi model, không sudo, không provision. Check nào fail thì exit 1 và in lệnh
 sửa để người vận hành tự chạy. Harness chưa có capability manifest thì báo fail, không suy "proven" từ
@@ -178,6 +175,29 @@ sẽ giữ claim và chặn việc mới cho tới khi process đó kết thúc;
 **Hạn chế hiện tại:** `cusrd` chạy task thật tới PR khi harness có bản ghi hợp lệ (mục [Harness thật](#harness-thật-pin-và-manifest)
 bên dưới); thiếu bản ghi thì task dừng ở PENDING `capability_missing`. Còn hở: task có attachment `content_ref`
 fail ở freeze vì chưa có nguồn nội dung (`cusr add` luôn tạo task không attachment); `lint` là gate tùy chọn của `software_dev` nên đỏ vẫn publish.
+
+### Restart riêng `cusrd` khi agent đang chạy
+
+Khi chỉ restart `cusrd` (ví dụ `systemctl --user restart cusrd.service`), agent tiếp tục chạy trong
+runner unit riêng. Daemon mới mở lại cùng data dir, đối chiếu runner còn sống và nhận lại đúng attempt
+đang chạy, không khởi chạy agent lần hai. Nếu runner đã ghi `exit.json` hợp lệ trong lúc daemon dừng,
+daemon dùng bản ghi đó để đối chiếu kết quả của attempt. Runner vẫn áp dụng thời hạn của lượt khi
+daemon dừng.
+
+Dừng runner unit, tắt hoặc reboot host, chạy `wsl.exe --shutdown` hoặc logout làm user manager dừng
+đều có thể kết thúc agent. Khi xác nhận runner đã mất mà thiếu `exit.json`, recovery ghi `lost` và
+đối chiếu lượt cũ trước khi engine quyết định bước tiếp theo. Nếu chưa xác định được trạng thái runner,
+daemon giữ claim và chờ đối chiếu. Nếu chứng minh được agent chưa từng khởi chạy, recovery ghi
+`not_launched` và trả reservation để engine có thể cấp lượt mới.
+
+Gate và các lệnh Git, GitHub đang chạy trong daemon không có runner riêng. Recovery dừng tiến trình
+còn sót, ghi operation là `lost` và đối chiếu effect để quyết định bước tiếp theo.
+
+[Test runner adoption](../test/integration/runtime/runner-adoption.test.ts) restart một tiến trình
+thay daemon trên systemd user, dùng harness giả và kiểm tra cùng attempt ID, invocation ID, cây tiến
+trình và đúng một lần khởi chạy. [Test smoke runner restart](../test/smoke/runner-restart.test.ts)
+dùng tiến trình daemon thật với harness giả để kiểm tra attempt ban đầu chạy đến khi hoàn tất sau
+`SIGTERM` hoặc `SIGKILL`.
 
 ### Xem agent trong herdr
 

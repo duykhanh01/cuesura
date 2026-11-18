@@ -1452,6 +1452,12 @@ export const doctorCommand: CliCommand = {
 and the checks, each failed one with its fix, in error.details.checks (data is null).
 A passed systemd unit or terminal probe is reused for 30 seconds; a failed one runs again.
 
+When only cusrd restarts, the agent keeps running in its own systemd user unit. The daemon,
+using the same data directory, takes over the same attempt without relaunching it. Stopping
+the runner, shutting down the host or WSL, or ending the systemd user manager can end the agent.
+If the runner is confirmed gone after launch and has no final exit record, the operation is recorded as lost.
+Gate, Git and GitHub operations running in the daemon are stopped and reconciled on recovery.
+
 Examples:
   cusr doctor --json
   cusr doctor --project acme --json`,
