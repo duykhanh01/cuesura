@@ -1027,7 +1027,8 @@ export async function goalCancel(
 ): Promise<Result<unknown, AppError>> {
   const g = goalIn(deps.store, input);
   if (!g.ok) return g;
-  const reason = (input.payload as { reason?: string }).reason ?? 'goal cancelled';
+  // Masked before anything stores it: the goal's own record, then each unit's cancel, take the same text.
+  const reason = redact(deps, (input.payload as { reason?: string }).reason ?? 'goal cancelled');
   // Run again after a crash, the goal is already cancelled but some of its tasks may not be yet.
   const r =
     replayed(deps, admitted, g.value.id) ??
