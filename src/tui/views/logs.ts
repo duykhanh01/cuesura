@@ -26,6 +26,7 @@ import {
   latestAttempt,
   logColumns,
   logRows,
+  visibleAttempt,
   visibleRows,
   type LogRow,
   type LogState,
@@ -103,8 +104,9 @@ function followState(s: LogState): string {
   return s.scrolledAway ? 'Scrolled up' : 'Paused';
 }
 
-function modeAttemptId(logs: LogState, t: TuiState): string | null {
+function modeAttemptId(logs: LogState, t: TuiState, seen: string | null): string | null {
   if (logs.attemptFilter !== null) return logs.attemptFilter;
+  if (seen !== null) return seen;
   const buffered = latestAttempt(logs);
   const show = t.detail?.show.data;
   const active = show?.provenance.active_attempt_id;
@@ -542,7 +544,13 @@ export const logsBody =
     const narrow = logColumns(cols, logs.paneHidden).pane === 0;
     const stages = narrow ? stagesRow(s, cols - 1) : null;
     const news = newsLine(logs, s);
-    const attemptId = logs.gates === null && logs.picker === null ? modeAttemptId(logs, s) : null;
+    // Scrolled up in an unfiltered log, the segment on screen is the one the header speaks of.
+    const seen =
+      logs.attemptFilter === null && logs.scrolledAway
+        ? visibleAttempt(logs, logColumns(cols, logs.paneHidden).log, logRows(height))
+        : null;
+    const attemptId =
+      logs.gates === null && logs.picker === null ? modeAttemptId(logs, s, seen) : null;
     const attempt = attemptId === null ? undefined : readAttempt(s, logs, attemptId);
     const mode = logs.picker === null ? modeLine(logs, s, attempt) : pickerSummary(s);
     const showStages = stages !== null && (news === '' || attempt?.model == null);

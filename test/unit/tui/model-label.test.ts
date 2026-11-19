@@ -184,3 +184,87 @@ describe('the model stays in sight', () => {
     expect(head).toContain('Sol 6.1 (gpt-6.1-sol) · high');
   });
 });
+
+describe('identity kept in a narrow pane and where the log is paused', () => {
+  const task = uuidOf(1);
+  const withModel = (
+    seq: number,
+    attempt: string,
+    step: string,
+    model: { id: string | null; binding: string | null; effort: string | null },
+  ): TaskLogs['records'][number] =>
+    ({
+      seq,
+      cursor: seq,
+      operation_id: 'op',
+      attempt_id: attempt,
+      step: s(step),
+      model,
+      at: s('2026-11-01T10:20:30.000Z'),
+      kind: s('progress'),
+      data: `line ${seq}`,
+    }) as TaskLogs['records'][number];
+  const fill = (records: TaskLogs['records']) => {
+    const read = applyLogPage(
+      { ...initialLogs(task, uiText('T'), 1), attemptFilter: 'x' },
+      { kind: 'forward', after: 0 },
+      { task_id: task, records: [...records], next_cursor: records.length, complete: false },
+      0,
+    );
+    return { ...read, attemptFilter: null };
+  };
+  const PREFIX = 'vendor-experimental-reasoning-model-2026-';
+
+  it('wraps a long unknown ID in the segment head, so IDs differing at the end stay apart', () => {
+    for (const suffix of ['alpha-1', 'alpha-2']) {
+      const id = `${PREFIX}${suffix}`;
+      const state = fill([withModel(1, 'a9', 'code', { id, binding: null, effort: null })]);
+      const rows = visibleRows(state, 30, 10);
+      const head = rows.filter((r) => r.kind === 'separator');
+      expect(head.length).toBeGreaterThan(1);
+      expect(head.every((r) => r.text.length <= 30)).toBe(true);
+      expect(
+        head
+          .map((r) => r.text)
+          .join('')
+          .replaceAll(' ', ''),
+      ).toContain(id);
+      // The row accounting holds: the last record still ends the screen.
+      expect(rows.at(-1)?.text).toContain('line 1');
+    }
+  });
+
+  it('follows the segment on screen when paused and scrolled up, in both directions, worker and deputy', () => {
+    const worker = { id: 'claude-opus-5-5', binding: 'opus/medium', effort: null };
+    const deputy = { id: 'gpt-6.1-sol', binding: null, effort: 'high' };
+    const buffered = fill([
+      withModel(1, 'w1', 'code', worker),
+      withModel(2, 'w1', 'code', worker),
+      withModel(3, 'd1', 'deputy', deputy),
+      withModel(4, 'd1', 'deputy', deputy),
+    ]);
+    const header = (anchor: number) => {
+      const logs = {
+        ...buffered,
+        mode: 'paused' as const,
+        scrolledAway: true,
+        anchor: { seq: anchor, row: 0 },
+      };
+      const frame = new Frame(100, 7, { color: false });
+      logsBody({
+        ...initialState({ cols: 100, rows: 7 }),
+        detail: {
+          ...initialDetail(task, uiText('T'), 1),
+        },
+        logs,
+      })(frame, 0, 7);
+      return Array.from({ length: 3 }, (_, y) => frame.rowBytes(y)).join('\n');
+    };
+    // The anchored record is the second of its segment, so its separator is above the screen.
+    expect(header(2)).toContain('Opus 5.5');
+    expect(header(2)).not.toContain('Sol 6.1');
+    expect(header(4)).toContain('Sol 6.1');
+    expect(header(4)).not.toContain('Opus 5.5');
+    expect(header(2)).toContain('Opus 5.5');
+  });
+});
