@@ -135,7 +135,7 @@ export function cancelNeedsPrRead(s: TaskState): boolean {
  * that keeps coming back unknown. It waives only that read. A merge shown or with incomplete evidence
  * still holds the cancel (FR-025.04, FR-040.12), and effects still in flight still settle first.
  */
-export function forceCancel(ctx: Ctx): void {
+export function forceCancel(ctx: Ctx, reason: string): void {
   const s = ctx.state;
   const c = s.cancellation;
   const ignored = (reason: string): void =>
@@ -145,7 +145,7 @@ export function forceCancel(ctx: Ctx): void {
   if (c.merge_seen !== undefined || s.blockers.some((b) => b.code === 'merge_evidence_incomplete'))
     return ignored('merge_seen');
   if (!cancelNeedsPrRead(s)) return ignored('nothing_to_force');
-  ctx.emit('CancelForced', { by: ctx.actor, at: ctx.now });
+  ctx.emit('CancelForced', { by: ctx.actor, at: ctx.now, reason });
   maybeFinishCancel(ctx);
 }
 

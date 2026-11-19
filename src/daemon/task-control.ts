@@ -217,6 +217,10 @@ export function taskControl(deps: TaskControlDeps): {
   const queuePause = (): QueuePause | null =>
     deps.dataDir === undefined ? null : readQueuePause(deps.dataDir);
   const newId = deps.newId;
+  // What a person writes into a stored reason or evidence goes through the daemon's redactor first.
+  const logsRedactor = deps.logs?.redactor;
+  const redactText =
+    deps.redact ?? (logsRedactor === undefined ? undefined : (t: string) => logsRedactor.text(t));
   const goals: GoalServiceDeps | null =
     newId === undefined
       ? null
@@ -230,7 +234,7 @@ export function taskControl(deps: TaskControlDeps): {
       submit(store, {
         task_id: taskId,
         dedup_key: `cmd:${rid}:cancel:${taskId}`,
-        trigger: { kind: 'cancel', reason },
+        trigger: { kind: 'cancel', reason: redactText?.(reason) ?? reason },
         now: deps.now(),
         ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => newId?.() ?? ''),
         expected_version: s.version,
@@ -251,7 +255,13 @@ export function taskControl(deps: TaskControlDeps): {
       task_propose_run: async (admitted, input, caller) =>
         withSlotBlock(scope, await taskProposeRun(deps, admitted, input, caller)),
       answer: (admitted, input, caller) => answerQuestion(deps, admitted, input, caller),
-      task_cancel: (admitted, input, caller) => cancelTask(deps, admitted, input, caller),
+      task_cancel: (admitted, input, caller) =>
+        cancelTask(
+          { ...deps, ...(redactText === undefined ? {} : { redact: redactText }) },
+          admitted,
+          input,
+          caller,
+        ),
       approve_escalation: (admitted, input, caller) =>
         approveEscalation(deps, admitted, input, caller),
       approve_adopt: (admitted, input, caller) =>

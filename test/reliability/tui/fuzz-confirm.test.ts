@@ -246,26 +246,75 @@ describe('SC-008: random keys on each confirmation screen', () => {
         await pressAction(s, scene.action);
         await shows(s, scene);
         const says = (text: string): boolean => flat(s.screenText()).includes(text);
-        // The random keys left a draft reason; erase it, then with no reason Y sends nothing.
-        s.send('\x7f'.repeat(1_600));
-        s.send(KEY.ctrlS);
-        await s.waitFor(() => says('A reason is required'), 10_000);
-        s.send(`${KEY.tab}Y`);
-        await s.waitFor(() => says('A reason is required'), 10_000);
-        expect(trace, 'Y with no reason').toEqual([]);
-        // A reason, then Enter, Ctrl-S and a pasted Y are all refused; only one key Y sends, once.
-        s.send(`${KEY.tab}fuzz reason${KEY.ctrlS}`);
-        await s.waitFor(() => says('› Cancel this task?'), 10_000);
-        for (const keys of [KEY.enter, KEY.ctrlS, '\x1b[200~Y\x1b[201~', 'x']) {
+        const lines = (): string[] => s.screenText().split('\n');
+        const reasonRow = (): string =>
+          (lines()[lines().findIndex((l) => l.includes('Reason (required)')) + 1] ?? '').trim();
+        const updated = (): string => /updated: (\S+)/.exec(s.screenText())?.[1] ?? '';
+        const REQUIRED = 'A reason is required';
+        const REFUSED = 'Nothing was sent: press Y to cancel the task';
+        // The random keys left a draft reason, up to the field's limit. Erase it in parts, each one taken
+        // in full (the row stops changing) before the next: the terminal's input buffer holds 4 KiB.
+        const settled = async (): Promise<void> => {
+          let last = '';
+          let same = 0;
+          await s.waitFor(() => {
+            const now = reasonRow();
+            same = now === last ? same + 1 : 0;
+            last = now;
+            return same >= 20;
+          }, 20_000);
+        };
+        for (let i = 0; i < 20 && reasonRow() !== ''; i++) {
+          s.send('\x7f'.repeat(500));
+          await settled();
+        }
+        expect(reasonRow()).toBe('');
+        // With no reason, Enter and Tab stay in the reason and say so; each refusal is seen afresh.
+        for (const keys of [KEY.enter, KEY.tab]) {
+          s.send('z');
+          await s.waitFor(() => !says(REQUIRED) && reasonRow() === 'z', 10_000);
+          s.send('\x7f');
+          await s.waitFor(() => reasonRow() === '', 10_000);
           s.send(keys);
-          await s.waitFor(() => says('Press Y to cancel the task'), 10_000);
+          await s.waitFor(() => says(REQUIRED), 10_000);
+          expect(says('› Cancel this task now?'), `after ${JSON.stringify(keys)}`).toBe(false);
+        }
+        expect(trace, 'no reason').toEqual([]);
+        // A reason, then Enter, Ctrl-S, a pasted Y and another key are all refused; only one key Y sends.
+        s.send(`fuzz reason${KEY.enter}`);
+        await s.waitFor(() => says('› Cancel this task now?'), 10_000);
+        for (const keys of [KEY.enter, KEY.ctrlS, '\x1b[200~Y\x1b[201~', 'x']) {
+          // Back to the reason and on again clears the last refusal, so the next one is its own.
+          s.send(KEY.tab);
+          await s.waitFor(() => !says(REFUSED) && !says('› Cancel this task now?'), 10_000);
+          s.send(KEY.enter);
+          await s.waitFor(() => says('› Cancel this task now?'), 10_000);
+          s.send(keys);
+          await s.waitFor(() => says(REFUSED), 10_000);
           expect(trace, `after ${JSON.stringify(keys)}`).toEqual([]);
         }
-        s.send('Y');
-        await s.waitFor(
-          () => /\(request [0-9a-f-]{36}\)|The daemon refused it/.test(flat(s.screenText())),
-          20_000,
-        );
+        s.send(KEY.tab);
+        await s.waitFor(() => !says(REFUSED) && !says('› Cancel this task now?'), 10_000);
+        // Y goes on data read after the last key; a TUI that still finds it out of date sends nothing,
+        // so Y is pressed again once a newer read is on screen.
+        for (let i = 0; i < 5; i++) {
+          const at = updated();
+          await s.waitFor(() => updated() !== at, 20_000);
+          s.send(KEY.enter);
+          await s.waitFor(() => says('› Cancel this task now?'), 10_000);
+          s.send('Y');
+          await s.waitFor(
+            () =>
+              /\(request [0-9a-f-]{36}\)|The daemon refused it|may be out of date/.test(
+                flat(s.screenText()),
+              ),
+            20_000,
+          );
+          if (!says('may be out of date')) break;
+          expect(trace, 'refused as out of date').toEqual([]);
+          s.send(KEY.tab);
+          await s.waitFor(() => !says('may be out of date'), 10_000);
+        }
         expect(new Set(trace)).toEqual(new Set([scene.kind]));
         expect(ids.size).toBe(1);
         expect(await version()).not.toEqual(before);

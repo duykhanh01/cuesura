@@ -36,6 +36,8 @@ export type CancelDeps = {
   readonly newId?: () => string;
   /** One read of the task's PR, as the recheck service does it; absent, the read is left to recheck. */
   readonly observe?: RecheckDeps['observe'];
+  /** Masks secrets in the reason before it is stored, for the cancel and for a force alike. */
+  readonly redact?: (text: string) => string;
 };
 
 export type PrRead = {
@@ -110,7 +112,8 @@ export async function cancelTask(
   const found = taskInProject(deps.store, input);
   if (!found.ok) return found;
   const id = found.value.id;
-  const { reason, force } = input.payload as { reason: string; force?: true };
+  const { reason: typed, force } = input.payload as { reason: string; force?: true };
+  const reason = deps.redact?.(typed) ?? typed;
   const r = submit(deps.store, {
     task_id: id,
     dedup_key: `cmd:${admitted.record.request_id}:cancel`,

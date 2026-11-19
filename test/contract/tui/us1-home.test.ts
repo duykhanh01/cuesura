@@ -218,6 +218,8 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     await sd.start();
     const s = tui.cusr(sd.dataDir);
     await s.waitForText('Needs you (4)');
+    // A frame reaches the terminal in parts; the row under every group is drawn last.
+    await s.waitForText('Finished (1)');
     const lines = s.screenText().split('\n');
     const heading = lines.findIndex((l) => l.startsWith('Needs you (4)'));
     const at = (name: string): number => lines.findIndex((l) => l.startsWith(`${name} ─`));
@@ -254,6 +256,7 @@ describe('US1 scenario 3 and FR-007: what needs the user', () => {
     };
     const s = tui.cusr(sd.dataDir);
     await s.waitForText(`Needs you (${board.attention.items.length})`);
+    await s.waitForText('Finished (1)');
     for (const row of board.attention.items)
       expect(rowOf(s.screenText(), row.title)).toContain(todo(row) as unknown as string);
     await quit(s);

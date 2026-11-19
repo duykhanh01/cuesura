@@ -301,7 +301,8 @@ export type EventPayloads = {
     read_token?: string;
   };
   /** The person ended the cancel without a PR read showing it open or closed (#179). */
-  CancelForced: { by: string; at: number };
+  /** `reason`: why this cancel was forced; the cancel's own reason stays the one it was requested with. */
+  CancelForced: { by: string; at: number; reason?: string };
   /** A read for the cancel gave nothing to record; it counts as a cancel read all the same (#267). */
   CancelReadFailed: { detail: string };
   CancelRecordedLate: { merge_effect_id: string | null };

@@ -31,9 +31,15 @@ export const NEW_TASK_KEY = 'new-task';
 export const mutationTarget = (c: MutationCommand): string =>
   c.task_id ?? (c.kind === 'task_add' ? NEW_TASK_KEY : QUEUE_TARGET);
 
+/** The handler's value inside a direct reply (`{ request_id, replayed, result }`), as `request_show` gives it. */
+function handlerValue(reply: unknown): unknown {
+  return typeof reply === 'object' && reply !== null && 'result' in reply ? reply.result : reply;
+}
+
 export type MutationState = 'sending' | 'accepted' | 'rejected' | 'unknown' | 'unresolved';
 
 export type MutationResult =
+  /** `value`: what the command's handler returned, as the ledger stores it, whichever way it came back. */
   | { readonly ok: true; readonly value: unknown }
   | {
       readonly ok: false;
@@ -249,7 +255,12 @@ export class MutationTracker {
       { ...m.command, request_id: m.requestId },
       COMMAND_TIMEOUT_MS,
     );
-    if (r.ok) return this.#set({ ...m, state: 'accepted', result: { ok: true, value: r.value } });
+    if (r.ok)
+      return this.#set({
+        ...m,
+        state: 'accepted',
+        result: { ok: true, value: handlerValue(r.value) },
+      });
     if (lostAnswer(r.error) || (resend && notAdmitted(r.error))) {
       return this.#set({ ...m, state: 'unknown' });
     }

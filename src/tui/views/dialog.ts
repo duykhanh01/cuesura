@@ -106,6 +106,53 @@ function cancelBlocks(e: TaskExplain | null): Block[] {
   return rows.map((r, i) => text(r, i === 0 ? { bold: true } : {}));
 }
 
+/** A cancel that waits for its PR read, and what forcing it gives up (#179). */
+function forceCancelBlocks(e: TaskExplain | null): Block[] {
+  const reads: unknown = e?.wait?.detail['cancel_reads'];
+  const at = e?.cancellation?.requested_at;
+  const pr = e?.pr.ref ?? null;
+  const rows: Block[] = [
+    text(
+      joinSafe([
+        uiText(
+          `A cancel was requested${at == null ? '' : ` at ${clockTime(at)}`} and is still waiting: `,
+        ),
+        uiText('no read of '),
+        pr === null ? uiText('the pull request') : joinSafe([uiText('pull request '), pr]),
+        uiText(
+          ` has shown it open or closed since${typeof reads === 'number' && reads > 0 ? ` (${reads} read(s) failed)` : ''}. Cancelling again does not change that.`,
+        ),
+      ]),
+      WARN,
+    ),
+    text('What force cancelling does:', { bold: true }),
+    text(
+      '• The pull request is read once more. If that read shows it open or closed, the cancel ends as usual; a merge ends the task DONE.',
+    ),
+    text(
+      '• Otherwise the task ends CANCELLED without that read: the pull request may still be open, or merged later, and a merge seen afterwards does not reopen the task.',
+    ),
+    text(
+      '• Nothing on GitHub is changed: no pull request, branch or commit is closed, deleted or reset. Check the pull request yourself.',
+    ),
+    text(
+      'The reason below is recorded with the force; the cancel keeps the reason it was first requested with.',
+    ),
+    text('If GitHub may answer again soon, press Esc and use Recheck instead.', NOTICE),
+  ];
+  return rows;
+}
+
+/**
+ * What the daemon says the action does (`allowed_actions[].note`), such as dependent tasks it also cancels.
+ * Kept by the question, in view however the text above is scrolled, so Y is never pressed without it.
+ */
+function noteBlocks(d: Dialog): Block[] {
+  return d.note === null
+    ? []
+    : [text(joinSafe([uiText('The daemon says: '), d.note]), { bold: true })];
+}
+
 function approveBlocks(e: TaskExplain | null, s: TuiState): Block[] {
   const out: Block[] = [];
   const target = e === null ? null : approvalTarget(e);
@@ -225,7 +272,7 @@ export function dialogTitle(d: Dialog): string {
     case 'answer':
       return 'Answer the question';
     case 'cancel':
-      return 'Cancel task';
+      return d.force ? 'Force cancel task' : 'Cancel task';
     case 'recheck':
       return d.worktree ? 'Recheck: accept the worktree as it is' : 'Recheck';
     case 'approve':
@@ -265,6 +312,25 @@ const rowsOf = (blocks: readonly Block[], cols: number): Row[] =>
       : [],
   );
 
+/**
+ * The step that sends a cancel: until the reason is written it says what comes next; then it asks one
+ * question, naming what Y does and that N or Esc send nothing.
+ */
+function cancelConfirmBlocks(d: Dialog): Block[] {
+  const verb = d.force ? 'force-cancel' : 'cancel';
+  if (d.focus !== 'confirm')
+    return [text(`  Then: press Enter, and Y to ${verb} the task.`, { dim: true })];
+  return [
+    text(
+      d.force
+        ? '› Force-cancel this task now, even if the pull request cannot be read?'
+        : '› Cancel this task now?',
+      { ...WARN, bold: true },
+    ),
+    text(`    Y = yes, ${verb} it    N or Esc = no, go back (nothing is sent)`, { bold: true }),
+  ];
+}
+
 /** What the dialog says first, which scrolls, and what is always in view: the field, the box, the error. */
 function layout(s: TuiState, d: Dialog) {
   const cols = s.size.cols;
@@ -285,7 +351,7 @@ function layout(s: TuiState, d: Dialog) {
       head.push(...questionBlocks(questionView(d, explain), d, cols));
       break;
     case 'cancel':
-      head.push(...cancelBlocks(explain));
+      head.push(...(d.force ? forceCancelBlocks(explain) : cancelBlocks(explain)));
       break;
     case 'recheck':
       head.push(...recheckBlocks(d));
@@ -305,17 +371,14 @@ function layout(s: TuiState, d: Dialog) {
       }),
     );
   const box: Block[] = [...nowBlocks(d)];
-  if (word !== null)
+  if (d.kind === 'cancel') box.push(...noteBlocks(d), ...cancelConfirmBlocks(d));
+  else if (word !== null)
     box.push(
       text(
         joinSafe([
-          d.kind === 'cancel'
-            ? uiText(
-                `${d.focus === 'confirm' ? '› ' : '  '}Cancel this task? Y cancels it · N leaves`,
-              )
-            : uiText(`${d.focus === 'confirm' ? '› ' : '  '}Type ${word}, then press Enter: `),
+          uiText(`${d.focus === 'confirm' ? '› ' : '  '}Type ${word}, then press Enter: `),
           sanitize(d.typed),
-          uiText(d.focus === 'confirm' && d.kind !== 'cancel' ? '_' : ''),
+          uiText(d.focus === 'confirm' ? '_' : ''),
         ]),
         d.focus === 'confirm' ? { bold: true } : {},
       ),
@@ -378,8 +441,8 @@ export const dialogBody =
     const hint =
       (d.kind === 'cancel'
         ? d.focus === 'confirm'
-          ? 'Y cancels the task · N or Esc leaves without sending · Tab edits the reason'
-          : 'Ctrl-S or Tab: next, to confirm with Y · Esc leaves without sending'
+          ? `Y ${d.force ? 'force-cancels' : 'cancels'} · N or Esc leaves · Tab: reason`
+          : 'Enter: next, to confirm with Y · Esc leaves'
         : word === null
           ? `${SEND_WORDS[d.kind]} · Esc leaves without sending`
           : 'Enter sends once the word is exact · Esc leaves without sending') +
