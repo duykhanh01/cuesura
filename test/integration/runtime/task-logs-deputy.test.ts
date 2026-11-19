@@ -1,8 +1,9 @@
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
-import { rmSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync } from 'node:fs';
 import { DEPUTY_STEP, DEPUTY_WAITS, runCount, taskLogs } from '../../../src/application/logs.ts';
+import { DEPUTY_RETRY } from '../../../src/domain/deputy.ts';
 import { taskShow } from '../../../src/application/queries.ts';
 import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
@@ -213,6 +214,27 @@ function scenario(finish: boolean, o: { readonly pausedFirst?: boolean } = {}) {
     });
     expect(d.task(t.id).status).toBe('CANCELLED');
   };
+  const coderRun = () =>
+    RunDir.open({
+      dataDir,
+      ...runLocation(d.task(t.id).operations[AGENT] as OperationMirror),
+      redactor,
+      limits: LIMITS,
+    });
+  /** Ingests what the coder's spool holds past its cursor, as the daemon's recovery retries it. */
+  const ingestCoder = () =>
+    ingestOperationSpool(
+      {
+        store: d.store,
+        dataDir,
+        redactor,
+        limits: LIMITS,
+        now: () => d.now,
+        newId: () => uuidOf(ids++),
+      },
+      t.id,
+      AGENT,
+    );
   /** Loses a finished operation's run directory, spool and all. */
   const loseSpool = (op: string) =>
     rmSync(
@@ -247,6 +269,8 @@ function scenario(finish: boolean, o: { readonly pausedFirst?: boolean } = {}) {
     stopCoder,
     counted,
     cancel,
+    coderRun,
+    ingestCoder,
     loseSpool,
     loseCoderSpool,
     rawLogs: (body: Record<string, unknown> = {}) =>
@@ -605,5 +629,42 @@ describe('task_logs shows the deputy turns of the task', () => {
     }
     expect(rawLogs().ok).toBe(true);
     expect(d.store.deputy.runsOf(taskId)[0]?.published).toBe(3);
+  });
+
+  it('a worker spool that cannot be read for now holds the turn back; once ingested, nothing is lost or repeated', () => {
+    const { logs, write, deputyRun, startTurn, ended, coderRun, ingestCoder } = scenario(false);
+    // The coder's last line is still on disk, not ingested, when it ends.
+    write(coderRun(), AGENT, 'coder line', 4, 4);
+    ended(SETUP);
+    ended(AGENT);
+    // Its segment cannot be opened (an I/O error the daemon retries).
+    const run = coderRun();
+    const last = listSegments(run).at(-1);
+    if (last === undefined) throw new Error('no segment');
+    const path = join(run.dir, SPOOL_DIR, last.name);
+    renameSync(path, `${path}.away`);
+    mkdirSync(path);
+    expect(ingestCoder().status).toBe('unreadable');
+    startTurn();
+    write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 1, 1);
+
+    const during = logs();
+    expect(said(during).filter((x) => x === 'deputy line 1')).toEqual([]);
+    expect(during.records.at(-1)?.gap?.reason.startsWith(DEPUTY_RETRY)).toBe(true);
+
+    rmSync(path, { recursive: true });
+    renameSync(`${path}.away`, path);
+    expect(ingestCoder().status).toBe('ingested');
+    const after = logs({ after: during.next_cursor });
+    expect(said(after)).toEqual(['coder line 4', 'deputy line 1']);
+    expect(said(logs())).toEqual([
+      'setup line 1',
+      'setup line 2',
+      'coder line 1',
+      'coder line 2',
+      'coder line 3',
+      'coder line 4',
+      'deputy line 1',
+    ]);
   });
 });

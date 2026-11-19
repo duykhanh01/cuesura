@@ -80,6 +80,25 @@ describe('the deputy beside the log, read again when its stamp changes', () => {
     expect(fresh.detail?.show.data?.deputy).toBeUndefined();
   });
 
+  it('the first stamp of an opened log asks no read: opening the task already read task_show', () => {
+    const fresh = opened();
+    const first: TuiState = {
+      ...fresh,
+      logs: fresh.logs === null ? null : { ...fresh.logs, deputyStamp: null },
+    };
+    const read = onLogsRead(first, logsPage(first, 200, 'first'));
+    expect(read.detail?.showWanted).toBe(false);
+    expect(read.logs?.deputyStamp).toBe('first');
+    expect(onLogsRead(read, logsPage(read, 300, 'second')).detail?.showWanted).toBe(true);
+  });
+
+  it('an answer asked in the same tick as the page with the new stamp leaves the read wanted', () => {
+    const changed = onLogsRead(opened(), logsPage(opened(), 200, 'after'));
+    const same = onDetailRead(changed, showRead(200, show('interactive')));
+    expect(same.detail?.showWanted).toBe(true);
+    expect(onDetailRead(same, showRead(201, show(null))).detail?.showWanted).toBe(false);
+  });
+
   it('a turn whose run has no known mode says only that the deputy works, not where its output goes', () => {
     const base = opened();
     const s: TuiState = {

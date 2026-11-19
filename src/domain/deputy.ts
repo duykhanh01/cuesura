@@ -13,6 +13,9 @@ export const DEPUTY_STEP = 'deputy';
 /** How a log gap starts while a deputy run waits for the output before it to settle. */
 export const DEPUTY_WAITS = 'deputy output waits for the output before it';
 
+/** How a log gap starts while the output before a deputy run cannot be read yet, and may be once retried. */
+export const DEPUTY_RETRY = 'deputy output waits until the output before it can be read';
+
 /** How a log gap starts while a running deputy run holds back the output after it. */
 export const DEPUTY_HOLDS = 'a deputy turn is running; later output waits for it';
 

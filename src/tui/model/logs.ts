@@ -4,7 +4,7 @@
  * position, because the daemon's cursor does not change through rotation or restart. The place being read is kept by record, not by row, so
  * neither a resize nor new records can move it.
  */
-import { DEPUTY_HOLDS, DEPUTY_WAITS } from '../../domain/deputy.ts';
+import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_WAITS } from '../../domain/deputy.ts';
 import { LOG_POLL_INTERVAL_MS } from '../client/refresh.ts';
 import type { TaskLogs } from '../client/schemas.ts';
 import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
@@ -193,6 +193,11 @@ function capped(whole: string): SafeText {
 
 /** What a gap says while deputy output only waits its turn: nothing is wrong, and it comes by itself. */
 function waitingText(reason: string): SafeText | null {
+  if (reason.startsWith(DEPUTY_RETRY))
+    return joinSafe([
+      uiText("Waiting for the previous worker's output, which cannot be read right now — "),
+      sanitize(reason.slice(DEPUTY_RETRY.length).replace(/^: /, '')),
+    ]);
   if (reason.startsWith(DEPUTY_WAITS))
     return uiText(
       "Waiting for the previous worker's output. Deputy logs will appear here automatically.",

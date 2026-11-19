@@ -8,7 +8,7 @@
  * were recorded (`deputy_turn_runs`).
  */
 import { z } from 'zod';
-import { DEPUTY_HOLDS, DEPUTY_STEP, DEPUTY_WAITS } from '../domain/deputy.ts';
+import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_STEP, DEPUTY_WAITS } from '../domain/deputy.ts';
 import type { TaskState } from '../domain/state.ts';
 import {
   listSegments,
@@ -245,10 +245,11 @@ function operationBatch(s: TaskState, id: string, records: number, digest: strin
 }
 
 /**
- * Why an operation may still add committed records: `waiting` while its ingestion is only to come, not when
- * its spool cannot be read, which no wait mends.
+ * Why an operation may still add committed records. `pending`: its ingestion is still to come. `retry`: its
+ * spool cannot be read now, and the daemon tries it again (an `unreadable` ingest), so more may come once it
+ * can. `gone`: its run directory is gone, which the ingester never retries (`no_run_dir`): nothing more comes.
  */
-type Unsettled = { readonly reason: string; readonly waiting: boolean };
+type Unsettled = { readonly reason: string; readonly kind: 'pending' | 'retry' | 'gone' };
 
 /**
  * Why an operation may still add committed records, or null when it never will. One that ended before it
@@ -259,11 +260,12 @@ function unsettled(
   op: TaskState['operations'][string],
   committed: boolean,
 ): Unsettled | null {
-  const waits = (reason: string): Unsettled => ({ reason, waiting: true });
-  const broken = (reason: string): Unsettled => ({ reason, waiting: false });
   if (op.status === 'not_launched') return null;
   if (!['finished', 'lost'].includes(op.status))
-    return waits('earlier worker is not resolved; live output waits for its ingestion');
+    return {
+      reason: 'earlier worker is not resolved; live output waits for its ingestion',
+      kind: 'pending',
+    };
   try {
     const run = RunDir.open({
       dataDir: deps.dataDir,
@@ -281,18 +283,27 @@ function unsettled(
       op.cursor === null ? null : { operation_id: op.id, ...op.cursor },
       { maxRecords: 1, final: true },
     );
-    if (!tail.ok) return broken(`earlier spool is unreadable: ${JSON.stringify(tail.error)}`);
+    if (!tail.ok)
+      return {
+        reason: `earlier spool is unreadable: ${JSON.stringify(tail.error)}`,
+        kind: 'retry',
+      };
     return tail.value.records.length > 0
-      ? waits('earlier worker has uncommitted output; later live output waits')
+      ? {
+          reason: 'earlier worker has uncommitted output; later live output waits',
+          kind: 'pending',
+        }
       : null;
   } catch (e) {
-    if (e instanceof RunnerFileError && e.code === 'not_found' && op.cursor === null && !committed)
-      return null;
-    return broken(`earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`);
+    const gone = e instanceof RunnerFileError && e.code === 'not_found';
+    if (gone && op.cursor === null && !committed) return null;
+    return {
+      reason: `earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`,
+      kind: gone ? 'gone' : 'retry',
+    };
   }
 }
 
-/** A deputy run's records; null when it has no run directory (never launched, or nothing written yet). */
 /**
  * A deputy run's records by their place in it: record `seq` is at `seq - 1`, so a segment lost from the
  * spool leaves holes where its records were instead of moving the later ones down (no ingester keeps a
@@ -514,14 +525,17 @@ export function taskLogs(
     let held: Unsettled | null = null;
     for (const op of Object.values(s.operations)) {
       if (regOf(op.id) > run.after_seq) continue;
-      // An operation that ended and whose spool cannot be read will never be ingested further: its
-      // committed records read as a gap, and the run keeps its place after them.
+      // An operation whose run directory is gone will never be ingested further: its committed records
+      // read as a gap, and the run keeps its place after them. One the daemon may still read waits.
       const h = unsettledOf(op);
-      held = h?.waiting === true ? h : null;
+      held = h?.kind === 'gone' ? null : h;
       if (held !== null) break;
     }
     if (held !== null) {
-      diagnostic ??= { ...where, reason: `${DEPUTY_WAITS}: ${held.reason}` };
+      diagnostic ??= {
+        ...where,
+        reason: `${held.kind === 'retry' ? DEPUTY_RETRY : DEPUTY_WAITS}: ${held.reason}`,
+      };
       break;
     }
     let records = run.records;

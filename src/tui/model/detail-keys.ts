@@ -420,6 +420,9 @@ export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {
   const read = applyLogPage(logs, m.request, m.result.value, m.at);
   const stamp = m.result.value.deputy_stamp ?? null;
   if (stamp === logs.deputyStamp) return { ...state, logs: read };
+  // The first stamp only says where things stand: opening the task reads `task_show` anyway, and a read
+  // more here would break "read only when the version moves" (T041).
+  if (logs.deputyStamp === null) return { ...state, logs: { ...read, deputyStamp: stamp } };
   // A deputy run started or ended, or its turn changed state: none of it moves the task's version, so the
   // runs and the turn shown beside the log are read again now.
   return {

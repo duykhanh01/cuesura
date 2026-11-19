@@ -92,8 +92,10 @@ ghi của một lần chạy đứng sau output của mọi operation đăng ký
 output của operation đăng ký sau đó. Cursor không bị xê dịch vì:
 
 - lần chạy chỉ có vị trí khi các operation đăng ký trước nó đã xong (operation như `stop_attempt` dùng chung run
-  directory của attempt nó dừng không bị tính, giống ingester). Operation đã kết thúc mà spool mất hoặc hỏng thì
-  không ingest thêm được nữa: phần đã commit của nó thành gap, còn lần chạy giữ nguyên vị trí;
+  directory của attempt nó dừng không bị tính, giống ingester). Chỉ khi run directory của operation đã kết thúc
+  không còn (ingester báo `no_run_dir` và không thử lại; tombstone của retention để spool rỗng) thì phần đã commit của
+  nó thành gap và lần chạy giữ nguyên vị trí. Spool chỉ đọc lỗi (I/O, hỏng) thì daemon còn thử ingest lại, nên lần
+  chạy deputy chờ;
 - trong một lần chạy, bản ghi đứng theo `seq` bền của spool chứ không theo thứ tự đọc được: mất một segment để lại
   gap đúng chỗ đó, các bản ghi sau giữ vị trí;
 - output phía sau một lần chạy còn đang chạy phải chờ;

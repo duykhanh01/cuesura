@@ -274,7 +274,9 @@ export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
   switch (m.part) {
     case 'show':
       {
-        const early = d.showWantedAt !== null && m.askedAt < d.showWantedAt;
+        // Asked in the same tick as the page that brought the new stamp counts as before it: at worst one
+        // read more, never the stale answer taken for the new one.
+        const early = d.showWantedAt !== null && m.askedAt <= d.showWantedAt;
         next = {
           ...d,
           show: answered(d.show, m.result, m),

@@ -23,7 +23,7 @@ import {
   toggleOutput,
   togglePane,
 } from '../../../src/tui/model/logs.ts';
-import { DEPUTY_HOLDS, DEPUTY_WAITS } from '../../../src/domain/deputy.ts';
+import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_WAITS } from '../../../src/domain/deputy.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
 // T047: the rules of the log's state, without a terminal. These only guard against regressions; US2 is judged
@@ -839,6 +839,16 @@ describe('a log whose deputy output waits its turn', () => {
     });
     expect(entry?.text).toBe(
       'Log temporarily unavailable — deputy output is held back: earlier spool is unavailable',
+    );
+  });
+
+  it('a worker spool that cannot be read for now is a wait, with why', () => {
+    const entry = toEntry({
+      ...waiting(11, 10),
+      gap: { records: 0, reason: sanitize(`${DEPUTY_RETRY}: earlier spool is unavailable: EIO`) },
+    });
+    expect(entry?.text).toBe(
+      "Waiting for the previous worker's output, which cannot be read right now — earlier spool is unavailable: EIO",
     );
   });
 });
