@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { REASON_MAX } from '../../../src/tui/model/dialog.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
@@ -246,8 +247,12 @@ describe('SC-008: random keys on each confirmation screen', () => {
         await pressAction(s, scene.action);
         await shows(s, scene);
         const says = (text: string): boolean => flat(s.screenText()).includes(text);
-        // The random keys left a draft reason; erase it, then with no reason Y sends nothing.
-        s.send('\x7f'.repeat(1_600));
+        // The random keys left a draft reason, up to the field's limit; erase it, then with no reason Y
+        // sends nothing. In parts, each read before the next: the terminal's input buffer holds 4 KiB.
+        for (let left = REASON_MAX; left > 0; left -= 1_000) {
+          s.send('\x7f'.repeat(Math.min(1_000, left)));
+          await new Promise((r) => setTimeout(r, 300));
+        }
         s.send(KEY.ctrlS);
         await s.waitFor(() => says('A reason is required'), 10_000);
         s.send(`${KEY.tab}Y`);
@@ -255,10 +260,10 @@ describe('SC-008: random keys on each confirmation screen', () => {
         expect(trace, 'Y with no reason').toEqual([]);
         // A reason, then Enter, Ctrl-S and a pasted Y are all refused; only one key Y sends, once.
         s.send(`${KEY.tab}fuzz reason${KEY.ctrlS}`);
-        await s.waitFor(() => says('› Cancel this task?'), 10_000);
+        await s.waitFor(() => says('› Cancel this task now?'), 10_000);
         for (const keys of [KEY.enter, KEY.ctrlS, '\x1b[200~Y\x1b[201~', 'x']) {
           s.send(keys);
-          await s.waitFor(() => says('Press Y to cancel the task'), 10_000);
+          await s.waitFor(() => says('Nothing was sent: press Y to cancel the task'), 10_000);
           expect(trace, `after ${JSON.stringify(keys)}`).toEqual([]);
         }
         s.send('Y');

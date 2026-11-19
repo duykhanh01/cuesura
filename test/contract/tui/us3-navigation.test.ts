@@ -215,11 +215,14 @@ describe('US3 scenario 2: the Actions menu of the selected task', () => {
     expect(selectedLine(s.screenText())).toContain('Cancel task');
     s.send(KEY.enter);
     await s.waitForText('What cancelling does');
-    // Enter in the reason is a new line, and Enter in the empty confirmation box sends nothing.
+    // Enter on an empty reason asks for one, and Enter in the confirmation box sends nothing.
     s.send(KEY.enter);
-    s.send(KEY.tab);
+    await s.waitForText('A reason is required');
+    s.send('x');
     s.send(KEY.enter);
-    await s.waitForText('Press Y to cancel the task');
+    await s.waitForText('Cancel this task now?');
+    s.send(KEY.enter);
+    await s.waitForText('Nothing was sent: press Y to cancel the task');
     await new Promise((r) => setTimeout(r, 500));
     expect(await explainOf(sd, t.id)).toEqual(before);
     expect(await eventCount(sd, t.id)).toBe(events);

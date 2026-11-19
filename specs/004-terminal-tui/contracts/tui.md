@@ -96,11 +96,19 @@ Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu
 ở đây, kể cả từ ô văn bản của hộp thoại có từ xác nhận; hộp thoại báo tại chỗ cách xác nhận. Ô xác nhận rỗng khi mở, không nhận paste, không có
 hết giờ. Mở lại Review sau khi bộ lựa chọn đổi thì hiện khác biệt và xóa từ đã gõ (FR-028).
 
-Hủy task (#307) chỉ có hai thao tác: nhập lý do, rồi `Y`. Rời ô lý do sang ô xác nhận bằng `Ctrl-S` hoặc `Tab`: `Ctrl-S` không sang
-khi lý do rỗng và báo tại chỗ, còn `Tab` vẫn sang được ô xác nhận khi lý do rỗng, nhưng ở đó `Y` không gửi và báo cần lý do cho đến khi lý do
-không rỗng. Ở ô xác nhận, một phím `Y` hoặc `y` gửi ngay, không cần Enter. `N`, `n` hoặc `Esc` rời hộp thoại không gửi và giữ
-lý do làm bản nháp. Enter, `Ctrl-S`, phím khác và paste không gửi, chỉ báo tại chỗ. Các quy tắc về từ phải gõ ở đoạn trên áp dụng cho
-những hộp thoại còn lại.
+Hủy task (#307) chỉ có hai thao tác: nhập lý do, rồi `Y`. Lý do là ô một dòng. Rời ô lý do sang ô xác nhận bằng `Enter`,
+`Ctrl-S` hoặc `Tab`: `Enter` và `Ctrl-S` không sang khi lý do rỗng và báo tại chỗ, còn `Tab` vẫn sang được ô xác nhận khi lý do
+rỗng, nhưng ở đó `Y` không gửi và báo cần lý do cho đến khi lý do không rỗng. Ô xác nhận hỏi một câu nêu việc sẽ làm và phím:
+`Y = yes, cancel it`, `N or Esc = no, go back (nothing is sent)`. Một phím `Y` hoặc `y` gửi ngay, không cần Enter. `N`, `n` hoặc
+`Esc` rời hộp thoại không gửi và giữ lý do làm bản nháp. Enter, `Ctrl-S`, phím khác và paste không gửi, chỉ báo tại chỗ. Daemon
+nhận thì menu Actions nói kết quả theo trả lời của daemon: `Cancelled` khi task đã CANCELLED, `Nothing changed` khi cancel đã có
+từ trước (`already_cancelling`), hoặc PR chưa đọc được và task còn chờ. Các quy tắc về từ phải gõ ở đoạn trên áp dụng cho những
+hộp thoại còn lại.
+
+Task có cancel đang chờ đọc PR (`cancel_reconcile`) thì daemon chỉ còn mời `cancel --force`; cancel thường bị bỏ qua
+(`already_cancelling`). Menu Actions gọi mục đó là `Force cancel (PR unread)`, hộp thoại `Force cancel task` nêu hậu quả (đọc PR
+thêm một lần; không đọc được thì task CANCELLED mà không có lần đọc đó, PR có thể còn mở hoặc được merge sau, không gì trên GitHub
+bị đổi; nên Recheck nếu GitHub có thể trả lời lại) và gửi `task_cancel` với `force: true`, cùng hai bước lý do rồi `Y`.
 
 Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tục, hàng đợi) dùng chung một khung và một quy ước:
 

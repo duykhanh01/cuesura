@@ -7,6 +7,7 @@ import type { ActionsMenu } from '../model/actions.ts';
 import type { TuiState } from '../model/state.ts';
 import { CHANGED_NOTICE } from '../model/actions.ts';
 import type { Mutation } from '../client/mutations.ts';
+import { isForceCancel } from '../model/dialog.ts';
 import type { CallerInfo, TaskExplain } from '../client/schemas.ts';
 import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
 import type { Style } from '../terminal/screen.ts';
@@ -43,6 +44,9 @@ const KNOWN: Readonly<Record<string, Known>> = {
   fix_external: { label: 'Fix outside Cuesura', kind: 'guide' },
   wait: { label: 'Wait', kind: 'info' },
 };
+
+/** The cancel offered while a cancel waits for its PR read: it is `cancel --force`, and says so. */
+export const FORCE_CANCEL_LABEL = 'Force cancel (PR unread)';
 
 export type ActionItem = {
   readonly action: string;
@@ -94,7 +98,10 @@ export function actionItems(
     const known = KNOWN[a.action];
     return {
       action: a.action,
-      label: known === undefined ? sanitize(a.action) : uiText(known.label),
+      label:
+        known === undefined
+          ? sanitize(a.action)
+          : uiText(isForceCancel(a.action, explain) ? FORCE_CANCEL_LABEL : known.label),
       kind: known?.kind ?? 'info',
       effect: a.note,
       command: a.command,
@@ -171,14 +178,9 @@ export function mutationLine(m: Mutation | undefined): { text: string; style: St
         style: WARN,
       };
     case 'accepted':
-      return {
-        // The daemon says when a task is CANCELLED, never this screen: stopping and reconciling come first.
-        text:
-          m.command.kind === 'task_cancel'
-            ? `Cancel accepted by the daemon (${id}); the task is not CANCELLED until the daemon reports it`
-            : `Done (${id})`,
-        style: { bold: true },
-      };
+      return m.command.kind === 'task_cancel'
+        ? cancelLine(m.result?.ok === true ? m.result.value : null, id)
+        : { text: `Done (${id})`, style: { bold: true } };
     case 'rejected': {
       const r = m.result;
       if (r?.ok === false && r.code === 'conflict')
@@ -192,6 +194,64 @@ export function mutationLine(m: Mutation | undefined): { text: string; style: St
       };
     }
   }
+}
+
+const field = (v: unknown, k: string): unknown =>
+  typeof v === 'object' && v !== null ? (v as Record<string, unknown>)[k] : undefined;
+
+/**
+ * What became of an accepted cancel, from the daemon's reply (`task cancel --json`): an accept can still
+ * change nothing (`already_cancelling`), or leave the task waiting for a PR read that failed.
+ */
+function cancelLine(reply: unknown, id: string): { text: string; style: Style } {
+  const value = field(reply, 'result');
+  const status = field(value, 'status');
+  const ignored = field(value, 'ignored');
+  const forceIgnored = field(value, 'force_ignored');
+  const read = field(value, 'pr_read');
+  const unavailable = field(read, 'unavailable');
+  const facts = field(read, 'facts');
+  // A read that gave no observation reports no failure text, only the fact it recorded.
+  const unread =
+    (typeof unavailable === 'string' && unavailable !== '') ||
+    (Array.isArray(facts) && facts.some((f) => field(f, 'kind') === 'cancel_read_failed'));
+  const why =
+    typeof unavailable === 'string' && unavailable !== '' ? `: ${sanitize(unavailable)}` : '';
+  if (status === 'CANCELLED')
+    return {
+      text: `Cancelled: the daemon reports the task CANCELLED (${id})${field(value, 'warning') === undefined ? '' : '. The PR was not read: check it on GitHub'}`,
+      style: { bold: true },
+    };
+  if (status === 'DONE')
+    return {
+      text: `DONE: the PR was already merged, the cancel came too late (${id})`,
+      style: WARN,
+    };
+  if (forceIgnored === 'merge_seen')
+    return {
+      text: `Not cancelled: a merge of the PR was seen, so it decides and force does not apply (${id})`,
+      style: WARN,
+    };
+  if (forceIgnored === null)
+    return {
+      text: `Force cancel recorded: the task ends CANCELLED once running work stops, without a read of the PR (${id})`,
+      style: { bold: true },
+    };
+  if (ignored === 'already_cancelling' && forceIgnored === undefined)
+    return {
+      text: `Nothing changed: a cancel was already requested and is still waiting (${id}). See the actions below`,
+      style: WARN,
+    };
+  if (status === 'WAITING' && unread)
+    return {
+      text: `Cancel requested, but the PR could not be read${why}. The task waits until a read shows it open or closed; Force cancel (PR unread) ends it without that read (${id})`,
+      style: WARN,
+    };
+  // The daemon says when a task is CANCELLED, never this screen: stopping and reconciling come first.
+  return {
+    text: `Cancel accepted by the daemon (${id}); the task is not CANCELLED until the daemon reports it`,
+    style: { bold: true },
+  };
 }
 
 /** What the daemon reports about stopping, and the way on for a task that ended or waits for a merge. */

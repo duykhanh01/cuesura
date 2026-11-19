@@ -76,6 +76,11 @@ export type Dialog = {
   readonly worktree: boolean;
   /** `Approve` of a task waiting on `adopt_approval`: adopting its pull request, not an escalation. */
   readonly adopt: boolean;
+  /**
+   * `Cancel` of a task whose cancel waits for a read of its PR (`cancel_reconcile`): a plain cancel would be
+   * ignored as `already_cancelling`, so this one sends `force` (#179), the only cancel that still changes it.
+   */
+  readonly force: boolean;
   /** Answer's answer, and the reason of Cancel and of pausing. */
   readonly field: TextField | null;
   /** `--now`: also stop the agent turn running now. Pausing a task only. */
@@ -230,6 +235,7 @@ function newDialog(
     | 'unavailable'
     | 'worktree'
     | 'adopt'
+    | 'force'
   > & { readonly known: Dialog['known'] },
 ): Reduced {
   const session = state.screenSession + 1;
@@ -238,11 +244,9 @@ function newDialog(
   const field =
     o.kind === 'answer'
       ? textField('multi', 'Answer', draft, ANSWER_MAX)
-      : o.kind === 'cancel'
-        ? textField('multi', 'Reason', draft, REASON_MAX)
-        : withReason(o.kind)
-          ? textField('line', 'Reason', draft, REASON_MAX)
-          : null;
+      : withReason(o.kind)
+        ? textField('line', 'Reason', draft, REASON_MAX)
+        : null;
   const dialog: Dialog = {
     ...o,
     session,
@@ -295,11 +299,17 @@ export function openDialog(
     unavailable: null,
     worktree: kind === 'recheck' && explain.wait?.detail.code === 'worktree_changed',
     adopt: kind === 'approve' && explain.wait?.detail.code === 'adopt_approval',
+    force: isForceCancel(kind, explain),
     known:
       kind === 'answer' && typeof waiting === 'string' && waiting !== ''
         ? { id: waiting, body: null }
         : null,
   });
+}
+
+/** The cancel the daemon offers while a cancel waits for its PR read is `cancel --force` (`allowed_actions`). */
+export function isForceCancel(kind: string, explain: TaskExplain): boolean {
+  return kind === 'cancel' && explain.wait?.detail.code === 'cancel_reconcile';
 }
 
 export function openQueueDialog(state: TuiState): Reduced {
@@ -318,6 +328,7 @@ export function openQueueDialog(state: TuiState): Reduced {
     unavailable: unavailable('operate', state.caller),
     worktree: false,
     adopt: false,
+    force: false,
     known: null,
   });
 }
@@ -461,22 +472,23 @@ function onChoiceKey(state: TuiState, d: Dialog, key: Key): Reduced {
   }
 }
 
+/** Cancel: Enter or Ctrl-S go on from a written reason to the one Y that confirms it. */
+function toCancelConfirm(state: TuiState, d: Dialog): Reduced {
+  return (d.field?.text ?? '').trim() === ''
+    ? refuse(state, d, 'A reason is required: write it first. Nothing was sent.')
+    : put(state, d, { focus: 'confirm', error: null });
+}
+
 function onFieldKey(state: TuiState, d: Dialog, key: Key): Reduced {
   if (d.field === null) return same(state);
+  if (d.kind === 'cancel' && key.kind === 'key' && key.name === 'enter')
+    return toCancelConfirm(state, d);
   const r = editField(d.field, key, Math.max(1, state.size.cols - 4));
   if (!r.handled) return same(state);
   const asked = confirmWord(d);
   switch (r.signal) {
     case 'submit':
-      // Cancel: Ctrl-S is the way on from the reason to the one Y that confirms it.
-      if (d.kind === 'cancel')
-        return r.field.text.trim() === ''
-          ? refuse(
-              state,
-              { ...d, field: r.field },
-              'A reason is required: write it first. Nothing was sent.',
-            )
-          : put(state, { ...d, field: r.field }, { focus: 'confirm', error: null });
+      if (d.kind === 'cancel') return toCancelConfirm(state, { ...d, field: r.field });
       // Ctrl-S sends only what asks no word; a thing with consequences is confirmed in its own box.
       return asked === null
         ? send(state, { ...d, field: r.field })
@@ -527,7 +539,7 @@ function onConfirmKey(state: TuiState, d: Dialog, key: Key): Reduced {
 
 /** Cancel asks for one key: Y sends, N leaves; nothing typed is kept, so nothing else can match. */
 function onCancelConfirmKey(state: TuiState, d: Dialog, key: Key): Reduced {
-  const ask = 'Press Y to cancel the task, or N to leave. Nothing was sent.';
+  const ask = `Nothing was sent: press Y to ${d.force ? 'force-cancel' : 'cancel'} the task, or N to go back.`;
   if (key.kind === 'char') {
     const c = key.text.toLowerCase();
     if (c === 'y') return send(state, d);
@@ -574,7 +586,7 @@ function taskPayload(
       const reason = reasonOf(d);
       if (reason.trim() === '')
         return { problem: 'A reason is required: press Tab to go back to it. Nothing was sent.' };
-      return { payload: { reason } };
+      return { payload: d.force ? { reason, force: true } : { reason } };
     }
     case 'recheck':
       // The contract wants the worktree's place before the tree is accepted: no path read, no send.

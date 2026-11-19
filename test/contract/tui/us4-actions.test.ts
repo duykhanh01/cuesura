@@ -189,19 +189,22 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
 
     // No reason: Y alone does not send.
     s.send(KEY.tab);
-    await s.waitForText('Cancel this task? Y cancels it');
+    await s.waitForText('Cancel this task now?');
     s.send('Y');
     await s.waitForText('A reason is required');
     s.send(KEY.tab);
-    // Anything but Y, Enter, a pasted Y and Ctrl-S are answered in place, none sent.
+    // Enter goes on from the reason; anything but Y, Enter, a pasted Y and Ctrl-S are answered in place.
     s.send('stop it');
+    s.send(KEY.enter);
+    await s.waitForText('Y = yes, cancel it');
+    s.send('x');
+    await s.waitForText('Nothing was sent: press Y to cancel the task');
+    s.send(KEY.tab);
     s.send(KEY.ctrlS);
     await s.waitForText('Y cancels the task');
-    s.send('x');
     s.send(KEY.enter);
-    await s.waitForText('Press Y to cancel the task');
     s.send('\x1b[200~Y\x1b[201~');
-    await s.waitForText('Press Y to cancel the task');
+    await s.waitForText('Nothing was sent: press Y to cancel the task');
     expect(await outcome(sd, uuidOf(1))).toEqual(first);
 
     // N refuses: the dialog closes, nothing is written, and the reason is kept for the next try.
@@ -212,13 +215,14 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
     await s.waitForText('stop it');
 
     // One Y after the reason sends it.
-    s.send(KEY.ctrlS);
+    s.send(KEY.enter);
     s.send('Y');
+    // The running task stops at once, so the daemon's reply already says CANCELLED.
     await s.waitFor(
-      () => /Cancel accepted by the daemon \(request /.test(flat(s.screenText())),
+      () =>
+        /Cancelled: the daemon reports the task CANCELLED \(request /.test(flat(s.screenText())),
       15_000,
     );
-    expect(flat(s.screenText())).toContain('not CANCELLED until the daemon reports it');
     const history = await sd.query('owner', { kind: 'task_history', task_id: uuidOf(1) });
     const asked = JSON.stringify(history.envelope.data?.['events']);
     expect(asked).toContain('stop it');
@@ -424,7 +428,10 @@ const OPERATIONS: readonly Operation[] = [
       s.send('stop it');
       s.send(KEY.tab);
       s.send('Y');
-      await s.waitFor(() => /Cancel accepted by the daemon/.test(flat(s.screenText())), 15_000);
+      await s.waitFor(
+        () => /Cancelled: the daemon reports the task CANCELLED/.test(flat(s.screenText())),
+        15_000,
+      );
     },
     cli: async (sd, actor, id) =>
       cliAs(
@@ -915,7 +922,9 @@ describe('US4 below the PTY: what a dialog sends', () => {
       expect(submits(r.effects), JSON.stringify(attempt)).toHaveLength(0);
       expect(r.state.dialog?.field?.text).toBe('stop');
     }
-    expect(text(run(typed.state, key('enter')).state)).toContain('Press Y to cancel the task');
+    expect(text(run(typed.state, key('enter')).state)).toContain(
+      'Nothing was sent: press Y to cancel the task, or N to go back.',
+    );
 
     // N leaves without sending and keeps the reason as a draft.
     const refused = run(typed.state, ...chars('n'));
@@ -1197,14 +1206,7 @@ describe('US4 below the PTY: what a dialog sends', () => {
 
   it('Ctrl-C while a write is on its way still quits, and stderr keeps the draft with the request ID', () => {
     const open = run(menu(OWNER, explainOf({}, ['cancel'])), key('enter')).state;
-    const sent = run(
-      open,
-      ...chars('line one'),
-      key('enter'),
-      ...chars('two'),
-      key('tab'),
-      ...chars('Y'),
-    );
+    const sent = run(open, ...chars('line one'), key('enter'), ...chars('Y'));
     const command = sentCommand(sent.effects);
     const quit = run(sent.state, key('ctrl_c'));
     expect(quit.effects).toContainEqual({ type: 'quit', code: 0 });
@@ -1222,7 +1224,7 @@ describe('US4 below the PTY: what a dialog sends', () => {
         'cusr: check it with: cusr request show 019a0000-0000-7000-8000-0000000000ee\n',
     );
     expect(notice).toContain(`what you typed in task_cancel on task ${TASK}`);
-    expect(notice).toContain('  line one\n  two\n');
+    expect(notice).toContain('  line one\n');
     // Nothing typed, or nothing on its way: no draft to keep.
     expect(exitNotice(open, [])).toBeNull();
   });
@@ -1300,7 +1302,8 @@ describe('a dialog on a small terminal (FR-035)', () => {
     const cancelState = small(menu(OWNER, explainOf({}, ['cancel'])));
     const cancel = run(cancelState, key('enter'), key('tab'), key('enter')).state;
     const screen = text(cancel);
-    expect(screen).toContain('Cancel this task? Y cancels it');
+    expect(screen).toContain('Cancel this task now?');
+    expect(screen).toContain('Y = yes, cancel it');
     expect(screen).toContain('Y cancels the task');
   });
 
