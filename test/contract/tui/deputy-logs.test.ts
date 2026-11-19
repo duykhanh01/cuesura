@@ -160,7 +160,7 @@ describe('Logs of a task the deputy acted on', () => {
     await s.waitForText('deputy continued the task');
     const screen = s.screenText();
     expect(screen).toContain('deputy read the failure');
-    expect(screen).toMatch(/── deputy · attempt \w+ ──/);
+    expect(screen).toMatch(/── \(model ID not recorded\) · deputy · attempt \w+ ──/);
     expect(screen.indexOf('deputy read the failure')).toBeLessThan(
       screen.indexOf('deputy continued the task'),
     );

@@ -212,6 +212,15 @@ const LogRecordSchema = z.union([
     operation_id: z.string(),
     attempt_id: z.string().nullable(),
     step: safe.nullable(),
+    /** Absent from a daemon older than this TUI. */
+    model: z
+      .looseObject({
+        id: safe.nullable(),
+        binding: safe.nullable(),
+        effort: safe.nullable(),
+      })
+      .nullable()
+      .optional(),
     at: safe,
     kind: safe,
     // Free-form: a view turns it into text with `sanitize` when it draws it.
@@ -293,6 +302,8 @@ export const TaskShowSchema = z.looseObject({
         attempt_id: z.string(),
         step: safe,
         binding: safe,
+        /** Absent from a daemon older than this TUI, and from attempts recorded before it was kept. */
+        model_id: safe.nullable().optional(),
         usage: z
           .looseObject({
             basis: z.enum(['reported', 'estimated', 'unavailable']),
@@ -320,6 +331,9 @@ export const TaskShowSchema = z.looseObject({
         attempt_id: z.string(),
         binding: safe,
         after_attempt: z.string().nullable(),
+        /** Absent from a daemon older than this TUI; null for a run recorded before the model was kept. */
+        model_id: safe.nullable().optional(),
+        effort: safe.nullable().optional(),
         mode: z.enum(['interactive', 'headless']).nullable().optional(),
       }),
     )

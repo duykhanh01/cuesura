@@ -40,6 +40,7 @@ export type StartTurn = {
   /** The runner operation of the first run, whose records the run's spool holds. */
   readonly operation_id?: string;
   readonly mode: 'interactive' | 'headless';
+  readonly model?: RunModel;
   readonly context_bytes: number;
   readonly now: number;
 };
@@ -74,7 +75,13 @@ export type DeputyRun = {
   readonly published: number | null;
   /** How the run ran: only a turn's first run may be a native session. Null for backfilled rows. */
   readonly mode: 'interactive' | 'headless' | null;
+  /** The model ID and effort the run was launched with; null for runs recorded before they were kept. */
+  readonly model_id: string | null;
+  readonly effort: string | null;
 };
+
+/** What a run was launched with. */
+export type RunModel = { readonly model_id: string; readonly effort: string | null };
 
 type Row = Omit<DeputyTurn, 'handoff'> & { handoff_json: string | null };
 
@@ -116,7 +123,14 @@ export class DeputyTurns {
     try {
       this.#db.transaction(() => {
         this.#insertTurn(t);
-        this.#recordRun(t.attempt_id, t.turn_id, t.task_id, t.operation_id ?? null, t.mode);
+        this.#recordRun(
+          t.attempt_id,
+          t.turn_id,
+          t.task_id,
+          t.operation_id ?? null,
+          t.mode,
+          t.model,
+        );
       })();
     } catch (e) {
       if (isUniqueViolation(e)) return err({ code: 'conflict', reason: 'turn_live' });
@@ -156,14 +170,24 @@ export class DeputyTurns {
     taskId: string | null,
     operationId: string | null,
     mode: DeputyRun['mode'],
+    model?: RunModel,
   ): void {
     this.#db
       .prepare(
-        `INSERT INTO deputy_turn_runs (attempt_id, turn_id, task_id, operation_id, mode, after_seq)
-         VALUES (?, ?, ?, ?, ?,
+        `INSERT INTO deputy_turn_runs (attempt_id, turn_id, task_id, operation_id, mode, model_id, effort, after_seq)
+         VALUES (?, ?, ?, ?, ?, ?, ?,
            COALESCE((SELECT MAX(seq) FROM events WHERE task_id = ? AND stream = 'task'), 0))`,
       )
-      .run(attemptId, turnId, taskId, operationId, mode, taskId);
+      .run(
+        attemptId,
+        turnId,
+        taskId,
+        operationId,
+        mode,
+        model?.model_id ?? null,
+        model?.effort ?? null,
+        taskId,
+      );
   }
 
   finishTurn(turnId: string, f: FinishTurn): Result<void, TurnError> {
@@ -246,7 +270,12 @@ export class DeputyTurns {
   }
 
   /** Back to `running` for the next run of the same turn, under a new runner attempt. */
-  resumeTurn(turnId: string, attemptId: string, operationId?: string): Result<void, TurnError> {
+  resumeTurn(
+    turnId: string,
+    attemptId: string,
+    operationId?: string,
+    model?: RunModel,
+  ): Result<void, TurnError> {
     return update(this.#db, () => {
       const row = this.#db
         .prepare(
@@ -256,7 +285,7 @@ export class DeputyTurns {
         .get(attemptId, turnId) as { task_id: string | null } | undefined;
       if (row === undefined) return false;
       // Only a turn's first run is native; every resume is headless (contracts/deputy-turn.md).
-      this.#recordRun(attemptId, turnId, row.task_id, operationId ?? null, 'headless');
+      this.#recordRun(attemptId, turnId, row.task_id, operationId ?? null, 'headless', model);
       return true;
     });
   }
@@ -266,7 +295,7 @@ export class DeputyTurns {
     const rows = this.#db
       .prepare(
         `SELECT r.attempt_id, r.turn_id, r.operation_id, r.mode, r.after_seq, r.records, r.digest,
-                r.published,
+                r.published, r.model_id, r.effort,
                 (t.state = 'running' AND t.attempt_id = r.attempt_id) AS live
          FROM deputy_turn_runs r JOIN deputy_turns t ON t.turn_id = r.turn_id
          WHERE r.task_id = ? ORDER BY r.after_seq, r.rowid`,

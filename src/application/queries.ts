@@ -49,6 +49,8 @@ import { asEpochMs } from '../shared/brand.ts';
 import { submit } from './triage.ts';
 import { RunSelectionSchema, type RunProposal, type RunSelection } from '../domain/run-config.ts';
 import { computeRunOptions, resolveProposal } from './run-options.ts';
+import type { DomainEvent } from '../domain/event.ts';
+import { attemptModelIds } from './attempt-models.ts';
 import { badTaskId } from './task-id.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
@@ -533,7 +535,10 @@ const TaskQuerySchema = z.object({ kind: z.string(), task_id: UuidSchema }).stri
  * Where each fact on `task show` came from (FR-027.01): the observation behind the PR and head, the
  * attempt that reported each usage, the reservations it spent and the artifacts the store committed.
  */
-export function provenance(s: TaskState): Record<string, unknown> {
+export function provenance(
+  s: TaskState,
+  models: ReadonlyMap<string, string> = new Map(),
+): Record<string, unknown> {
   const attemptId = s.current_step === null ? undefined : s.current_attempt[s.current_step];
   const attempt = attemptId === undefined ? undefined : s.attempts[attemptId];
   return {
@@ -554,6 +559,7 @@ export function provenance(s: TaskState): Record<string, unknown> {
         attempt_id: a.id,
         step: a.step,
         binding: a.binding,
+        model_id: models.get(a.id) ?? null,
         reservation_id: a.reservation_id,
         reservation: s.budget.reservations[a.reservation_id]?.status ?? null,
         usage: a.usage,
@@ -605,10 +611,11 @@ export function taskShow(
   if (!q.success) return err(badTaskId(body));
   const s = readable(store, caller, q.data.task_id);
   if (!s.ok) return s;
+  const history = store.readEvents(s.value.id as Uuid);
   return ok({
     ...taskView(s.value, mergeOf(store, s.value)),
     step: s.value.current_step,
-    provenance: provenance(s.value),
+    provenance: provenance(s.value, attemptModelIds(history)),
     review_policy: reviewPolicy(
       s.value,
       s.value.policy_ref === null
@@ -616,7 +623,7 @@ export function taskShow(
         : store.readPolicy(s.value.id as Uuid, s.value.policy_ref.revision),
     ),
     ...liveTurn(store, s.value.id),
-    deputy_runs: deputyRuns(store, s.value),
+    deputy_runs: deputyRuns(store, s.value, history),
     deputy_stamp: deputyStamp(store, s.value.id),
     ...loopView(store, s.value, redact),
     deputy_decisions: taskDecisions(store, s.value, redact),
@@ -668,11 +675,15 @@ function liveTurn(store: Store, taskId: string): { deputy?: Record<string, unkno
  * follows in that log: of the attempts launched by the time it was recorded, the last launched, or null
  * when none was. An attempt never launched has no output and no place there.
  */
-function deputyRuns(store: Store, s: TaskState): Record<string, unknown>[] {
+function deputyRuns(
+  store: Store,
+  s: TaskState,
+  history: readonly DomainEvent[],
+): Record<string, unknown>[] {
   const runs = store.deputy.runsOf(s.id);
   if (runs.length === 0) return [];
   const launched: { readonly attempt: string; readonly seq: number }[] = [];
-  for (const e of store.readEvents(s.id as Uuid))
+  for (const e of history)
     if (e.type === 'OperationRegistered' && e.payload.attempt_id !== null)
       if (!launched.some((l) => l.attempt === e.payload.attempt_id))
         launched.push({ attempt: e.payload.attempt_id, seq: e.seq });
@@ -681,6 +692,8 @@ function deputyRuns(store: Store, s: TaskState): Record<string, unknown>[] {
     turn_id: r.turn_id,
     binding: store.deputy.turn(r.turn_id)?.harness ?? 'deputy',
     mode: r.mode,
+    model_id: r.model_id,
+    effort: r.effort,
     live: r.live,
     after_attempt: launched.findLast((l) => l.seq <= r.after_seq)?.attempt ?? null,
   }));

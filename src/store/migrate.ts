@@ -24,6 +24,7 @@ const MIGRATIONS: readonly {
   { version: 7, file: '007_slot_reservations.sql' },
   { version: 8, file: '008_deputy_goal.sql' },
   { version: 9, file: '009_deputy_turn_runs.sql' },
+  { version: 10, file: '010_deputy_run_model.sql' },
 ];
 
 /**

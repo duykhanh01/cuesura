@@ -12,6 +12,7 @@ import { displayWidth, truncate, wrap } from '../terminal/width.ts';
 import { stepWords } from './activity.ts';
 import type { GatesView } from './gates.ts';
 import { describeRecord, type Tone } from './log-text.ts';
+import { modelLabel, modelShort, type ModelRef } from './model-label.ts';
 import type { Seg } from '../views/ink.ts';
 import { markdownRows } from '../views/markdown.ts';
 
@@ -62,6 +63,8 @@ export type LogEntry = {
   readonly attemptId: string | null;
   /** `null` for a gap too, which says nothing about a step. */
   readonly step: SafeText | null;
+  /** What ran the attempt; `null` for a gap or a record of no attempt. */
+  readonly model: ModelRef | null;
   readonly gap: boolean;
   /** `HH:MM:SS`, empty for a gap. */
   readonly time: SafeText;
@@ -239,6 +242,7 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
       seq: record.seq,
       attemptId: record.attempt_id,
       step: null,
+      model: null,
       gap: true,
       time: uiText(''),
       lines: [{ label: uiText(''), body: text, tone: 'warn' }],
@@ -262,6 +266,10 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
     seq: record.seq,
     attemptId: record.attempt_id,
     step: record.step,
+    model:
+      record.model == null
+        ? null
+        : { id: record.model.id, binding: record.model.binding, effort: record.model.effort },
     gap: false,
     time,
     lines,
@@ -639,7 +647,12 @@ function textRows(entry: LogEntry, cols: number, expanded: boolean): LogRow[] {
   return rows;
 }
 
-function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null {
+/** The rows of a segment's head: one line when it fits, else wrapped, so no part of the model's identity is cut. */
+function separator(
+  entry: LogEntry,
+  prev: LogEntry | undefined,
+  cols: number,
+): readonly SafeText[] | null {
   if (entry.gap) return null;
   const same =
     prev === undefined
@@ -647,13 +660,34 @@ function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null
       : !prev.gap && prev.step === entry.step && prev.attemptId === entry.attemptId;
   if (same) return null;
   // A gap has no step to compare with; only a change of attempt after one is news.
+  const step = entry.step ?? uiText('outside any step');
   const words = entry.step === null ? null : stepWords(entry.step);
-  return joinSafe([
-    uiText('── '),
-    entry.step ?? uiText('outside any step'),
-    uiText(words === null ? '' : ` · ${words}`),
-    uiText(entry.attemptId === null ? ' ──' : ` · attempt ${shortAttempt(entry.attemptId)} ──`),
-  ]);
+  const attempt =
+    entry.attemptId === null ? null : uiText(`attempt ${shortAttempt(entry.attemptId)}`);
+  const line = (parts: readonly (SafeText | null)[]): SafeText =>
+    joinSafe([
+      uiText('── '),
+      joinSafe(
+        parts.filter((p) => p !== null),
+        ' · ',
+      ),
+      uiText(' ──'),
+    ]);
+  if (entry.model === null)
+    return wrap(line([step, words === null ? null : uiText(words), attempt]), cols);
+  // The model leads, so a pane too narrow for the rest still shows which model wrote the segment.
+  const model = modelLabel(entry.model);
+  const options = [
+    [model, step, words === null ? null : uiText(words), attempt],
+    [model, step, attempt],
+    [model, step],
+    [modelShort(entry.model), step],
+  ];
+  for (const parts of options) {
+    const text = line(parts);
+    if (displayWidth(text) <= cols) return [text];
+  }
+  return wrap(line(options[3] as SafeText[]), cols);
 }
 
 function entryRows(
@@ -662,11 +696,14 @@ function entryRows(
   cols: number,
   expanded: boolean,
 ): LogRow[] {
-  const sep = separator(entry, prev);
+  const sep = separator(entry, prev, cols);
   const rows = textRows(entry, cols, expanded);
   return sep === null
     ? rows
-    : [{ kind: 'separator', text: sep, attemptId: entry.attemptId }, ...rows];
+    : [
+        ...sep.map((text): LogRow => ({ kind: 'separator', text, attemptId: entry.attemptId })),
+        ...rows,
+      ];
 }
 
 function indexOfSeq(buffer: readonly LogEntry[], seq: number): number {
@@ -723,6 +760,20 @@ export function visibleRows(s: LogState, cols: number, height: number): readonly
   if (height <= 0 || s.buffer.length === 0) return [];
   const from = topOf(s, cols, height);
   return rowsFrom(s, from, cols, height).map((r) => r.row);
+}
+
+/**
+ * The attempt of the first record on screen. Only a log scrolled away from its end reads from there: the
+ * header then speaks of what is being looked at, not of the newest attempt buffered.
+ */
+export function visibleAttempt(s: LogState, cols: number, height: number): string | null {
+  if (height <= 0 || s.buffer.length === 0) return null;
+  const shown = rowsFrom(s, topOf(s, cols, height), cols, height);
+  for (const { index } of shown) {
+    const e = s.buffer[index] as LogEntry;
+    if (ofAttempt(e)) return e.attemptId;
+  }
+  return null;
 }
 
 const anchored = (

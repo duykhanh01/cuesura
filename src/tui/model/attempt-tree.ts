@@ -6,7 +6,7 @@
  */
 import type { TaskShow } from '../client/schemas.ts';
 import { DEPUTY_STEP } from '../../domain/deputy.ts';
-import { sanitize, type SafeText } from '../terminal/safe-text.ts';
+import { joinSafe, sanitize, type SafeText } from '../terminal/safe-text.ts';
 import { stageOf, type StageName } from './stages.ts';
 
 type Usage = TaskShow['provenance']['usage'][number];
@@ -26,7 +26,8 @@ export function withDeputyRuns(show: TaskShow | null | undefined): readonly Usag
     const entry: Usage = {
       attempt_id: run.attempt_id,
       step: DEPUTY_STEP_TEXT,
-      binding: run.binding,
+      binding: run.effort == null ? run.binding : joinSafe([run.binding, run.effort], '/'),
+      model_id: run.model_id ?? null,
       usage: null,
     };
     after.set(run.after_attempt, [...(after.get(run.after_attempt) ?? []), entry]);
@@ -43,6 +44,8 @@ export type Attempt = {
   readonly id: string;
   readonly step: SafeText;
   readonly binding: SafeText;
+  /** `null`: not recorded, which old attempts never did. */
+  readonly modelId: SafeText | null;
   /** `null`: the harness did not say. */
   readonly tokens: number | null;
 };
@@ -91,6 +94,7 @@ export function attemptGroups(usage: readonly Usage[]): readonly AttemptGroup[] 
       id: u.attempt_id,
       step: u.step,
       binding: u.binding,
+      modelId: u.model_id ?? null,
       tokens: u.usage?.tokens ?? null,
     };
     const stage = stageOf(u.step);

@@ -22,6 +22,7 @@ import {
   type ReadBatch,
   type ReadError,
 } from '../runner/files.ts';
+import { attemptModelIds } from './attempt-models.ts';
 import { runLocation } from '../daemon/retention.ts';
 import { readLaunchMarker } from '../runner/operation-lock.ts';
 import type { Redactor } from '../runner/redact.ts';
@@ -123,6 +124,16 @@ const LogsQuerySchema = z
   })
   .strict();
 
+/**
+ * What ran a record's attempt, as persisted: the configured model ID (null when it was not kept, never guessed
+ * from the alias), the alias binding of a worker attempt (`sonnet/medium`), the effort of a deputy run.
+ */
+export type LogModel = {
+  readonly id: string | null;
+  readonly binding: string | null;
+  readonly effort: string | null;
+};
+
 export type LogEntry =
   | {
       readonly seq: number;
@@ -130,6 +141,7 @@ export type LogEntry =
       readonly operation_id: string;
       readonly attempt_id: string | null;
       readonly step: string | null;
+      readonly model: LogModel | null;
       readonly at: string;
       readonly kind: string;
       readonly data: unknown;
@@ -214,6 +226,7 @@ type Batch = {
   readonly operation_id: string;
   readonly attempt_id: string | null;
   readonly step: string | null;
+  readonly model: LogModel | null;
   readonly records: number;
   /** Null for a deputy run, whose records no event commits. */
   readonly digest: string | null;
@@ -233,13 +246,24 @@ const at = (op: TaskState['operations'][string], reason: string): Diagnostic => 
   reason,
 });
 
-function operationBatch(s: TaskState, id: string, records: number, digest: string): Batch {
+function operationBatch(
+  s: TaskState,
+  models: ReadonlyMap<string, string>,
+  id: string,
+  records: number,
+  digest: string,
+): Batch {
   const attemptId = s.operations[id]?.attempt_id ?? null;
+  const attempt = attemptId === null ? undefined : s.attempts[attemptId];
   return {
     key: id,
     operation_id: id,
     attempt_id: attemptId,
-    step: attemptId === null ? null : (s.attempts[attemptId]?.step ?? null),
+    step: attempt?.step ?? null,
+    model:
+      attempt === undefined
+        ? null
+        : { id: models.get(attempt.id) ?? null, binding: attempt.binding, effort: null },
     records,
     digest,
   };
@@ -453,11 +477,13 @@ export function taskLogs(
   const cache = new Map<string, readonly (LogRecord | undefined)[] | string>();
   const registeredAt = new Map<string, number>();
   const committed: Placed[] = [];
-  for (const e of deps.store.readEvents(s.id as Uuid)) {
+  const history = deps.store.readEvents(s.id as Uuid);
+  const models = attemptModelIds(history);
+  for (const e of history) {
     if (e.type === 'OperationRegistered') registeredAt.set(e.payload.operation_id, e.seq);
     else if (e.type === 'OutputIngested') {
       const { operation_id: id, records, digest } = e.payload;
-      committed.push({ batch: operationBatch(s, id, records, digest), operation_id: id });
+      committed.push({ batch: operationBatch(s, models, id, records, digest), operation_id: id });
     }
   }
   const regOf = (id: string): number => registeredAt.get(id) ?? 0;
@@ -495,7 +521,7 @@ export function taskLogs(
           const tail = live.value.records.slice(done);
           if (tail.length > 0 && live.value.cursor !== null)
             items.push({
-              batch: operationBatch(s, active.id, tail.length, hashCanonical(tail)),
+              batch: operationBatch(s, models, active.id, tail.length, hashCanonical(tail)),
               operation_id: active.id,
             });
         }
@@ -573,6 +599,7 @@ export function taskLogs(
         operation_id: where.operation_id,
         attempt_id: run.attempt_id,
         step: DEPUTY_STEP,
+        model: { id: run.model_id, binding: null, effort: run.effort },
         records,
         digest: run.digest,
       });
@@ -614,7 +641,7 @@ export function taskLogs(
   let cursor = after;
 
   for (const b of batches) {
-    const { key, operation_id: id, attempt_id: attemptId, step, records: count, digest } = b;
+    const { key, operation_id: id, attempt_id: attemptId, step, model, records: count, digest } = b;
     const from = offsets.get(key) ?? 0;
     offsets.set(key, from + count);
     const first = position + 1;
@@ -692,6 +719,7 @@ export function taskLogs(
         operation_id: id,
         attempt_id: attemptId,
         step,
+        model,
         at: r.at,
         kind: r.kind,
         data: r.data,

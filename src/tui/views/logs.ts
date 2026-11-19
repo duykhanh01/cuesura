@@ -16,6 +16,7 @@ import {
   type Attempt,
   type TreeRow,
 } from '../model/attempt-tree.ts';
+import { modelLabel, modelShort, type ModelRef } from '../model/model-label.ts';
 import { pickerGroups } from '../model/detail-keys.ts';
 import { QUIET_MS, STUCK_MS } from '../model/gates.ts';
 import { ending } from '../model/detail.ts';
@@ -25,6 +26,7 @@ import {
   latestAttempt,
   logColumns,
   logRows,
+  visibleAttempt,
   visibleRows,
   type LogRow,
   type LogState,
@@ -102,8 +104,9 @@ function followState(s: LogState): string {
   return s.scrolledAway ? 'Scrolled up' : 'Paused';
 }
 
-function modeAttemptId(logs: LogState, t: TuiState): string | null {
+function modeAttemptId(logs: LogState, t: TuiState, seen: string | null): string | null {
   if (logs.attemptFilter !== null) return logs.attemptFilter;
+  if (seen !== null) return seen;
   const buffered = latestAttempt(logs);
   const show = t.detail?.show.data;
   const active = show?.provenance.active_attempt_id;
@@ -121,17 +124,29 @@ function modeAttemptId(logs: LogState, t: TuiState): string | null {
   return buffered;
 }
 
+type ReadAttempt = { readonly step: SafeText | null; readonly model: ModelRef | null };
+
+/**
+ * The attempt the header speaks of. A buffered record names its own model, so that wins: the task snapshot is
+ * read apart from the log and may not list the attempt yet.
+ */
+function readAttempt(s: TuiState, logs: LogState, id: string): ReadAttempt | undefined {
+  const entry = logs.buffer.findLast((e) => e.attemptId === id && !e.gap && e.model !== null);
+  const u = withDeputyRuns(s.detail?.show.data).find((a) => a.attempt_id === id);
+  const model: ModelRef | null =
+    entry?.model ??
+    (u === undefined ? null : { id: u.model_id ?? null, binding: u.binding, effort: null });
+  const step = u?.step ?? null;
+  return u === undefined && entry === undefined ? undefined : { step, model };
+}
+
 /** What is being read, and which lines when the buffer holds only part of it. */
-function modeLine(
-  s: LogState,
-  t: TuiState,
-  attempt: Pick<Attempt, 'step' | 'binding'> | undefined,
-): SafeText {
+function modeLine(s: LogState, t: TuiState, attempt: ReadAttempt | undefined): SafeText {
   if (s.gates !== null) return gatesModeLine(s.gates);
   const parts: SafeText[] = [];
   if (s.attemptFilter === null) parts.push(uiText(`${followState(s)} · latest step`));
-  else parts.push(attempt === undefined ? uiText('One attempt') : stepName(attempt.step));
-  if (attempt?.binding) parts.push(attempt.binding);
+  else parts.push(attempt?.step == null ? uiText('One attempt') : stepName(attempt.step));
+  if (attempt?.model != null) parts.push(modelLabel(attempt.model));
   const first = s.buffer[0];
   const last = s.buffer.at(-1);
   if (first !== undefined && last !== undefined && (s.windowStart > 0 || s.moreForward))
@@ -356,7 +371,10 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
 }
 
 const NAME_COLS = 24;
-const BINDING_COLS = 14;
+const BINDING_COLS = 18;
+
+const attemptModel = (a: Attempt): SafeText =>
+  modelShort({ id: a.modelId, binding: a.binding, effort: null });
 /** A step run this many times in a row is worth a look: a fix that does not hold. */
 const RUN_WARN = 3;
 
@@ -419,7 +437,7 @@ function pickerRow(
             ],
             NAME_COLS,
           ),
-          ...(last === undefined ? [] : pad([seg(last.binding, DIM)], BINDING_COLS)),
+          ...(last === undefined ? [] : pad([seg(attemptModel(last), DIM)], BINDING_COLS)),
           ui(n >= RUN_WARN ? `⚠ ${n} in a row` : '', NOTICE),
         ],
         right: tokenSeg(row.run.attempts),
@@ -437,7 +455,7 @@ function pickerRow(
             ],
             NAME_COLS,
           ),
-          ...pad([seg(a.binding, DIM)], BINDING_COLS),
+          ...pad([seg(attemptModel(a), DIM)], BINDING_COLS),
           ui(a.id === ctx.running ? '  ● running' : '', GOOD),
           ui(a.id === ctx.reading ? '  ◂ reading' : '', ACTIVE),
         ],
@@ -526,11 +544,16 @@ export const logsBody =
     const narrow = logColumns(cols, logs.paneHidden).pane === 0;
     const stages = narrow ? stagesRow(s, cols - 1) : null;
     const news = newsLine(logs, s);
-    const usage = withDeputyRuns(s.detail?.show.data);
-    const attemptId = logs.gates === null && logs.picker === null ? modeAttemptId(logs, s) : null;
-    const attempt = attemptId === null ? undefined : usage.find((a) => a.attempt_id === attemptId);
+    // Scrolled up in an unfiltered log, the segment on screen is the one the header speaks of.
+    const seen =
+      logs.attemptFilter === null && logs.scrolledAway
+        ? visibleAttempt(logs, logColumns(cols, logs.paneHidden).log, logRows(height))
+        : null;
+    const attemptId =
+      logs.gates === null && logs.picker === null ? modeAttemptId(logs, s, seen) : null;
+    const attempt = attemptId === null ? undefined : readAttempt(s, logs, attemptId);
     const mode = logs.picker === null ? modeLine(logs, s, attempt) : pickerSummary(s);
-    const showStages = stages !== null && (news === '' || !attempt?.binding);
+    const showStages = stages !== null && (news === '' || attempt?.model == null);
     if (height > 1) {
       if (showStages) putSegs(frame, 1, top + 1, stages, cols - 1);
       else frame.put(1, top + 1, truncate(mode, cols - 1), DIM);
@@ -567,19 +590,9 @@ export const logsBody =
       return;
     }
     // Scrolling counts rows wrapped at this same width (`logColumns`), so the place kept is the place shown.
-    visibleRows(logs, log, logRows(height)).forEach((row, i) => {
-      const binding =
-        row.attemptId == null
-          ? undefined
-          : usage.find((a) => a.attempt_id === row.attemptId)?.binding;
-      drawRow(
-        frame,
-        x,
-        listTop + i,
-        binding ? { ...row, text: joinSafe([row.text, binding], '  ') } : row,
-        log,
-      );
-    });
+    visibleRows(logs, log, logRows(height)).forEach((row, i) =>
+      drawRow(frame, x, listTop + i, row, log),
+    );
     if (newBelow(logs) && logRows(height) < room)
       frame.put(
         x + 1,
