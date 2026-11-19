@@ -12,6 +12,7 @@ import { displayWidth, truncate, wrap } from '../terminal/width.ts';
 import { stepWords } from './activity.ts';
 import type { GatesView } from './gates.ts';
 import { describeRecord, type Tone } from './log-text.ts';
+import { modelLabel, type ModelRef } from './model-label.ts';
 import type { Seg } from '../views/ink.ts';
 import { markdownRows } from '../views/markdown.ts';
 
@@ -62,6 +63,8 @@ export type LogEntry = {
   readonly attemptId: string | null;
   /** `null` for a gap too, which says nothing about a step. */
   readonly step: SafeText | null;
+  /** What ran the attempt; `null` for a gap or a record of no attempt. */
+  readonly model: ModelRef | null;
   readonly gap: boolean;
   /** `HH:MM:SS`, empty for a gap. */
   readonly time: SafeText;
@@ -239,6 +242,7 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
       seq: record.seq,
       attemptId: record.attempt_id,
       step: null,
+      model: null,
       gap: true,
       time: uiText(''),
       lines: [{ label: uiText(''), body: text, tone: 'warn' }],
@@ -262,6 +266,10 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
     seq: record.seq,
     attemptId: record.attempt_id,
     step: record.step,
+    model:
+      record.model == null
+        ? null
+        : { id: record.model.id, binding: record.model.binding, effort: record.model.effort },
     gap: false,
     time,
     lines,
@@ -652,7 +660,9 @@ function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null
     uiText('── '),
     entry.step ?? uiText('outside any step'),
     uiText(words === null ? '' : ` · ${words}`),
-    uiText(entry.attemptId === null ? ' ──' : ` · attempt ${shortAttempt(entry.attemptId)} ──`),
+    uiText(entry.attemptId === null ? '' : ` · attempt ${shortAttempt(entry.attemptId)}`),
+    entry.model === null ? uiText('') : joinSafe([uiText(' · '), modelLabel(entry.model)]),
+    uiText(' ──'),
   ]);
 }
 

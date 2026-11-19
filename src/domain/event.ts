@@ -112,6 +112,8 @@ export type EventPayloads = {
     kind: AttemptKind;
     rung: number;
     binding: string;
+    /** The configured model ID the attempt runs; absent on attempts recorded before it was kept (additive). */
+    model_id?: string;
     effect_id: string;
     reservation_id: string;
     /** Worker attempt whose session this attempt resumes (FR-038); absent when it starts a new session. */

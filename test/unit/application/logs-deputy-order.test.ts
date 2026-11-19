@@ -73,6 +73,8 @@ function scenario() {
     records: 1,
     published: null,
     mode: 'headless',
+    model_id: 'gpt-6.1-sol',
+    effort: 'high',
     digest: hashCanonical(
       readAllRecords(RunDir.open({ dataDir, kind: 'runs', id: RUN, redactor })),
     ),
@@ -88,8 +90,14 @@ function scenario() {
     wait: null,
     operations: { [A.op]: op(A, 'running'), [B.op]: op(B, 'finished') },
     attempts: {
-      [A.attempt]: { id: A.attempt, step: 'code' },
-      [B.attempt]: { id: B.attempt, step: 'review' },
+      [A.attempt]: {
+        id: A.attempt,
+        step: 'code',
+        binding: 'opus/medium',
+        model_id: 'claude-opus-5-5',
+      },
+      // Recorded before the model ID was kept.
+      [B.attempt]: { id: B.attempt, step: 'review', binding: 'sol/high' },
     },
     terminal: null,
   } as unknown as TaskState;
@@ -105,7 +113,10 @@ function scenario() {
       ...body,
     });
     if (!r.ok) throw new Error(r.error.code);
-    return r.value as { records: { data?: unknown; gap?: unknown }[]; next_cursor: number };
+    return r.value as {
+      records: { data?: unknown; gap?: unknown; model?: unknown }[];
+      next_cursor: number;
+    };
   };
   /** A's last ingest lands and A ends. */
   const finishA = () => {
@@ -129,5 +140,18 @@ describe('task_logs places a deputy run by when operations were registered', () 
     finishA();
     expect(said(logs({ after: before.next_cursor }))).toEqual(['A2', 'deputy', 'B1']);
     expect(said(logs())).toEqual(['A1', 'A2', 'deputy', 'B1']);
+  });
+});
+
+describe('task_logs says which model each stretch of the log came from', () => {
+  it('gives the persisted ID per attempt and run, and none it cannot know', () => {
+    const { logs, finishA } = scenario();
+    finishA();
+    expect(logs().records.map((r) => r.model)).toEqual([
+      { id: 'claude-opus-5-5', binding: 'opus/medium', effort: null },
+      { id: 'claude-opus-5-5', binding: 'opus/medium', effort: null },
+      { id: 'gpt-6.1-sol', binding: null, effort: 'high' },
+      { id: null, binding: 'sol/high', effort: null },
+    ]);
   });
 });

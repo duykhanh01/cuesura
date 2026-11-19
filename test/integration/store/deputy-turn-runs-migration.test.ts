@@ -87,6 +87,9 @@ describe('migration 009: the runs of deputy turns recorded before it', () => {
         live: false,
         records: null,
         digest: null,
+        // Recorded before the model was kept: unavailable, never guessed.
+        model_id: null,
+        effort: null,
       },
     ]);
     const r = taskLogs({ store, dataDir, redactor }, callerFor('owner') as Caller, {

@@ -16,6 +16,7 @@ import {
   type Attempt,
   type TreeRow,
 } from '../model/attempt-tree.ts';
+import { modelLabel, modelShort } from '../model/model-label.ts';
 import { pickerGroups } from '../model/detail-keys.ts';
 import { QUIET_MS, STUCK_MS } from '../model/gates.ts';
 import { ending } from '../model/detail.ts';
@@ -125,13 +126,22 @@ function modeAttemptId(logs: LogState, t: TuiState): string | null {
 function modeLine(
   s: LogState,
   t: TuiState,
-  attempt: Pick<Attempt, 'step' | 'binding'> | undefined,
+  attempt:
+    | {
+        readonly step: SafeText;
+        readonly binding: SafeText;
+        readonly model_id?: SafeText | null | undefined;
+      }
+    | undefined,
 ): SafeText {
   if (s.gates !== null) return gatesModeLine(s.gates);
   const parts: SafeText[] = [];
   if (s.attemptFilter === null) parts.push(uiText(`${followState(s)} · latest step`));
   else parts.push(attempt === undefined ? uiText('One attempt') : stepName(attempt.step));
-  if (attempt?.binding) parts.push(attempt.binding);
+  if (attempt?.binding)
+    parts.push(
+      modelLabel({ id: attempt.model_id ?? null, binding: attempt.binding, effort: null }),
+    );
   const first = s.buffer[0];
   const last = s.buffer.at(-1);
   if (first !== undefined && last !== undefined && (s.windowStart > 0 || s.moreForward))
@@ -356,7 +366,10 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
 }
 
 const NAME_COLS = 24;
-const BINDING_COLS = 14;
+const BINDING_COLS = 18;
+
+const attemptModel = (a: Attempt): SafeText =>
+  modelShort({ id: a.modelId, binding: a.binding, effort: null });
 /** A step run this many times in a row is worth a look: a fix that does not hold. */
 const RUN_WARN = 3;
 
@@ -419,7 +432,7 @@ function pickerRow(
             ],
             NAME_COLS,
           ),
-          ...(last === undefined ? [] : pad([seg(last.binding, DIM)], BINDING_COLS)),
+          ...(last === undefined ? [] : pad([seg(attemptModel(last), DIM)], BINDING_COLS)),
           ui(n >= RUN_WARN ? `⚠ ${n} in a row` : '', NOTICE),
         ],
         right: tokenSeg(row.run.attempts),
@@ -437,7 +450,7 @@ function pickerRow(
             ],
             NAME_COLS,
           ),
-          ...pad([seg(a.binding, DIM)], BINDING_COLS),
+          ...pad([seg(attemptModel(a), DIM)], BINDING_COLS),
           ui(a.id === ctx.running ? '  ● running' : '', GOOD),
           ui(a.id === ctx.reading ? '  ◂ reading' : '', ACTIVE),
         ],

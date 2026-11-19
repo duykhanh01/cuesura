@@ -550,7 +550,10 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     };
     const next: TurnRecord = { ...record, input };
     writeRecord(next);
-    const r = store.deputy.resumeTurn(turn.turn_id, attempt, input.operation_id);
+    const r = store.deputy.resumeTurn(turn.turn_id, attempt, input.operation_id, {
+      model_id: input.binding.model,
+      effort: input.binding.effort,
+    });
     if (!r.ok) {
       log(`turn ${turn.turn_id}: not resumed: ${r.error.code}`);
       return;
@@ -804,6 +807,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       attempt_id: attemptId,
       operation_id: input.operation_id,
       mode: harness.interactive === true ? 'interactive' : 'headless',
+      model: { model_id: setting.model_id, effort: setting.effort },
       context_bytes: built.bytes,
       now,
     });
@@ -923,6 +927,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     const started = store.deputy.startTurn({
       ...row,
       operation_id: input.operation_id,
+      model: { model_id: setting.model_id, effort: setting.effort },
       context_bytes: built.bytes,
     });
     if (!started.ok) {

@@ -123,6 +123,16 @@ const LogsQuerySchema = z
   })
   .strict();
 
+/**
+ * What ran a record's attempt, as persisted: the configured model ID (null when it was not kept, never guessed
+ * from the alias), the alias binding of a worker attempt (`sonnet/medium`), the effort of a deputy run.
+ */
+export type LogModel = {
+  readonly id: string | null;
+  readonly binding: string | null;
+  readonly effort: string | null;
+};
+
 export type LogEntry =
   | {
       readonly seq: number;
@@ -130,6 +140,7 @@ export type LogEntry =
       readonly operation_id: string;
       readonly attempt_id: string | null;
       readonly step: string | null;
+      readonly model: LogModel | null;
       readonly at: string;
       readonly kind: string;
       readonly data: unknown;
@@ -214,6 +225,7 @@ type Batch = {
   readonly operation_id: string;
   readonly attempt_id: string | null;
   readonly step: string | null;
+  readonly model: LogModel | null;
   readonly records: number;
   /** Null for a deputy run, whose records no event commits. */
   readonly digest: string | null;
@@ -235,11 +247,16 @@ const at = (op: TaskState['operations'][string], reason: string): Diagnostic => 
 
 function operationBatch(s: TaskState, id: string, records: number, digest: string): Batch {
   const attemptId = s.operations[id]?.attempt_id ?? null;
+  const attempt = attemptId === null ? undefined : s.attempts[attemptId];
   return {
     key: id,
     operation_id: id,
     attempt_id: attemptId,
-    step: attemptId === null ? null : (s.attempts[attemptId]?.step ?? null),
+    step: attempt?.step ?? null,
+    model:
+      attempt === undefined
+        ? null
+        : { id: attempt.model_id ?? null, binding: attempt.binding, effort: null },
     records,
     digest,
   };
@@ -573,6 +590,7 @@ export function taskLogs(
         operation_id: where.operation_id,
         attempt_id: run.attempt_id,
         step: DEPUTY_STEP,
+        model: { id: run.model_id, binding: null, effort: run.effort },
         records,
         digest: run.digest,
       });
@@ -614,7 +632,7 @@ export function taskLogs(
   let cursor = after;
 
   for (const b of batches) {
-    const { key, operation_id: id, attempt_id: attemptId, step, records: count, digest } = b;
+    const { key, operation_id: id, attempt_id: attemptId, step, model, records: count, digest } = b;
     const from = offsets.get(key) ?? 0;
     offsets.set(key, from + count);
     const first = position + 1;
@@ -692,6 +710,7 @@ export function taskLogs(
         operation_id: id,
         attempt_id: attemptId,
         step,
+        model,
         at: r.at,
         kind: r.kind,
         data: r.data,

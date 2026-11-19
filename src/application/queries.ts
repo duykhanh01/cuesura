@@ -554,6 +554,7 @@ export function provenance(s: TaskState): Record<string, unknown> {
         attempt_id: a.id,
         step: a.step,
         binding: a.binding,
+        model_id: a.model_id ?? null,
         reservation_id: a.reservation_id,
         reservation: s.budget.reservations[a.reservation_id]?.status ?? null,
         usage: a.usage,
@@ -681,6 +682,8 @@ function deputyRuns(store: Store, s: TaskState): Record<string, unknown>[] {
     turn_id: r.turn_id,
     binding: store.deputy.turn(r.turn_id)?.harness ?? 'deputy',
     mode: r.mode,
+    model_id: r.model_id,
+    effort: r.effort,
     live: r.live,
     after_attempt: launched.findLast((l) => l.seq <= r.after_seq)?.attempt ?? null,
   }));
