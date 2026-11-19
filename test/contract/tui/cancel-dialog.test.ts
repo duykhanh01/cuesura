@@ -219,10 +219,8 @@ describe('Cancel on a PTY against a real daemon', () => {
     expect(flat(s.screenText())).toContain('Y N confirm / go back');
     expect(flat(s.screenText())).not.toContain('cancel / leave');
     s.send('Y');
-    await s.waitFor(
-      () => flat(s.screenText()).includes('Cancelled: the daemon reports the task CANCELLED'),
-      15_000,
-    );
+    // The force took effect: Home, not the menu.
+    await s.waitForText('n new task');
     const e = await sd.query('owner', { kind: 'task_explain', task_id: t.id });
     expect(e.envelope.data?.['status']).toBe('CANCELLED');
     const h = await sd.query('owner', { kind: 'task_history', task_id: t.id });

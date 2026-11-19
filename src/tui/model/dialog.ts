@@ -22,6 +22,7 @@ import { contentHeight } from '../views/disconnected.ts';
 import { dialogPaging } from '../views/dialog.ts';
 import { editField, textField, type TextField } from '../views/input.ts';
 import { writeBlock } from './actions.ts';
+import { cancelNeedsMenu } from './cancel-result.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
 import type { Effect } from './messages.ts';
 import { mutationLock, writeLock, type TuiState } from './state.ts';
@@ -393,6 +394,18 @@ export function closeDialog(state: TuiState): TuiState {
   };
 }
 
+/** Back to Home from wherever the task was open, dropping everything held for it; drafts are kept. */
+function toHome(state: TuiState): TuiState {
+  return {
+    ...closeDialog(state),
+    screens: ['home'],
+    detail: null,
+    logs: null,
+    actions: null,
+    review: null,
+  };
+}
+
 /** Anything typed that leaving would lose, for the question quitting asks. */
 export function dialogHasText(state: TuiState): boolean {
   const d = state.dialog;
@@ -730,6 +743,10 @@ export function onDialogMutation(state: TuiState, m: Mutation): Reduced {
     case 'sending':
       return same(state);
     case 'accepted':
+      // A cancel that took effect ends the user's business with the task: Home, not a menu of a dead task.
+      if (d.kind === 'cancel' && m.result?.ok === true && !cancelNeedsMenu(m.result.value))
+        return same(toHome(state));
+      return same(closeDialog(state));
     case 'unknown':
     case 'unresolved':
       // The screen under says what is known of it, and goes on checking what is not.

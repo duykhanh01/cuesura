@@ -216,12 +216,8 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
     // One Y after the reason sends it.
     s.send(KEY.enter);
     s.send('Y');
-    // The running task stops at once, so the daemon's reply already says CANCELLED.
-    await s.waitFor(
-      () =>
-        /Cancelled: the daemon reports the task CANCELLED \(request /.test(flat(s.screenText())),
-      15_000,
-    );
+    // The running task stops at once, so the daemon's reply already says CANCELLED: back to Home.
+    await s.waitForText('n new task');
     const history = await sd.query('owner', { kind: 'task_history', task_id: uuidOf(1) });
     const asked = JSON.stringify(history.envelope.data?.['events']);
     expect(asked).toContain('stop it');
@@ -427,10 +423,8 @@ const OPERATIONS: readonly Operation[] = [
       s.send('stop it');
       s.send(KEY.tab);
       s.send('Y');
-      await s.waitFor(
-        () => /Cancelled: the daemon reports the task CANCELLED/.test(flat(s.screenText())),
-        15_000,
-      );
+      // The cancel took effect: Home, not the menu.
+      await s.waitForText('n new task');
     },
     cli: async (sd, actor, id) =>
       cliAs(
