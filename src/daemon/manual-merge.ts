@@ -214,6 +214,8 @@ async function closedPull(
   if (!r.ok) return err(refused('not_ready', { detail: `pull unreadable: ${r.error.detail}` }));
   const facts = pullFacts(r.value.body);
   if (facts.merged === true) return ok(result(deps.store, id, 'already_merged'));
+  if (facts.state !== 'closed' || facts.merged !== false)
+    return err(refused('not_ready', { detail: 'pull changed or its state is unreadable' }));
   return err(
     refused('pr_closed_unmerged', { detail: 'the pull request was closed without a merge' }),
   );

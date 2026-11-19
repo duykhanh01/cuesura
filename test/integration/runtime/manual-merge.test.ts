@@ -39,6 +39,7 @@ const MESSAGE = 'feat: thêm tìm kiếm\n\nGiải thích thay đổi.\n';
 
 type Remote = {
   pull?: Record<string, unknown>;
+  secondPull?: Record<string, unknown>;
   checks?: Record<string, string>;
   mergeStatus?: number | 'lost';
   /** The target tip the last confirmation reports; `null` reports none. */
@@ -47,6 +48,7 @@ type Remote = {
 
 function github(r: Remote = {}) {
   const sent: GitHubRequest[] = [];
+  let pullReads = 0;
   const conclusions = r.checks ?? { build: 'success', test: 'success' };
   const reply = (body: unknown) =>
     Promise.resolve(
@@ -130,7 +132,7 @@ function github(r: Remote = {}) {
             },
           },
         });
-      return reply(pull);
+      return reply(++pullReads === 2 ? { ...pull, ...r.secondPull } : pull);
     },
   };
   return { port, sent };
@@ -332,6 +334,21 @@ describe('task_merge', () => {
     expect(puts(merged.sent)).toEqual([]);
     expect(d.task(t.id).status).toBe('WAITING');
   });
+
+  it.each([{ state: 'open', merged: false }, { merged: undefined }, { merged: 'false' }])(
+    'waits when a second pull read is inconclusive (%j)',
+    async (secondPull) => {
+      const d = setup();
+      const t = buildTask({ id: newId() });
+      green(d, t);
+      const remote = github({ pull: { state: 'closed' }, secondPull });
+      expect(await run(d, remote.port, body(d, t))).toMatchObject({
+        ok: false,
+        error: { details: { reason: 'not_ready' } },
+      });
+      expect(puts(remote.sent)).toEqual([]);
+    },
+  );
 
   it('does not take a closed PR for a merge after a refused or unsent request', async () => {
     for (const first of ['refused', 'content'] as const) {
