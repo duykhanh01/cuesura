@@ -488,165 +488,67 @@ describe('CI of a PR turned ready', () => {
     port.calls.filter((c) => c.path.includes(part)).length;
 
   // PR #36 of a dogfood repo: several `ci-ok` of one app on one head.
-  it('a skip of the draft is missing evidence: an earlier success of the same check never stands in', async () => {
-    const port = github(
-      [run(10, 'ci-ok', 'success', 100), run(11, 'ci-ok', 'skipped', 101)],
-      { 100: '2026-11-17T10:00:00Z', 101: '2026-11-17T23:19:24Z' },
-      [
-        { event: 'ready_for_review', created_at: '2026-11-17T09:00:00Z' },
-        { event: 'convert_to_draft', created_at: '2026-11-17T20:00:00Z' },
-        { event: 'ready_for_review', created_at: READY },
-      ],
-    );
-    expect(await read(port)).toEqual([]);
+  it('a skip after a draft is missing evidence: an earlier success of the same check never stands in', async () => {
+    const port = github([run(10, 'ci-ok', 'success', 100), run(11, 'ci-ok', 'skipped', 101)], {}, [
+      { event: 'ready_for_review', created_at: '2026-11-17T09:00:00Z' },
+      { event: 'convert_to_draft', created_at: '2026-11-17T20:00:00Z' },
+      { event: 'ready_for_review', created_at: READY },
+    ]);
+    expect(await read(port)).toEqual([{ name: 'ci-ok', state: 'pending', run: 11 }]);
     // A draft now: the same, without reading anything more.
     const draft = github([run(10, 'ci-ok', 'success', 100), run(11, 'ci-ok', 'skipped', 101)], {});
     expect(await read(draft, ['ci-ok'], true)).toEqual([]);
     expect(calls(draft, '/events') + calls(draft, '/actions/runs/')).toBe(0);
   });
 
-  it('a check belongs to the workflow run that made it, not to when its job started', async () => {
-    // The draft's workflow run was made before the ready event; its job started and skipped after it.
-    const draftRun = github([run(11, 'ci-ok', 'skipped', 101)], { 101: '2026-11-18T01:17:19Z' });
-    expect(await read(draftRun)).toEqual([]);
-    const readyRun = github(
-      [run(12, 'ci-ok', 'skipped', 102), run(13, 'changes', 'success', 102)],
-      {
-        102: '2026-11-18T01:17:21Z',
-      },
-    );
-    expect(await read(readyRun)).toEqual([
-      { name: 'changes', state: 'success', run: 13 },
-      { name: 'ci-ok', state: 'skipped', run: 12 },
-    ]);
-  });
-
-  it('a workflow run made in the ready event’s second is pending, even after an earlier draft run of it', async () => {
-    // Two draft runs: one well before the ready event, one in its very second but before it.
-    const both = github([run(11, 'ci-ok', 'skipped', 101), run(12, 'ci-ok', 'skipped', 102)], {
-      101: '2026-11-17T23:19:24Z',
-      102: READY,
-    });
-    expect(await read(both)).toEqual([{ name: 'ci-ok', state: 'pending', run: 12 }]);
-    const alone = github([run(12, 'ci-ok', 'skipped', 102)], { 102: READY });
-    expect(await read(alone)).toEqual([{ name: 'ci-ok', state: 'pending', run: 12 }]);
-    // One second later is the ready PR's.
-    const after = github(
-      [
-        run(11, 'ci-ok', 'skipped', 101),
-        run(12, 'ci-ok', 'skipped', 102),
-        run(15, 'changes', 'success', 102),
-      ],
-      { 101: '2026-11-17T23:19:24Z', 102: '2026-11-18T01:17:21Z' },
-    );
-    expect(await read(after)).toEqual([
-      { name: 'changes', state: 'success', run: 15 },
-      { name: 'ci-ok', state: 'skipped', run: 12 },
-    ]);
-    // With no workflow run to read, it is undetermined too.
-    const unknown = github([run(13, 'ci-ok', 'skipped', null)], {});
-    expect(await read(unknown)).toEqual([{ name: 'ci-ok', state: 'pending', run: 13 }]);
-    // A workflow run GitHub no longer has (404) proves no turn either.
-    const gone = github([run(14, 'ci-ok', 'skipped', 999)], {});
-    expect(await read(gone)).toEqual([{ name: 'ci-ok', state: 'pending', run: 14 }]);
-  });
-
-  it('only the workflow run of each check’s current run is read: a long history leaves the others decided', async () => {
-    const history = Array.from({ length: 9 }, (_, i) => run(20 + i, 'ci-ok', 'skipped', 200 + i));
-    const port = github(
-      [
-        ...history,
-        run(40, 'ci-ok', 'skipped', 300),
-        run(41, 'docs', 'skipped', 301),
-        run(42, 'changes', 'success', 301),
-      ],
-      {
-        ...Object.fromEntries(history.map((_, i) => [200 + i, '2026-11-17T23:00:00Z'])),
-        // In the ready event's second: undetermined, and no history is read to decide it.
-        300: READY,
-        301: '2026-11-18T01:17:30Z',
-      },
-    );
-    expect(await read(port, ['ci-ok', 'docs'])).toEqual([
-      { name: 'changes', state: 'success', run: 42 },
-      { name: 'ci-ok', state: 'pending', run: 40 },
-      { name: 'docs', state: 'skipped', run: 41 },
-    ]);
-    expect(calls(port, '/actions/runs/')).toBe(2);
-  });
-
-  // Issue #362 (PR 38 of a dogfood repo): both workflow runs are of one workflow and event and read alike;
-  // every job of the draft's skipped, while the ready run's `changes` job really ran.
-  describe('#362: a skip after the ready event needs a job of its own workflow run that ran', () => {
-    const LATE = '2026-11-18T01:17:21Z';
-    const SOON = '2026-11-18T01:17:24Z';
-    const pending = (id: number, name = 'ci-ok') => ({ name, state: 'pending', run: id });
-
-    it('a lone late draft skip stays pending: the ready run is not visible yet', async () => {
-      const lone = github([run(11, 'ci-ok', 'skipped', 101), run(12, 'test', 'skipped', 101)], {
-        101: LATE,
-      });
-      expect((await read(lone)).find((c) => c.name === 'ci-ok')).toEqual(pending(11));
+  // Issue #362: GitHub names no event for a workflow run, so no skip after a draft is attributed.
+  describe('#362: a required skip after a draft waits for the aggregate job to succeed', () => {
+    const state = async (port: GitHubPort) =>
+      (await read(port)).find((c) => c.name === 'ci-ok')?.state;
+    const queued = (id: number, wf = 102) => ({
+      ...run(id, 'ci-ok', 'success', wf),
+      status: 'in_progress',
+      conclusion: null,
     });
 
-    it.each([
-      ['ready run created and published after the draft skip', { draft: 101, ready: 102 }],
-      ['ready run with the lower workflow and check IDs', { draft: 202, ready: 201 }],
-    ])('%s: the skip is no pass while the ready run is unfinished', async (_, ids) => {
+    it('a lone skip, however late or in whichever order, is pending and reads no workflow run', async () => {
+      for (const id of [11, 5]) {
+        const port = github([run(id, 'ci-ok', 'skipped', 101), run(9, 'test', 'skipped', 101)], {});
+        expect(await state(port)).toBe('pending');
+        expect(calls(port, '/actions/runs/')).toBe(0);
+      }
+    });
+
+    it('a successful, even ungated, sibling job of the same workflow run does not attribute the skip', async () => {
       const port = github(
-        [
-          run(ids.draft * 10, 'ci-ok', 'skipped', ids.draft),
-          { ...run(ids.ready * 10, 'changes', 'success', ids.ready), status: 'in_progress' },
-        ],
-        { [ids.draft]: LATE, [ids.ready]: SOON },
+        [run(11, 'ci-ok', 'skipped', 101), run(12, 'changes', 'success', 101)],
+        {},
       );
-      expect((await read(port)).find((c) => c.name === 'ci-ok')).toEqual(pending(ids.draft * 10));
+      expect(await state(port)).toBe('pending');
     });
 
-    it('a tie in creation time or in order proves nothing either', async () => {
-      const tie = github(
-        [run(11, 'ci-ok', 'skipped', 101), run(12, 'changes', 'in_progress', 102)],
-        { 101: LATE, 102: LATE },
+    it('a draft skip with a higher ID over the ready success, or beside a pending one, waits', async () => {
+      const hides = github(
+        [run(30, 'ci-ok', 'success', 102), run(31, 'ci-ok', 'skipped', 101)],
+        {},
       );
-      expect((await read(tie)).find((c) => c.name === 'ci-ok')).toEqual(pending(11));
+      expect(await state(hides)).toBe('pending');
+      expect(await state(github([queued(30), run(31, 'ci-ok', 'skipped', 101)], {}))).toBe(
+        'pending',
+      );
     });
 
-    it('the ready run’s own result stands in when a draft skip with a higher ID hides it', async () => {
-      const ready = [run(30, 'ci-ok', 'success', 102)];
-      const hidden = github([...ready, run(31, 'ci-ok', 'skipped', 101)], {
-        101: LATE,
-        102: SOON,
-      });
-      expect(await read(hidden)).toEqual([{ name: 'ci-ok', state: 'success', run: 30 }]);
-      const running = github(
-        [
-          { ...ready[0], status: 'in_progress', conclusion: null },
-          run(31, 'ci-ok', 'skipped', 101),
-        ],
-        { 101: LATE, 102: SOON },
+    it('a success beside a pending run of the check is ambiguous in both orders', async () => {
+      expect(await state(github([run(31, 'ci-ok', 'success', 101), queued(30)], {}))).toBe(
+        'pending',
       );
-      expect(await read(running)).toEqual([{ name: 'ci-ok', state: 'pending', run: 30 }]);
+      expect(await state(github([run(30, 'ci-ok', 'success', 101), queued(31)], {}))).toBe(
+        'pending',
+      );
     });
 
-    it('a docs-only skip of the ready run counts: its `changes` job ran in the same workflow run', async () => {
-      const docs = github(
-        [
-          run(11, 'ci-ok', 'skipped', 101),
-          run(12, 'ci-ok', 'skipped', 102),
-          run(13, 'changes', 'success', 102),
-        ],
-        { 101: LATE, 102: SOON },
-      );
-      expect((await read(docs)).filter((c) => c.name === 'ci-ok')).toEqual([
-        { name: 'ci-ok', state: 'skipped', run: 12 },
-      ]);
-    });
-
-    it('real ready CI passes: the check of the ready run succeeded', async () => {
-      const port = github([run(11, 'ci-ok', 'skipped', 101), run(14, 'ci-ok', 'success', 102)], {
-        101: LATE,
-        102: SOON,
-      });
+    it('the required aggregate job’s success passes, over an older draft skip', async () => {
+      const port = github([run(11, 'ci-ok', 'skipped', 101), run(14, 'ci-ok', 'success', 102)], {});
       expect(await read(port)).toEqual([{ name: 'ci-ok', state: 'success', run: 14 }]);
     });
   });

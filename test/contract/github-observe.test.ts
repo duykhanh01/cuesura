@@ -497,46 +497,48 @@ describe('skipped runs of a draft PR', () => {
   it('a PR turned ready without the task: the ready event dates the draft runs, and the new run counts', async () => {
     const events = ok(ready('2026-11-18T01:17:20Z'));
     const draftRun = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
-    expect(verdict(await observe(script(false, [draftRun], events)).obs)).toMatchObject({
-      kind: 'incomplete',
-      missing: ['ci-ok'],
-    });
+    expect(verdict(await observe(script(false, [draftRun], events)).obs).kind).toBe('incomplete');
     const fresh = [draftRun, ciOk(2, 'success', '2026-11-18T01:17:30Z')];
     expect(verdict(await observe(script(false, fresh, events)).obs)).toEqual({ kind: 'pass' });
   });
 
-  it('#362: a late draft skip is no pass until a job of its own workflow run ran, or the ready run decides', async () => {
+  it('#362: a required skip after a draft is no pass; only the aggregate job’s own success passes', async () => {
     const events = ok(ready('2026-11-18T01:17:20Z'));
     const lateSkip = ciOk(1, 'skipped', '2026-11-18T01:17:21Z');
     const lone = await observe(script(false, [lateSkip], events)).obs;
     expect(verdict(lone).kind).not.toBe('pass');
     expect(lone).toMatchObject({ checks: { checks: [{ name: 'ci-ok', state: 'pending' }] } });
-    // The ready run, even made earlier or in the same second, queued: still no pass.
+    // A succeeded sibling of the same workflow run, or a ready run queued before, with or after it.
+    const sibling = run(2, 'changes', 'success', '2026-11-18T01:17:21Z', 1001);
     for (const made of ['2026-11-18T01:17:19Z', '2026-11-18T01:17:21Z', '2026-11-18T01:17:24Z']) {
       const queued = { ...run(2, 'changes', 'success', made), status: 'in_progress' };
-      const obs = await observe(script(false, [lateSkip, queued], events)).obs;
-      expect(verdict(obs).kind).not.toBe('pass');
+      for (const other of [sibling, queued]) {
+        const obs = await observe(script(false, [lateSkip, other], events)).obs;
+        expect(verdict(obs).kind).not.toBe('pass');
+      }
     }
-    // Its required check passed, whatever the order of their IDs: the wait ends.
-    for (const id of [2, 0]) {
-      const done = ciOk(id, 'success', '2026-11-18T01:17:40Z');
-      expect(verdict(await observe(script(false, [lateSkip, done], events)).obs)).toEqual({
-        kind: 'pass',
-      });
-    }
+    // The aggregate success of the ready run is current: the wait ends. Hidden by a higher ID: it waits.
+    const done = ciOk(2, 'success', '2026-11-18T01:17:40Z');
+    expect(verdict(await observe(script(false, [lateSkip, done], events)).obs)).toEqual({
+      kind: 'pass',
+    });
+    const hidden = ciOk(0, 'success', '2026-11-18T01:17:40Z');
+    expect(verdict(await observe(script(false, [lateSkip, hidden], events)).obs).kind).not.toBe(
+      'pass',
+    );
   });
 
   it('turned ready a second time: the latest ready event decides, not the first', async () => {
     const events = ok(ready('2026-11-17T10:00:00Z', '2026-11-18T01:17:20Z'));
     const second = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
     expect(verdict(await observe(script(false, [second], events)).obs).kind).toBe('incomplete');
-    // A skip of a run the second ready event made (a docs-only change) passes.
+    // A skip after the second ready event is no pass either, with a job of its own run that ran or not.
     const after = [
       second,
       ciOk(2, 'skipped', '2026-11-18T01:17:25Z', 77),
       run(3, 'changes', 'success', '2026-11-18T01:17:25Z', 77),
     ];
-    expect(verdict(await observe(script(false, after, events)).obs)).toEqual({ kind: 'pass' });
+    expect(verdict(await observe(script(false, after, events)).obs).kind).toBe('incomplete');
   });
 
   it('a skip of a PR that never was a draft still passes (docs-only)', async () => {

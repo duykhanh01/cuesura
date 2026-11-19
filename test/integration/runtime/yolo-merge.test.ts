@@ -1557,7 +1557,7 @@ describe('yolo merge', () => {
 
   // Issue #362: the draft's skipped workflow run is dated after the ready event; the ready run has not
   // produced its checks yet. Nothing may be sent until they pass.
-  it('a late draft skip stops the merge, alone or beside an unfinished ready run, until its checks pass', async () => {
+  it('a required skip after a draft stops the merge, however its run looks, until the required checks succeed', async () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
@@ -1569,6 +1569,23 @@ describe('yolo merge', () => {
       [
         ...lateSkips,
         { ...run(3, 'changes', 'success', '2026-11-18T01:17:24Z'), status: 'in_progress' },
+      ],
+      // A succeeded sibling of the same workflow run attributes nothing.
+      [
+        run(1, 'build', 'skipped', late, 77),
+        run(2, 'test', 'skipped', late, 77),
+        run(3, 'changes', 'success', late, 77),
+      ],
+      // A success beside an unfinished older run of the check, in both orders.
+      [
+        run(5, 'build', 'success', late),
+        { ...run(4, 'build', 'success', late), status: 'in_progress' },
+        run(6, 'test', 'success', late),
+      ],
+      [
+        run(4, 'build', 'success', late),
+        { ...run(5, 'build', 'success', late), status: 'in_progress' },
+        run(6, 'test', 'success', late),
       ],
     ];
     for (const runs of stages) {
@@ -1594,7 +1611,7 @@ describe('yolo merge', () => {
     expect(await advanceTaskPr(deps(d, done.port), t.id)).toBe('merged');
   });
 
-  it('turned ready a second time: skips of the second draft are no pass; those of the new ready run are', async () => {
+  it('turned ready a second time: no skip after the second draft passes, whichever run made it', async () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
@@ -1625,7 +1642,8 @@ describe('yolo merge', () => {
       events,
       workflows: workflowsOf(docsRuns),
     });
-    expect(await advanceTaskPr(deps(d, docsOnly.port), t.id)).toBe('merged');
+    expect(await advanceTaskPr(deps(d, docsOnly.port), t.id)).toBe('not_ready');
+    expect(approvals(d, t)).toEqual([]);
   });
 
   it.each(['stale', 'cancelled', 'timed_out', 'action_required', 'startup_failure'])(

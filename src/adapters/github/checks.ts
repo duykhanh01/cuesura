@@ -170,97 +170,34 @@ function restsOnSkip(checks: readonly SourcedCheck[], required: readonly string[
   return skipped;
 }
 
-type Turn = 'ready' | 'draft' | 'undetermined';
-const WORKFLOW_RUN = /\/actions\/runs\/(\d+)\/job\//;
-const MAX_RUN_READS = 10;
-const runIdOf = (o: Obj): number => Number(WORKFLOW_RUN.exec(String(o['details_url']))?.[1]);
-
-type Resolved = { readonly turn: Turn; readonly replacement: SourcedCheck | null };
-
 /**
- * What a skipped check run of a PR turned ready proves. GitHub gives no payload that names the event of a
- * workflow run (two runs of one workflow, one gated off by the draft and one for the ready PR, read alike,
- * and a run's creation time lags the ready event by a second or more), so neither a timestamp, nor the
- * newest run, nor the absence of a sibling run is proof. A skip counts for the ready PR only when
- *  - its workflow run was created strictly after GitHub's ready time (earlier: the draft's; the same
- *    second: undetermined), and
- *  - that same workflow run really ran work: another of its jobs completed successfully. A run whose
- *    every job skipped is what the draft gate leaves, and no job of it decided anything.
- * Anything else is `undetermined`, a wait. A skip that is the newest of its check but unproven can hide a
- * ready run's own result of that check (the draft's run may publish later with a higher ID): then the
- * newest non-skipped run of the check made after the ready time stands in. Each workflow run is read once.
+ * Required checks whose current run succeeded while an older run of the same check and app is still
+ * unfinished: two generations that GitHub does not tell apart by turn, so the success is ambiguous.
  */
-async function skipTurns(
-  port: GitHubPort,
-  repo: string,
-  sha: string,
-  readyAt: number,
+function successBesidePending(
   runs: readonly unknown[],
-  skipped: readonly SourcedCheck[],
-): Promise<{ ok: true; resolved: Map<number, Resolved> } | { ok: false; error: GitHubFailure }> {
-  const created = new Map<number, number | null>();
-  const createdAt = async (o: Obj): Promise<number | null | { error: GitHubFailure }> => {
-    const id = runIdOf(o);
-    if (!Number.isSafeInteger(id)) return null;
-    if (created.has(id)) return created.get(id) ?? null;
-    if (created.size >= MAX_RUN_READS) return null;
-    const r = await port.request({
-      method: 'GET',
-      path: `repos/${repo}/actions/runs/${id}`,
-      query: {},
-      body: null,
+  checks: readonly SourcedCheck[],
+  required: readonly string[],
+  sha: string,
+): ReadonlySet<number | string> {
+  const out = new Set<number | string>();
+  for (const c of checks) {
+    if (c.source !== 'check_run' || c.state !== 'success' || !required.includes(c.name)) continue;
+    const behind = runs.map(obj).some((o) => {
+      const appId =
+        typeof obj(o['app'])['id'] === 'number' ? (obj(o['app'])['id'] as number) : null;
+      return (
+        o['head_sha'] === sha &&
+        o['name'] === c.name &&
+        appId === c.app_id &&
+        typeof o['id'] === 'number' &&
+        o['id'] < (c.generation as number) &&
+        checkRunState(o['status'], o['conclusion']) === 'pending'
+      );
     });
-    // A workflow run GitHub no longer has (deleted, or another app's link) proves no turn.
-    if (!r.ok && r.error.status === 404) {
-      created.set(id, null);
-      return null;
-    }
-    if (!r.ok) return { error: r.error };
-    const run = obj(r.value.body);
-    const at = Date.parse(String(run['created_at']));
-    const value = run['head_sha'] === sha && Number.isFinite(at) ? at : null;
-    created.set(id, value);
-    return value;
-  };
-  const all = runs.map(obj).filter((o) => typeof o['id'] === 'number' && o['head_sha'] === sha);
-  const byId = new Map(all.map((o) => [o['id'] as number, o] as const));
-  const ranWork = (id: number): boolean =>
-    Number.isSafeInteger(id) &&
-    all.some(
-      (o) => runIdOf(o) === id && o['status'] === 'completed' && o['conclusion'] === 'success',
-    );
-  const resolved = new Map<number, Resolved>();
-  for (const c of skipped) {
-    const o = byId.get(c.generation as number);
-    const at = o === undefined ? null : await createdAt(o);
-    if (typeof at === 'object' && at !== null) return { ok: false, error: at.error };
-    if (at !== null && at < readyAt) {
-      resolved.set(c.generation as number, { turn: 'draft', replacement: null });
-      continue;
-    }
-    if (at !== null && at > readyAt && o !== undefined && ranWork(runIdOf(o))) {
-      resolved.set(c.generation as number, { turn: 'ready', replacement: null });
-      continue;
-    }
-    // Unproven: a result of this check from a run made after the ready time, if one is visible.
-    const appId = c.app_id;
-    const others = all.filter(
-      (x) =>
-        x['name'] === c.name &&
-        (typeof obj(x['app'])['id'] === 'number' ? obj(x['app'])['id'] : null) === appId &&
-        !(x['status'] === 'completed' && x['conclusion'] === 'skipped'),
-    );
-    let replacement: SourcedCheck | null = null;
-    const best = selectCurrent(others, [], sha).checks[0];
-    const bestRun = best === undefined ? undefined : byId.get(best.generation as number);
-    if (best !== undefined && bestRun !== undefined) {
-      const bat = await createdAt(bestRun);
-      if (typeof bat === 'object' && bat !== null) return { ok: false, error: bat.error };
-      if (bat !== null && bat > readyAt) replacement = best;
-    }
-    resolved.set(c.generation as number, { turn: 'undetermined', replacement });
+    if (behind) out.add(c.generation);
   }
-  return { ok: true, resolved };
+  return out;
 }
 
 export async function readHeadChecks(
@@ -294,19 +231,21 @@ export async function readHeadChecks(
   const { collisions } = selected;
   let checks = selected.checks;
   if (skip?.draft === true) checks = checks.filter((c) => !isSkip(c));
-  else if (skip !== undefined && restsOnSkip(checks, skip.required)) {
-    const at = await skip.readyAt();
-    if (!at.ok) return { ok: false, error: at.error };
-    if (at.at !== null) {
-      const skipped = checks.filter((c) => isSkip(c) && skip.required.includes(c.name));
-      const read = await skipTurns(port, repo, sha, at.at, runs.value.items, skipped);
-      if (!read.ok) return { ok: false, error: read.error };
-      checks = checks.flatMap((c) => {
-        const r = read.resolved.get(c.generation as number);
-        if (!isSkip(c) || r === undefined || r.turn === 'ready') return [c];
-        if (r.turn === 'draft') return [];
-        return [r.replacement ?? { ...c, state: 'pending' as const, raw: `${c.raw}?` }];
-      });
+  else if (skip !== undefined) {
+    // GitHub does not say which event made a workflow run, so once the PR has been a draft a required skip
+    // proves nothing (a late draft run reads like the ready run's) and waits. Docs-only changes pass after
+    // a draft only when the required aggregate job itself succeeds. A success beside an unfinished older
+    // run of the check is ambiguous too.
+    const ambiguous = successBesidePending(runs.value.items, checks, skip.required, sha);
+    if (ambiguous.size > 0 || restsOnSkip(checks, skip.required)) {
+      const at = await skip.readyAt();
+      if (!at.ok) return { ok: false, error: at.error };
+      if (at.at !== null)
+        checks = checks.map((c) =>
+          (isSkip(c) && skip.required.includes(c.name)) || ambiguous.has(c.generation)
+            ? { ...c, state: 'pending' as const, raw: `${c.raw}?` }
+            : c,
+        );
     }
   }
   return {
