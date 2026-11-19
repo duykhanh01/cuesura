@@ -144,6 +144,12 @@ describe('AttentionDesk', () => {
     expect(value(d.poll(CALLER, back(lease))).items).toHaveLength(1);
   });
 
+  // A harness that cannot run (binary missing: auth_config; login expired: harness_auth) is never retried.
+  it.each(['auth_config', 'harness_auth'])('tells the assistant a launch failure: %s', (c) => {
+    const { desk } = bench([waiting('a', c)]);
+    expect(value(desk().poll(CALLER, NEW)).items).toMatchObject([{ task_id: 'a', code: c }]);
+  });
+
   it('leaves out a wait that resolves without a person', () => {
     const { desk } = bench([waiting('a', 'rate_limited')]);
     expect(value(desk().poll(CALLER, NEW)).items).toEqual([]);

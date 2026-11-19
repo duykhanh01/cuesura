@@ -1,10 +1,8 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import type { VendorPin } from '../adapters/harness/vendor.ts';
 import type { RuntimeConfig } from '../config/normalize.ts';
-import type { ProofOptions, ProofPlan } from '../runner/harness-proof.ts';
-import { err, ok, type Result } from '../shared/result.ts';
+import { ok } from '../shared/result.ts';
 import { RUN_DIR_KINDS, RunDir, type RunDirKind } from '../runner/files.ts';
 import { execOperation } from '../runner/lifecycle.ts';
 import { homeSecretValues, readInstalledAuth } from '../runner/private-home.ts';
@@ -49,7 +47,6 @@ type OwnerConfig = {
 type OwnerCommandContext = {
   readonly config?: OwnerConfig;
   readonly dryRun?: boolean;
-  readonly onPin?: (pin: VendorPin) => void;
 };
 
 const exec: CliCommand = {
@@ -115,10 +112,10 @@ const exec: CliCommand = {
   },
 };
 
-/** Owner step, never run by the daemon: records what evidence proved about a pinned binary (T140). */
+/** Owner step, never run by the daemon: records the manifest of a pinned binary (T140); invokes no model. */
 const recordManifest = {
   name: 'record-manifest',
-  description: 'Record a harness capability manifest from verified evidence',
+  description: 'Record a harness capability manifest from its pin, or from verified evidence',
   options: [
     { flags: '--config <file>', description: 'User configuration file' },
     { flags: '--data-dir <dir>', description: 'Daemon data directory' },
@@ -128,16 +125,16 @@ const recordManifest = {
     },
     {
       flags: '--evidence <file>',
-      description: 'Evidence file for the pinned harness binary',
+      description: 'Optional evidence file for the pinned harness binary',
     },
   ],
   async run(values: Values, json: boolean, io: CliIo, context: OwnerCommandContext = {}) {
     const refuse = refuser(json, io);
     const { config, dataDir, harness, evidence } = values;
-    if (config === undefined || harness === undefined || evidence === undefined) {
+    if (config === undefined || harness === undefined) {
       return refuse(
         'invalid_arguments',
-        'record-manifest requires --config, --harness, and --evidence',
+        'record-manifest requires --config and --harness',
         ExitCode.usage,
       );
     }
@@ -156,9 +153,7 @@ const recordManifest = {
       harness,
       configPath: config,
       runtime: cfg.value.runtime,
-      evidenceFile: evidence,
-      // Absolute, so doctor can name this file in the command that proves a missing role.
-      fixtureRef: resolve(evidence),
+      ...(evidence === undefined ? {} : { evidenceFile: evidence, fixtureRef: resolve(evidence) }),
       now: Date.now(),
       dryRun: context.dryRun ?? false,
     });
@@ -181,7 +176,7 @@ function homeFiles(value: string | undefined): { credential: string; to: string 
   return out;
 }
 
-/** Owner step, never run by the daemon: writes a harness pin from this host, for a later proof. */
+/** Owner step, never run by the daemon: writes a harness pin from this host. */
 const writePin = {
   name: 'write-pin',
   description: 'Record a harness binary and host tools in pin.json',
@@ -318,7 +313,6 @@ const writePin = {
     if (!r.ok) {
       return refuse('pin_refused', r.error, ExitCode.failure);
     }
-    context.onPin?.(r.value);
     const { version, sha256 } = r.value.binary;
     io.stdout(
       json
@@ -329,208 +323,32 @@ const writePin = {
   },
 } satisfies CliCommand;
 
-type ProofUsage = {
-  readonly out: string;
-  readonly approval: string;
-  readonly cap: number | null;
-};
-/** The owner runs this command themselves; the approval text and the cap are optional records of that. */
-function proofUsage(values: Values): Result<ProofUsage, string> {
-  const { out, approval, maxInvocations } = values;
-  if (out === undefined) return err('Harness verification consumes model usage; specify --out');
-  const cap = maxInvocations === undefined ? null : Number(maxInvocations);
-  if (cap !== null && (!Number.isInteger(cap) || cap < 1))
-    return err('--max-invocations must be a positive integer');
-  const text = approval?.trim() ?? '';
-  return ok({ out, approval: text === '' ? 'owner command' : text, cap });
-}
-
-function proofOptions(values: Values, cfg: OwnerConfig): Result<ProofOptions, string> {
-  const { config, harness, model, effort, outerProof, out } = values;
-  if (config === undefined || harness === undefined || model === undefined || model.trim() === '')
-    return err('prove-harness requires --config, --harness, and --model');
-  return ok({
-    dataDir: cfg.dataDir,
-    harness,
-    configPath: config,
-    runtime: cfg.runtime,
-    model,
-    effort: effort ?? null,
-    proveResume: values['proveResume'] !== undefined,
-    ...(out === undefined ? {} : { out }),
-    ...(outerProof === undefined ? {} : { outerProofFile: outerProof }),
-    runnerCommand: [process.execPath, process.argv[1] as string],
-    now: () => Date.now(),
-  });
-}
-
-function proofReport(plan: ProofPlan, invocationsNeeded: number) {
-  const { pin, identity, invocations_spent, roles, reused } = plan;
-  return {
-    binary: pin.binary,
-    identity,
-    invocations_spent,
-    invocations_needed: invocationsNeeded,
-    roles_to_prove: roles,
-    roles_reused: reused.map((r) => r.role),
-  };
-}
-
-/** Owner step, never run by the daemon: without --dry-run it invokes the pinned binary and spends usage. */
-const proveHarness = {
-  name: 'prove-harness',
-  description: 'Verify a pinned harness on this host and record the evidence',
-  options: [
-    { flags: '--config <file>', description: 'User configuration file' },
-    { flags: '--data-dir <dir>', description: 'Daemon data directory' },
-    {
-      flags: '--harness <name>',
-      description: 'Harness with a recorded pin.json',
-    },
-    {
-      flags: '--model <id>',
-      description: 'Model used for every verification role',
-    },
-    {
-      flags: '--effort <level>',
-      description: 'Effort level used for every verification role',
-    },
-    {
-      flags: '--outer-proof <file>',
-      description: 'Deprecated; outer sandbox proofs are no longer used',
-    },
-    { flags: '--out <file>', description: 'Output evidence file' },
-    {
-      flags: '--approval <text>',
-      description: 'Approval reference for model usage, copied to the ledger',
-    },
-    {
-      flags: '--max-invocations <n>',
-      description:
-        'Optional total invocation limit for this binary, including invocations already in the ledger',
-    },
-    {
-      flags: '--dry-run',
-      description: 'Show the verification plan without invoking the model',
-    },
-    {
-      flags: '--prove-resume',
-      description: 'Verify session resume with one additional invocation',
-    },
-  ],
-  async run(
-    values: Readonly<Record<string, string | undefined>>,
-    json: boolean,
-    io: CliIo,
-    context: OwnerCommandContext = {},
-  ) {
-    const refuse = refuser(json, io);
-    const { config, dataDir, harness } = values;
-    const { dryRun } = values;
-    if (config === undefined || harness === undefined) {
-      return refuse(
-        'invalid_arguments',
-        'prove-harness requires --config, --harness, and --model',
-        ExitCode.usage,
-      );
-    }
-    const { loadDaemonConfig } = await import('../daemon/main.ts');
-    const proof = await import('../runner/harness-proof.ts');
-    const cfg =
-      context.config === undefined
-        ? await loadDaemonConfig({ config, dataDir })
-        : ok(context.config);
-    if (!cfg.ok) {
-      return refuse('config_invalid', cfg.error, ExitCode.usage);
-    }
-    const prepared = proofOptions(values, cfg.value);
-    if (!prepared.ok) return refuse('invalid_arguments', prepared.error, ExitCode.usage);
-    const options = prepared.value;
-    if (dryRun !== undefined) {
-      const plan = proof.planProof(options);
-      if (!plan.ok) {
-        return refuse('proof_refused', plan.error, ExitCode.failure);
-      }
-      const report = proofReport(
-        plan.value,
-        proof.invocationsNeeded(plan.value, options.proveResume),
-      );
-      io.stdout(json ? renderEnvelope(okEnvelope(report)) : `${JSON.stringify(report)}\n`);
-      return ExitCode.ok;
-    }
-    const usage = proofUsage(values);
-    if (!usage.ok) return refuse('invalid_arguments', usage.error, ExitCode.usage);
-    const { out, approval, cap } = usage.value;
-    const r = await proof.proveHarness({
-      ...options,
-      out,
-      budget: { approval, maxInvocations: cap },
-    });
-    if (!r.ok) {
-      return refuse('proof_refused', r.error, ExitCode.failure);
-    }
-    const { evidence, failures, runs, reused } = r.value;
-    if (failures.length > 0)
-      return refuse(
-        'proof_failed',
-        `the proof did not show what a manifest needs (evidence: ${evidence}): ${failures.join('; ')}`,
-        ExitCode.failure,
-      );
-    io.stdout(
-      json
-        ? renderEnvelope(
-            okEnvelope({
-              harness,
-              evidence,
-              roles_proved: runs.map((x) => x.role),
-              roles_reused: reused.map((x) => x.role),
-            }),
-          )
-        : `${evidence}\n`,
-    );
-    return ExitCode.ok;
-  },
-} satisfies CliCommand;
-
-/** Compose the owner commands, with preflight before committing the candidate pin. */
+/** Compose the owner commands; no model is invoked, so a harness that cannot run fails its first attempt. */
 const setupHarness: CliCommand = {
   name: 'setup-harness',
-  description: 'Write a pin, prove the harness, and record its capability manifest',
+  description: 'Write a pin and record its capability manifest, without invoking a model',
   options: [
-    ...new Map(
-      [...(writePin.options ?? []), ...(proveHarness.options ?? [])].map((option) => [
-        option.flags,
-        option,
-      ]),
-    ).values(),
+    ...(writePin.options ?? []),
+    { flags: '--dry-run', description: 'Check the pin without writing pin or manifest' },
     {
       flags: '--from <step>',
-      description: 'Start at write-pin (default), prove-harness, or record-manifest',
+      description: 'Start at write-pin (default) or record-manifest',
     },
   ],
   help:
-    'Uses --out as both proof output and manifest evidence. Existing pins require --force to replace.\n' +
-    '--dry-run previews without writing records, calling a model, or requiring --force.\n' +
-    'Retry with --from prove-harness to reuse the pin, or --from record-manifest to reuse its evidence without model usage.',
+    'Existing pins require --force to replace.\n' +
+    'Retry with --from record-manifest to keep the recorded pin.',
   async run(values, json, io) {
     const refuse = refuser(json, io);
-    const fail = (step: string, error: Envelope, code: number): number => {
-      if (error.ok)
-        return refuse('setup_failed', `${step}: step returned exit ${code}`, code, { step });
-      return refuse(error.error.code, `${step}: ${error.error.message}`, code, {
-        ...error.error.details,
-        step,
-      });
-    };
     const dryRun = values['dryRun'] !== undefined;
     const from = values['from'] ?? 'write-pin';
     let step = from;
     const reject = (code: string, message: string, exit: number) =>
       refuse(code, `${step}: ${message}`, exit, { step });
-    if (!['write-pin', 'prove-harness', 'record-manifest'].includes(from))
+    if (!['write-pin', 'record-manifest'].includes(from))
       return reject(
         'invalid_arguments',
-        '--from must be write-pin, prove-harness, or record-manifest',
+        '--from must be write-pin or record-manifest',
         ExitCode.usage,
       );
     const { config, dataDir, harness } = values;
@@ -541,7 +359,6 @@ const setupHarness: CliCommand = {
         ExitCode.usage,
       );
 
-    // Keep one configuration for pin, proof, and manifest even across a long-running proof.
     try {
       const { loadDaemonConfig } = await import('../daemon/main.ts');
       const cfg = await loadDaemonConfig({ config, dataDir });
@@ -551,9 +368,8 @@ const setupHarness: CliCommand = {
       const context = { config: cfg.value };
       let result: Envelope = okEnvelope({});
       const runStep = async (
-        command: typeof writePin | typeof proveHarness | typeof recordManifest,
+        command: typeof writePin | typeof recordManifest,
         input: Values,
-        extra: OwnerCommandContext = {},
       ): Promise<number> => {
         step = command.name;
         let output = '';
@@ -572,12 +388,17 @@ const setupHarness: CliCommand = {
                 diagnostic += text;
               },
             },
-            { ...context, ...extra },
+            { ...context, dryRun },
           );
           const parsed: unknown = JSON.parse(output);
           if (!isEnvelope(parsed)) throw new Error('Invalid command result');
-          if (code !== ExitCode.ok) return fail(step, parsed, code);
-          if (!parsed.ok) return fail(step, parsed, ExitCode.failure);
+          if (!parsed.ok)
+            return refuse(parsed.error.code, `${step}: ${parsed.error.message}`, code, {
+              ...parsed.error.details,
+              step,
+            });
+          if (code !== ExitCode.ok)
+            return reject('setup_failed', `step returned exit ${code}`, code);
           result = parsed;
           return ExitCode.ok;
         } catch (error) {
@@ -589,74 +410,18 @@ const setupHarness: CliCommand = {
         }
       };
 
-      if (from !== 'record-manifest') {
-        step = 'prove-harness';
-        const options = proofOptions(values, cfg.value);
-        if (!options.ok) return reject('invalid_arguments', options.error, ExitCode.usage);
-        const usage = dryRun ? null : proofUsage(values);
-        if (usage !== null && !usage.ok)
-          return reject('invalid_arguments', usage.error, ExitCode.usage);
-        let candidatePin: VendorPin | undefined;
-        if (from === 'write-pin') {
-          const code = await runStep(writePin, values, {
-            dryRun: true,
-            onPin: (pin) => {
-              candidatePin = pin;
-            },
-          });
-          if (code !== ExitCode.ok) return code;
-        }
-        step = 'prove-harness';
-        const proof = await import('../runner/harness-proof.ts');
-        const planned = proof.planProof(options.value, candidatePin);
-        if (!planned.ok) return reject('proof_refused', planned.error, ExitCode.failure);
-        if (usage !== null && usage.ok) {
-          const budget = proof.checkProofBudget(
-            planned.value,
-            { approval: usage.value.approval, maxInvocations: usage.value.cap },
-            options.value.proveResume,
-          );
-          if (!budget.ok) return reject('proof_refused', budget.error, ExitCode.failure);
-        }
-        if (dryRun) {
-          const report = {
-            ...proofReport(
-              planned.value,
-              proof.invocationsNeeded(planned.value, options.value.proveResume),
-            ),
-            pin_exists: pinExists,
-          };
-          io.stdout(json ? renderEnvelope(okEnvelope(report)) : `${JSON.stringify(report)}\n`);
-          return ExitCode.ok;
-        }
-        if (from === 'write-pin') {
-          step = 'write-pin';
-          if (candidatePin === undefined)
-            return reject('setup_failed', 'Pin preview returned no candidate', ExitCode.failure);
-          const { commitPin } = await import('../runner/harness-records.ts');
-          const committed = commitPin(
-            {
-              dataDir: cfg.value.dataDir,
-              harness,
-              force: values['force'] !== undefined,
-            },
-            candidatePin,
-          );
-          if (!committed.ok) return reject('pin_refused', committed.error, ExitCode.failure);
-        }
-        const code = await runStep(proveHarness, values);
+      if (from === 'write-pin') {
+        const code = await runStep(writePin, values);
         if (code !== ExitCode.ok) return code;
       }
-      const code = await runStep(
-        recordManifest,
-        { ...values, evidence: values['out'] },
-        { dryRun },
-      );
-      if (code !== ExitCode.ok) return code;
+      // A dry run wrote no pin, so a manifest could only be checked against the one already on disk.
+      if (!dryRun || from === 'record-manifest') {
+        const code = await runStep(recordManifest, values);
+        if (code !== ExitCode.ok) return code;
+      }
       if (dryRun && result.ok)
         result = okEnvelope({
           ...(result.data as Record<string, unknown>),
-          invocations_needed: 0,
           pin_exists: pinExists,
         });
       io.stdout(json ? renderEnvelope(result) : `${JSON.stringify(result.data)}\n`);
@@ -710,5 +475,5 @@ process.exitCode = await runCli(
   },
   process.argv.slice(2),
   processIo,
-  [exec, setupHarness, recordManifest, writePin, proveHarness, checkRecords],
+  [exec, setupHarness, recordManifest, writePin, checkRecords],
 );

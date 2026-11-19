@@ -1,6 +1,6 @@
 /**
  * Codex CLI adapter (T069, FR-011/012/033). Argv follows the shape the T007 fixtures proved on 0.165.0
- * (`pinned-codex.json`) and `prove-harness` re-proves for each pinned binary: `exec --json` with the role schema file and `--output-last-message`
+ * (`pinned-codex.json`): `exec --json` with the role schema file and `--output-last-message`
  * into a per-operation scratch file, `approval_policy="never"` and cwd pinned to the worktree. The owner's
  * `config.toml` (linked into the private home) loads as in an interactive session, with every feature
  * on; the flags here override it. Coder/fixer get

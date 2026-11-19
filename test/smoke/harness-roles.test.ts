@@ -2,7 +2,7 @@
  * T122 (SC-008): three roles on two vendors. Locally, the pinned adapters run each role's recorded T007
  * output inside a real task: right role and vendor, usage and provenance reported, reviewer read-only and
  * the auth canary nowhere the daemon keeps. That checks the setup before a paid invocation and
- * is not SC-008 evidence. The real invocations of T126 were run by `cusr-runner prove-harness`.
+ * is not SC-008 evidence. The real invocations of T126 were run by the former `cusr-runner prove-harness`.
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';

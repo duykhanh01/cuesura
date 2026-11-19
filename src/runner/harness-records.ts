@@ -4,11 +4,11 @@
  * neither holds a secret. A record that is missing, writable by others, or no longer describes the host
  * leaves its harness `capability_missing`; nothing falls back to a default binary or to help output.
  *
- * `recordManifest` is the only writer of `manifest.json`. It takes capabilities from recorded evidence, and
- * only from evidence that names what it proved: the binary and, under `attested`, the settings, environment,
- * host policy and layouts of the run. Anything else differing means the capabilities were never shown for
- * this configuration, so it refuses. The T007 fixture has no `attested` and cannot be used. It never invokes
- * the harness, so it costs no model usage and proves nothing by itself.
+ * `recordManifest` is the only writer of `manifest.json`. Without an evidence file it records the pin as
+ * declared: no model is invoked to prove it, and a harness that cannot run (not installed, login expired)
+ * fails its first attempt with that error instead. With one, it takes capabilities only from evidence that
+ * names what it showed: the binary and, under `attested`, the settings, environment, host policy and
+ * layouts of the run; anything else differing is refused. It never invokes the harness.
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -28,7 +28,7 @@ import { isAbsolute, join } from 'node:path';
 import { z } from 'zod';
 import { claudeAdapter } from '../adapters/harness/claude.ts';
 import { codexAdapter } from '../adapters/harness/codex.ts';
-import { wireRoleSchema } from '../adapters/harness/result-schema.ts';
+import { ROLE_SCHEMA_DIGESTS, wireRoleSchema } from '../adapters/harness/result-schema.ts';
 import {
   VendorPinSchema,
   isRec,
@@ -188,7 +188,7 @@ export function harnessRecordProblem(
   },
 ): string | null {
   if (record.manifest.provider !== 'host' || record.manifest.isolation_mode !== 'native')
-    return 'legacy outer sandbox manifest; prove and record this harness for native execution';
+    return 'legacy outer sandbox manifest; run cusr-runner setup-harness again for native execution';
   const expected = hostInnerMode(record.pin);
   if (record.manifest.selected_inner_mode !== expected)
     return 'manifest permission mode differs from the pin';
@@ -250,8 +250,7 @@ export const EvidenceVendorSchema = z.looseObject({
 const EvidenceFileSchema = z.object({ vendors: z.record(z.string(), EvidenceVendorSchema) });
 
 /**
- * Why evidence of `entry` was not shown for this pin on this host, or null when it was. The recorder and a
- * proof that reuses earlier runs judge it the same way.
+ * Why evidence of `entry` was not shown for this pin on this host, or null when it was.
  */
 export function evidenceMismatch(
   file: string,
@@ -297,34 +296,79 @@ export function harnessIdentity(o: {
   });
 }
 
-/** Writes `manifest.json` of a harness whose pin exists, from evidence recorded for that same binary. */
+function evidenceEntry(
+  file: string,
+  pin: VendorPin,
+  identity: HarnessIdentity,
+): Result<EvidenceEntry, string> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(file, 'utf8'));
+  } catch (e) {
+    return err(`cannot read ${file}: ${String(e)}`);
+  }
+  const data = EvidenceFileSchema.safeParse(parsed);
+  if (!data.success) return err(`${file} fails its schema`);
+  const entry = data.data.vendors[pin.vendor];
+  if (entry === undefined) return err(`${file} has no evidence for ${pin.vendor}`);
+  const mismatch = evidenceMismatch(file, entry, pin, identity);
+  return mismatch === null ? ok(entry as unknown as EvidenceEntry) : err(mismatch);
+}
+
+/** What the pin itself says it runs with, taken as is: the harness is never invoked to show it. */
+function declaredEntry(pin: VendorPin, identity: HarnessIdentity): EvidenceEntry {
+  const inner = hostInnerMode(pin);
+  const declared = { status: 'proven', evidence: 'declared by the pin; no model run' };
+  return {
+    vendor: pin.vendor,
+    isolation_mode: 'native',
+    role_schemas: Object.fromEntries(
+      Object.entries(ROLE_SCHEMA_DIGESTS).map(([role, digest]) => [role, { digest }]),
+    ),
+    selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
+    native_result: nativeSandboxEnabled(pin) ? 'passed' : 'not_tried',
+    outer_proof_hash: null,
+    permission_policy_hash: hashCanonical({
+      settings_hash: identity.settings_hash,
+      layout_shapes: identity.layout_shapes,
+      vendor: pin.vendor,
+    }),
+    capabilities: {
+      structured_output: declared,
+      permission_denial_kept: declared,
+      private_home_auth: declared,
+      usage_report: declared,
+      ...Object.fromEntries(
+        Object.keys(ROLE_SCHEMA_DIGESTS).map((role) => [`schema_acceptance_${role}`, declared]),
+      ),
+    },
+  };
+}
+
+/**
+ * Writes `manifest.json` of a harness whose pin exists: declared from the pin, or from evidence recorded for
+ * that same binary when `evidenceFile` is given.
+ */
 export function recordManifest(o: {
   readonly dataDir: string;
   readonly harness: string;
   readonly configPath: string;
   readonly runtime: RuntimeConfig;
-  readonly evidenceFile: string;
-  readonly fixtureRef: string;
+  readonly evidenceFile?: string;
+  readonly fixtureRef?: string;
   readonly now: number;
   readonly dryRun?: boolean;
 }): Result<CapabilityManifest, string> {
   const pin = readPin(o.dataDir, o.harness);
   if (!pin.ok) return pin;
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(readFileSync(o.evidenceFile, 'utf8'));
-  } catch (e) {
-    return err(`cannot read ${o.evidenceFile}: ${String(e)}`);
-  }
-  const file = EvidenceFileSchema.safeParse(parsed);
-  if (!file.success) return err(`${o.evidenceFile} fails its schema`);
-  const entry = file.data.vendors[pin.value.vendor];
-  if (entry === undefined) return err(`${o.evidenceFile} has no evidence for ${pin.value.vendor}`);
   const identity = harnessIdentity({ ...o, pin: pin.value });
   if (!identity.ok) return identity;
-  const mismatch = evidenceMismatch(o.evidenceFile, entry, pin.value, identity.value);
-  if (mismatch !== null) return err(mismatch);
-  const evidence = entry as unknown as EvidenceEntry;
+  const evidence =
+    o.evidenceFile === undefined
+      ? ok(declaredEntry(pin.value, identity.value))
+      : evidenceEntry(o.evidenceFile, pin.value, identity.value);
+  if (!evidence.ok) return evidence;
+  const source = o.fixtureRef ?? o.evidenceFile ?? 'declared';
   const observed = observeHarness(
     pin.value,
     identity.value.settings_hash,
@@ -332,12 +376,12 @@ export function recordManifest(o: {
   );
   if (!observed.ok) return err(observed.error.message);
   const manifest = manifestFromEvidence({
-    entry: evidence,
+    entry: evidence.value,
     observed: observed.value,
     // The evidence records a cost for Claude and tokens only for Codex.
     cost: pin.value.vendor === 'claude' ? 'reported' : 'unavailable',
     layout_shapes: identity.value.layout_shapes,
-    fixture_refs: [o.fixtureRef],
+    fixture_refs: [source],
     checked_at: o.now,
   });
   // The same judgement the daemon applies when it loads the record, so a useless manifest is never written.
@@ -348,7 +392,7 @@ export function recordManifest(o: {
       host_policy_hash: identity.value.host_policy_hash,
     },
   );
-  if (problem !== null) return err(`${o.evidenceFile} does not make a usable manifest: ${problem}`);
+  if (problem !== null) return err(`${source} does not make a usable manifest: ${problem}`);
   if (o.dryRun) return ok(manifest);
   const dir = recordDir(o.dataDir, o.harness);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -379,7 +423,7 @@ export type WritePinInput = {
   readonly dryRun?: boolean;
 };
 
-/** Check executable tools on the host; the harness proof separately checks native permissions. */
+/** Check executable tools on the host. */
 export function notRunnable(dirs: readonly string[], tools: readonly string[]): string[] {
   const runnable = (file: string): boolean => {
     try {
@@ -397,8 +441,8 @@ const sha256File = (path: string): string =>
 
 /**
  * Writes `pin.json` from what is on this host now, so no value is carried over from another machine:
- * `env` stays empty and every path must exist here. A pin says what to run, not that it works; the
- * harness still needs a proof and `record-manifest`, and the old manifest stops matching a changed pin.
+ * `env` stays empty and every path must exist here. The harness still needs `record-manifest`, and the old
+ * manifest stops matching a changed pin.
  */
 export function writePin(o: WritePinInput): Result<VendorPin, string> {
   if (o.vendor !== 'claude' && o.sandbox !== undefined)
@@ -491,7 +535,7 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
   return o.dryRun ? ok(pin) : commitPin(o, pin);
 }
 
-/** Persist a pin returned by writePin's dry-run after the caller has checked its proof plan. */
+/** Persist a pin returned by writePin's dry-run. */
 export function commitPin(
   o: Pick<WritePinInput, 'dataDir' | 'harness' | 'force'>,
   pin: VendorPin,

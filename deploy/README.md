@@ -21,8 +21,7 @@ harness cần. Claude native trên Linux vẫn có thể cần `bwrap`/`socat` c
 
 ### User namespace và AppArmor của sandbox native
 
-Claude có sandbox bật trên Linux vẫn dùng bwrap; proof harness vẫn chạy một lượt cho role `decider` cũ trong ranh giới
-chỉ đọc có sandbox, dù worker chọn tắt hoặc full access. Trên host mới,
+Claude có sandbox bật trên Linux vẫn dùng bwrap. Trên host mới,
 cài `bubblewrap`/`socat` và kiểm tra bằng user chạy daemon:
 
 ```sh
@@ -34,7 +33,7 @@ Lệnh sysctl chỉ đọc; knob nào không tồn tại phụ thuộc kernel/di
 `setting up uid map: Permission denied`, quản trị viên review hardening và profile hiện có. Không suy
 `apparmor_restrict_unprivileged_userns=1` thành bwrap chắc chắn bị chặn: profile đã nạp có thể cho phép nó.
 Doctor/preflight chỉ kiểm executable và systemd; không còn probe userns toàn cục hay phát các cause
-`userns_*`/`bwrap_*`. Lượt proof native sẽ fail nếu sandbox của harness không chạy hoặc không chặn probe.
+`userns_*`/`bwrap_*`. Sandbox của harness không chạy được thì lượt agent đầu tiên lỗi và task báo lỗi đó.
 
 Profile userns cho Ubuntu 23.10/24.04+: trước khi nạp, kiểm `ls /etc/apparmor.d` xem đã có profile
 nào attach `/usr/bin/bwrap` chưa (do distro hoặc gói khác cài); đã có thì review profile đó thay vì nạp
@@ -71,17 +70,16 @@ file settings; nếu không khai báo thì sandbox tắt như mặc định Clau
 
 | Claude worker | Sandbox tắt (mặc định) | Sandbox bật |
 | --- | --- | --- |
-| `--permission-mode auto` | Auto review quyền tool, `native_result=not_tried` | Auto review quyền tool và sandbox native, cần native proof |
-| `--permission-mode full-access` | `bypassPermissions`, không sandbox worker | `bypassPermissions` trong sandbox native, cần native proof |
+| `--permission-mode auto` | Auto review quyền tool, `native_result=not_tried` | Auto review quyền tool và sandbox native |
+| `--permission-mode full-access` | `bypassPermissions`, không sandbox worker | `bypassPermissions` trong sandbox native |
 
 Khi sandbox native bật, adapter thêm `sandbox.network.allowAllUnixSockets: true` để worker tạo được socket
 `AF_UNIX` (trên Linux sandbox chặn mặc định), nhờ đó chạy được test dùng daemon thật. Khai
 `sandbox.network.allowAllUnixSockets: false` trong file settings để giữ chặn. Giá trị này nằm trong settings hash,
-nên release đổi nó cần chứng minh lại harness.
+nên release đổi nó cần ghi lại manifest (`setup-harness --from record-manifest`).
 
 Deputy chạy cùng ranh giới với fixer, và daemon trả worktree của task về sau mỗi lượt ([Deputy](#autonomous)).
-Proof harness vẫn chạy role `decider` cũ trong ranh giới chỉ đọc có sandbox, nên `bwrap`/`socat` vẫn cần khi
-chứng minh harness Claude. Reviewer chạy như fixer: được sửa file, chạy test và commit, xong daemon trả worktree về đúng trạng
+Reviewer chạy như fixer: được sửa file, chạy test và commit, xong daemon trả worktree về đúng trạng
 thái trước review. Đây là quyền tool,
 không phải tự duyệt run config, review code hoặc merge. Khi đã bật sandbox, lỗi không tự chuyển sang
 tắt hoặc full access. Codex không nhận flag `--sandbox` này; chế độ sandbox Codex giữ theo permission mode.
@@ -500,44 +498,29 @@ roles:
 - `autonomous: true` mà không có role `deputy` (hay `decider`) thì config bị từ chối.
 - Role `decider` cũ được đọc như `deputy`; daemon ghi log `role 'decider' is read as 'deputy'` một lần và
   `cusr doctor` cũng báo. Đổi tên khi tiện.
-- Manifest của harness chạy deputy phải có bằng chứng cho role `deputy`; các bước ở [Bật deputy](#bat-deputy).
+- Manifest của harness chạy deputy phải có role `deputy`; các bước ở [Bật deputy](#bat-deputy).
 - Phiên tương tác cần `runtime.terminal.backend` khác `background` ([Xem agent trong herdr](#xem-agent-trong-herdr)).
 
 <a id="bat-deputy"></a>
 
-**Bật deputy.** Harness đã được chứng minh trước đó chỉ cần thêm bằng chứng cho role `deputy`:
+**Bật deputy.** Manifest ghi trước khi có role `deputy` chỉ cần ghi lại, không gọi model:
 
 1. Thêm `roles.deputy` (và `autonomous` nếu muốn) vào user config như trên. Model trong binding phải trỏ tới
    harness đã có pin.
-2. Chứng minh phần còn thiếu bằng đúng lệnh của lần proof trước, với cùng `--out` và cùng store của daemon:
-   `--config` và `--data-dir` phải là của `cusrd` đang chạy (bỏ `--data-dir` thì lệnh dùng `runtime.data_dir`
-   hoặc `~/.cusr`, có thể là một bản cài khác). `cusr doctor` in sẵn lệnh này với đường dẫn thật.
+2. Ghi lại manifest từ pin đang có, với `--config` và `--data-dir` của `cusrd` đang chạy (bỏ `--data-dir` thì
+   lệnh dùng `runtime.data_dir` hoặc `~/.cusr`, có thể là một bản cài khác). `cusr doctor` in sẵn lệnh này
+   với đường dẫn thật.
 
    ```sh
-   cusr-runner setup-harness --from prove-harness --dry-run --config ~/.cusr/config.yaml \
-     --data-dir <DATA_DIR> --harness claude --model <model-id> --effort <effort> --out evidence-claude.json
-   cusr-runner setup-harness --from prove-harness --config ~/.cusr/config.yaml \
-     --data-dir <DATA_DIR> --harness claude --model <model-id> --effort <effort> --out evidence-claude.json
+   cusr-runner setup-harness --from record-manifest --config ~/.cusr/config.yaml \
+     --data-dir <DATA_DIR> --harness claude
    ```
 
-   Proof đọc evidence đang có ở `--out` và giữ lượt của mọi role còn hợp lệ: evidence được `record-manifest`
-   chấp nhận cho pin và host hiện tại (binary, `attested`, chế độ sandbox native), cùng hash quyền, cùng digest
-   schema của role, và lượt đó là kết quả thành công mà verdict `proven` của evidence nêu đúng attempt id, đã bị
-   rule từ chối probe, xóa auth sau khi chạy và (khi bật sandbox native) bị sandbox chặn ghi. Mỗi role được xét
-   riêng: một dòng hỏng chỉ làm role đó chạy lại. Role chưa có, thất bại hoặc mà binary/pin đã đổi được chạy lại.
-   Dry-run báo `roles_to_prove`, `roles_reused` và `invocations_needed`; harness đã có bằng chứng cho bốn role
-   kia thì chỉ cần 1 lượt. Proof lỗi giữa chừng, kể cả khi một lần khởi chạy ném lỗi, vẫn ghi
-   evidence gồm lượt tái dùng và lượt đã xong; manifest cũ giữ nguyên; chạy lại cùng lệnh chỉ thử các role còn
-   thiếu. Muốn chứng minh lại từ đầu thì dùng `--out` khác. `--prove-resume` luôn chạy lại `coder` vì probe resume
-   nối tiếp phiên của nó; probe resume cũ chỉ được giữ khi lượt `coder` của nó được giữ và verdict `session_resume`
-   nêu đúng lượt tiếp nối.
 3. Restart `cusrd` khi không còn task chạy (`systemctl --user restart cusrd.service`): daemon chỉ đọc manifest
    lúc khởi động.
-4. Kiểm tra bằng `cusr doctor`: check `deputy` phải là `ok` và nêu model, harness. Còn thiếu bằng chứng thì
-   check này in lệnh ở bước 2 với `--config`, `--data-dir` của daemon và (nếu manifest ghi đường dẫn tuyệt đối)
-   file evidence của lần proof trước; manifest trên đĩa mới hơn manifest daemon đang giữ thì nó nhắc restart.
-   `cusr-runner check-records --config ~/.cusr/config.yaml --data-dir <DATA_DIR>` kiểm cùng store đó mà không
-   cần daemon.
+4. Kiểm tra bằng `cusr doctor`: check `deputy` phải là `ok` và nêu model, harness; manifest trên đĩa mới hơn
+   manifest daemon đang giữ thì nó nhắc restart. `cusr-runner check-records --config ~/.cusr/config.yaml
+   --data-dir <DATA_DIR>` kiểm cùng store đó mà không cần daemon.
 
 **Định tuyến.** Mỗi mã wait có đúng một nơi đến, theo bảng trong code (`src/engine/deputy-routing.ts`):
 
@@ -771,88 +754,51 @@ quyền thật ([người gọi và quyền](#người-gọi-và-quyền)).
   quyết định binary nào chạy, không phải `harnesses.<tên>.cmd`. Xem mẫu đã kiểm chứng ở
   `test/fixtures/runtime/spike-0/harness/real-20261028/pinned-*.json`. Tạo bằng `cusr-runner write-pin`, lệnh
   lấy version và sha256 từ binary trên host, để `env` rỗng và từ chối đường dẫn không tồn tại ở host này.
-- `manifest.json`, chỉ ghi bằng lệnh dưới đây, từ evidence của **đúng binary và cấu hình đó**:
+- `manifest.json`, chỉ ghi bằng lệnh dưới đây, từ pin của **đúng binary và cấu hình đó**:
 
 ```sh
 cusr-runner setup-harness --config ~/.cusr/config.yaml --harness claude --vendor claude \
   --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
-  --settings claude-settings.json --permission-mode auto --sandbox off \
-  --model <model-id> --effort <effort> --out evidence-claude.json
-```
-
-`setup-harness` dùng cùng code của ba lệnh `write-pin`, `prove-harness`, `record-manifest`.
-Config được nạp một lần cho cả luồng. Trước khi ghi pin, lệnh bắt buộc có `--model`, kiểm pin dự kiến
-qua `planProof` (deny-probe, identity, khả năng resume) và, nếu có cap, kiểm tổng usage đã tốn + số lượt cần với cap.
-Preflight từ chối thì pin/manifest/ledger hiện có vẫn nguyên vẹn, kể cả khi truyền `--force`.
-Các tham số pin/proof giữ nguyên tên; `--out` vừa là file evidence xuất ra vừa là đầu vào cho manifest.
-Owner tự chạy lệnh nên `--approval` và `--max-invocations` là tùy chọn: `--approval` chỉ ghi vào ledger
-(mặc định `owner command`); `--max-invocations` là số nguyên dương, tính cả usage đã ghi trong ledger cho
-cùng binary, kể cả lượt thất bại; không truyền thì không có trần. Pin đã tồn tại cần
-`--force` để ghi đè. Bước nào lỗi thì dừng ngay, giữ mã lỗi và nêu tên bước (JSON có `error.details.step`);
-proof thất bại không được ghi manifest. Pin hoặc evidence đã ghi trước lỗi vẫn được giữ để gỡ lỗi.
-
-Thêm `--dry-run` để xem `invocations_spent` (đã tốn) và `invocations_needed` (cần thêm), không gọi model
-và không ghi pin, evidence, manifest hay ledger. Dry-run kiểm pin dự kiến theo cùng quy tắc `write-pin`,
-không cần `--force`, approval hoặc cap để xem kế hoạch. Báo cáo có `pin_exists`: nếu là `true`,
-lượt chạy thật bắt đầu từ `write-pin` cần `--force` để thay pin; `--from prove-harness` dùng lại pin nên
-không cần cờ này. Các probe version/host vẫn chạy.
-
-Preflight là kiểm tra tại thời điểm lập kế hoạch. Proof thật vẫn đọc lại ledger: nếu một proof khác tiêu
-usage sau preflight, proof có thể bị từ chối dù pin đã được ghi. Khi đó chạy tiếp bằng
-`--from prove-harness` với cap tổng được duyệt lại, không ghi lại pin. Lệnh không tự tăng cap.
-
-Khi một bước thực thi lỗi, chạy tiếp bằng `--from` để dùng pin/evidence đã ghi:
-
-```sh
-# Proof lỗi: dùng pin đã ghi, không cần --vendor/--binary/--force.
-# Proof chỉ chạy role mà evidence ở --out chưa chứng minh hợp lệ; cap vẫn tính cả các lượt đã tốn.
-cusr-runner setup-harness --from prove-harness --config ~/.cusr/config.yaml --harness claude \
-  --model <model-id> --effort <effort> --max-invocations <cap-tổng> --approval "<ai duyệt, ngày>" \
-  --out evidence-claude.json
-# Chỉ manifest lỗi: kiểm evidence khớp pin hiện tại rồi ghi manifest, không gọi model.
-# Không cần --model, --approval, --max-invocations hay --force.
-cusr-runner setup-harness --from record-manifest --config ~/.cusr/config.yaml --harness claude \
-  --out evidence-claude.json
-```
-
-`--from record-manifest --dry-run` kiểm evidence/pin/quyền như khi ghi thật, báo `invocations_needed: 0`
-và không ghi manifest. Evidence không đạt hoặc không khớp pin vẫn bị từ chối. Nếu đã có evidence hợp lệ,
-`record-manifest --evidence <file>` cũng sửa được manifest mà không tốn model; gợi ý của doctor ưu tiên
-cách này. Ba lệnh riêng vẫn được giữ để gỡ lỗi:
-
-```sh
-cusr-runner write-pin --config ~/.cusr/config.yaml --harness claude --vendor claude \
-  --binary "$(command -v claude)" --toolchain /opt/node/bin --auth claude-0:.claude/.credentials.json \
   --settings claude-settings.json --permission-mode auto --sandbox off
-cusr-runner prove-harness --config ~/.cusr/config.yaml --harness claude \
-  --model <model-id> --effort <effort> --out evidence-claude.json
-cusr-runner record-manifest --config ~/.cusr/config.yaml --harness claude --evidence evidence-claude.json
 ```
 
-Để bật resume cho Claude hoặc Codex, thêm `--prove-resume` vào `setup-harness` (hoặc lệnh riêng `prove-harness`).
-Probe này cần thêm một invocation ngoài các role `coder`, `fixer`, `reviewer`, `decider`, `deputy` trong `PROOF_ROLES`:
-hiện là 6 lượt tổng cộng, thay vì 5 (dry-run hiển thị số cần). Probe thử tiếp tục bằng private home mới
-và nhớ lại một nonce chỉ có trong hội thoại trước. Chỉ bằng chứng probe đạt mới ghi `session_resume: proven`;
-sau setup thành công, restart daemon. Resume chỉ mang dữ liệu của đúng session, không mang auth/settings
+`setup-harness` chạy `write-pin` rồi `record-manifest`, nạp config một lần cho cả luồng và **không gọi model**:
+manifest ghi những gì pin khai (vendor, chế độ quyền, sandbox, schema của mọi role), không có lượt chứng minh
+nào. Binary chưa cài thì `write-pin` báo lỗi (`cannot run <binary> --version`). Pin đã tồn tại cần `--force` để
+ghi đè. Bước nào lỗi thì dừng ngay, giữ mã lỗi và nêu tên bước (JSON có `error.details.step`); pin đã ghi trước
+lỗi vẫn được giữ. `--dry-run` chỉ kiểm pin dự kiến, không ghi gì, và báo `pin_exists`. Ghi lại manifest với pin
+đang có (sau khi đổi release, settings, hay để thêm role):
+
+```sh
+cusr-runner setup-harness --from record-manifest --config ~/.cusr/config.yaml --harness claude
+```
+
+Hai lệnh riêng `write-pin` và `record-manifest` vẫn dùng được. `record-manifest --evidence <file>` vẫn nhận
+evidence cũ của lệnh `prove-harness` đã bỏ, nếu khớp đúng pin hiện tại.
+
+Lỗi không gọi được harness lộ ra ở lượt agent đầu tiên của task, không ở bước setup: binary bị gỡ hoặc đổi sau
+khi ghi manifest cho task `WAITING` mã `auth_config` kèm lỗi, đăng nhập hết hạn hoặc bị từ chối cho
+`WAITING/policy harness_auth`. Cả hai không tự thử lại; cả hai thuộc owner nên assistant đã đăng ký
+(`cusr assistant register`) được đánh thức qua Stop hook hoặc `cusr assistant wait`, rồi đọc lỗi bằng
+`cusr task explain`.
+
+Manifest ghi bằng `setup-harness` để `resume: unknown`: daemon ghi lý do và dùng phiên mới cùng context đầy
+đủ, cho cả worker lẫn reviewer. Resume chỉ mang dữ liệu của đúng session, không mang auth/settings
 của attempt cũ: với Claude là transcript và tool data trong `.claude/projects/`, với Codex là file rollout
-`.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` của đúng thread. Harness chưa chứng minh resume
-thì daemon ghi lý do và dùng phiên mới cùng context đầy đủ, cho cả worker lẫn reviewer.
+`.codex/sessions/YYYY/MM/DD/rollout-*-<thread_id>.jsonl` của đúng thread; chỉ manifest ghi từ evidence cũ có
+`session_resume: proven` mới bật nó.
 
 Codex resume bằng `codex exec <cờ như phiên mới> resume <thread_id> -`. Subcommand `resume` (0.167.0)
 không có `-C`, `--sandbox`, `--add-dir` riêng, nhưng các cờ của `exec` đặt trước `resume` vẫn áp dụng
 cho lượt resume, nên cwd, sandbox và hash quyền hiệu lực giữ như phiên mới. Lượt resume phát lại
-`thread.started` với cùng `thread_id`. Manifest Codex ghi trước thay đổi này không có `session_resume`,
-nên vẫn chạy phiên mới cho đến khi chạy lại `setup-harness --prove-resume`.
+`thread.started` với cùng `thread_id`.
 
 Nếu transcript/run cũ đã mất, worker dùng phiên mới với context đầy đủ và ghi `resume_fallback: session_missing`;
-không chờ người vận hành chỉ để khôi phục hội thoại. Evidence của `--prove-resume` có `resume_probe` ghi
-outcome và nguyên nhân cụ thể, kể cả khi coder thất bại hoặc không trả session nên probe chưa được chạy.
+không chờ người vận hành chỉ để khôi phục hội thoại.
 
-Mỗi vendor trong evidence phải có `binary.sha256` và `attested` gồm `settings_hash`, `environment_hash`
-(env, toolchain, `home_files`, `max_turns`, `tools`), `host_policy_hash`, `layout_shapes` của lượt chứng minh.
-Lệnh so từng trường với pin và host hiện tại, lệch là từ chối và in giá trị cần có; đổi bất kỳ trường nào của
-pin đều cần chứng minh lại (T126), và pin sửa sau khi ghi sẽ chặn request, attempt kế tiếp. Đổi đường dẫn file
-credential thì không cần: bằng chứng không phụ thuộc file nằm ở đâu. Evidence T007 không có `attested` nên không dùng được. `record-manifest` không gọi harness, không tốn usage; bước proof của `setup-harness` có gọi model.
+Manifest gắn với pin: binary (`sha256`), settings, environment (env, toolchain, `home_files`, `max_turns`,
+`tools`), host policy và layout. Pin sửa sau khi ghi manifest chặn request và attempt kế tiếp cho đến khi ghi lại
+manifest. Đổi đường dẫn file credential thì không cần. `record-manifest` không gọi harness, không tốn usage.
 
 Công cụ harness được tìm trên toolchain của pin cộng PATH daemon. Setup/gate dùng thư mục Node của daemon
 cộng PATH daemon; preflight dùng đúng cùng danh sách với lệnh thực thi. Khi chạy daemon bằng systemd, đặt
@@ -861,32 +807,12 @@ không làm manifest mất hiệu lực; dependency cần thiết phải có ở
 kể cả khi worker tắt sandbox hoặc dùng full access.
 Doctor/preflight kiểm file executable trên host, không tạo outer sandbox để probe.
 
-Proof kiểm rule từ chối một lệnh ghi **trong worktree**. Role có sandbox bật còn phải chứng minh
-sandbox native chặn lệnh ghi vào đường dẫn host ở ngoài worktree; worker chọn tắt không chạy probe này. Thêm rule deny sau vào settings Claude dùng để ghi pin:
+Worker Claude tắt sandbox ghi `native_result=not_tried`; auto dùng mode `permissions_only`, full access dùng
+`full_access`. Bật sandbox thì manifest ghi `native_result=passed` theo pin, không chạy probe: sandbox không
+chạy được thì lượt agent lỗi và task báo lỗi đó. Không tự chuyển sang tắt sandbox hay full access. Đổi sandbox
+cần ghi lại pin và manifest. Rule deny `permission-denied-by-rule` trong settings Claude hoặc `.codex/rules/`
+chỉ phục vụ lệnh `prove-harness` đã bỏ; giữ hay xóa đều được.
 
-```json
-{"permissions":{"deny":["Bash(/usr/bin/touch permission-denied-by-rule)"]}}
-```
-
-Với Codex, file `.codex/rules/` đã pin cần rule tương ứng:
-
-```python
-prefix_rule(pattern=["/usr/bin/touch", "permission-denied-by-rule"], decision="forbidden")
-```
-
-Với Codex, `prove-harness` chạy thêm `codex sandbox` trực tiếp, không gọi model, vì `exec --json` không có sự
-kiện cho lệnh bị sandbox từ chối. Lệnh `/usr/bin/true` phải chạy được, còn lệnh ghi phải bị hệ điều hành từ chối.
-
-Giữ các rule owner khác khi thêm rule này. Lệnh deny dùng đường dẫn tương đối để kiểm marker ngay trong
-worktree thật; rule cũ trỏ `/cusr/scratch` không chứng minh hợp đồng host mới. Probe native chỉ đạt khi log
-**tool execution** có lỗi OS từ chối ghi và file đích không xuất hiện; trả lời hợp lệ hoặc rule từ chối tool
-không đủ. Worker Claude tắt sandbox ghi `native_result=not_tried`; auto dùng mode `permissions_only`,
-full access dùng `full_access`. Worker bật sandbox luôn cần `native_result=passed`, kể cả full access.
-Reviewer vẫn chạy probe âm native. Đổi sandbox cũng cần tạo lại proof/manifest; không nhận bằng chứng
-của lựa chọn cũ.
-
-`prove-harness` trả mã lỗi và nêu lý do khi bằng chứng chưa đủ tạo manifest dùng được, dù vẫn ghi file evidence
-để đọc lại. `record-manifest` từ chối evidence đó bằng đúng phép kiểm daemon dùng khi nạp record.
 `cusr-runner check-records --config <file> --data-dir <dir>` kiểm config và mọi harness record với release đang chạy
 lệnh, không gọi model; nên chạy bằng release mới trước khi đổi sang nó.
 
@@ -894,10 +820,10 @@ Claude cần `TMPDIR` đủ ngắn cho Unix socket của sandbox (đường dẫ
 mục riêng 0700 `/tmp/cusr-<hash>`, xóa khi lượt kết thúc. Với host có `/tmp` là tmpfs nhỏ, việc ghi file tạm lớn trong
 lượt chạy agent sẽ chiếm chỗ ở đó. Setup, gate, autofix và Codex vẫn dùng scratch của mình làm `TMPDIR`.
 
-Sau khi nâng release, chạy `setup-harness --force` với các tham số pin/proof đầy đủ,
-`--permission-mode auto` hoặc `full-access`, không cần `--outer-proof`, rồi restart daemon. Manifest cũ chứng minh outer bwrap
+Sau khi nâng release, chạy `setup-harness --force` với các tham số pin đầy đủ,
+`--permission-mode auto` hoặc `full-access`, rồi restart daemon. Manifest cũ của outer bwrap
 không dùng được cho native execution. Task đang đóng băng theo outer bwrap phải kết thúc/hủy ở release
-cũ rồi tạo task mới; không đổi snapshot đang chạy. Đổi mode pin cũng cần proof/manifest tương ứng.
+cũ rồi tạo task mới; không đổi snapshot đang chạy. Đổi mode pin cũng cần ghi lại manifest.
 
 Push vẫn do daemon gọi qua credential helper tin cậy. Role/model/workflow và merge giữ cùng hợp đồng.
 
@@ -923,13 +849,13 @@ Worker chạy như phiên owner tự mở, giống cách Orca chạy agent theo 
 - Coder/fixer được commit trong worktree, trên nhánh của task; daemon commit phần còn lại, rồi push
   fast-forward và mở PR. Reviewer được sửa, chạy test và commit; xong lượt review daemon đưa nhánh và file
   về như trước review (file bị gitignore giữ nguyên). Deputy cũng vậy sau mỗi lượt. Không role nào đang chạy còn
-  chỉ đọc; ranh giới chỉ đọc chỉ còn cho lượt proof của role `decider` cũ.
+  chỉ đọc.
 
 Process cùng UID có quyền đọc file host theo OS; home riêng không phải ranh giới bảo mật.
 
-Nâng cấp lên bản này: argv Codex đổi nên manifest Codex cũ không còn khớp. Chạy lại proof bằng pin đã có
-(`cusr-runner setup-harness … --harness codex --from prove-harness`) rồi restart daemon. Pin Claude có bật
-sandbox cũng cần proof lại; pin Claude tắt sandbox giữ nguyên manifest.
+Nâng cấp lên bản này: argv Codex đổi nên manifest Codex cũ không còn khớp. Ghi lại manifest bằng pin đã có
+(`cusr-runner setup-harness … --harness codex --from record-manifest`) rồi restart daemon. Pin Claude có bật
+sandbox cũng cần ghi lại; pin Claude tắt sandbox giữ nguyên manifest.
 
 ### Phiên đăng nhập harness
 

@@ -1852,7 +1852,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     ).filter((check) => check.name.startsWith('manifest:'));
     expect(repairs.length).toBeGreaterThan(0);
     for (const check of repairs) {
-      expect(check.fix).toContain('record-manifest --evidence');
+      expect(check.fix).toContain('--from record-manifest');
       expect(check.fix).not.toContain('--force');
     }
   });
@@ -1953,7 +1953,9 @@ describe('doctor (T112, FR-027.02/033)', () => {
     await changed.sd.start();
     const r1 = await cli(changed.sd, ['doctor']);
     expect(r1.code).toBe(ExitCode.failure);
-    expect(JSON.stringify(r1.envelope.error.details)).toContain('changed since the proof');
+    expect(JSON.stringify(r1.envelope.error.details)).toContain(
+      'changed since the manifest was recorded',
+    );
 
     const gone = doctored({
       digest: () => {

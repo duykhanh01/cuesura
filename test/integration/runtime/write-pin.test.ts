@@ -231,47 +231,43 @@ describe('cusr-runner write-pin', () => {
     });
   });
 
-  it.each([
-    ['record-manifest', 'manifest_refused', ['--harness', 'h', '--evidence', 'nope.json']],
-    [
-      'prove-harness',
-      'proof_refused',
-      ['--harness', 'h', '--model', 'm', '--outer-proof', 'nope.json', '--dry-run'],
-    ],
-  ])('%s --json refuses with one envelope, spending nothing', (command, code, args) => {
-    const { dir, input } = setup();
-    const config = join(dir, 'config.yaml');
-    writeFileSync(
-      config,
-      `version: 1\nharnesses:\n  h: { cmd: h, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${input.dataDir}\n`,
-    );
-    mkdirSync(input.dataDir, { mode: 0o700 });
-    const run = (...rest: string[]) => {
-      const r = spawnSync(
-        process.execPath,
-        [
-          fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url)),
-          command,
-          '--json',
-          ...rest,
-        ],
-        { encoding: 'utf8' },
+  it.each([['record-manifest', 'manifest_refused', ['--harness', 'h', '--evidence', 'nope.json']]])(
+    '%s --json refuses with one envelope, spending nothing',
+    (command, code, args) => {
+      const { dir, input } = setup();
+      const config = join(dir, 'config.yaml');
+      writeFileSync(
+        config,
+        `version: 1\nharnesses:\n  h: { cmd: h, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${input.dataDir}\n`,
       );
-      return {
-        code: r.status,
-        stderr: r.stderr,
-        body: JSON.parse(r.stdout) as unknown,
+      mkdirSync(input.dataDir, { mode: 0o700 });
+      const run = (...rest: string[]) => {
+        const r = spawnSync(
+          process.execPath,
+          [
+            fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url)),
+            command,
+            '--json',
+            ...rest,
+          ],
+          { encoding: 'utf8' },
+        );
+        return {
+          code: r.status,
+          stderr: r.stderr,
+          body: JSON.parse(r.stdout) as unknown,
+        };
       };
-    };
-    expect(run()).toMatchObject({
-      code: 2,
-      stderr: '',
-      body: { ok: false, error: { code: 'invalid_arguments' } },
-    });
-    expect(run('--config', config, ...args)).toMatchObject({
-      code: 1,
-      stderr: '',
-      body: { ok: false, error: { code } },
-    });
-  });
+      expect(run()).toMatchObject({
+        code: 2,
+        stderr: '',
+        body: { ok: false, error: { code: 'invalid_arguments' } },
+      });
+      expect(run('--config', config, ...args)).toMatchObject({
+        code: 1,
+        stderr: '',
+        body: { ok: false, error: { code } },
+      });
+    },
+  );
 });
