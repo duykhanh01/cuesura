@@ -19,6 +19,8 @@ export type SourcedCheck = Check & {
   readonly source: 'check_run' | 'status';
   readonly app_id: number | null;
   readonly generation: number | string;
+  /** When the run started or the status was set; null when GitHub gave none. */
+  readonly at?: number | null;
   readonly raw: string;
 };
 
@@ -76,6 +78,11 @@ export function statusState(state: unknown): CheckState {
   }
 }
 
+const instant = (v: unknown): number | null => {
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isFinite(t) ? t : null;
+};
+
 /** Current generation per identity, then collisions per name. Pure; exported for tests. */
 export function selectCurrent(
   runs: readonly unknown[],
@@ -97,6 +104,7 @@ export function selectCurrent(
       source: 'check_run',
       app_id: appId,
       generation: o['id'],
+      at: instant(o['started_at']) ?? instant(o['completed_at']),
       raw: `${String(o['status'])}/${String(o['conclusion'])}`,
     });
   }
@@ -119,6 +127,7 @@ export function selectCurrent(
       source: 'status',
       app_id: null,
       generation: at,
+      at: instant(at),
       raw: String(o['state']),
     });
   }
@@ -153,21 +162,15 @@ const isSkip = (c: SourcedCheck): boolean =>
   c.source === 'check_run' && c.raw === 'completed/skipped';
 
 /**
- * Whether a verdict over `required` would pass on a skip: every required check is there and passed or
- * skipped, at least one skipped, and nothing failed (`checkPasser`). Anything else needs no ready time.
+ * Whether a verdict over `required` would pass: every required check is there and passed or skipped,
+ * and nothing failed (`checkPasser`). Anything else needs no ready time.
  */
-function restsOnSkip(checks: readonly SourcedCheck[], required: readonly string[]): boolean {
+function wouldPass(checks: readonly SourcedCheck[], required: readonly string[]): boolean {
   if (required.length === 0 || !checkPasser(checks)('skipped')) return false;
-  let skipped = false;
-  for (const name of required) {
+  return required.every((name) => {
     const ofName = checks.filter((c) => c.name === name);
-    if (ofName.length === 0) return false;
-    for (const c of ofName) {
-      if (isSkip(c)) skipped = true;
-      else if (c.state !== 'success' && c.state !== 'skipped') return false;
-    }
-  }
-  return skipped;
+    return ofName.length > 0 && ofName.every((c) => c.state === 'success' || c.state === 'skipped');
+  });
 }
 
 /**
@@ -192,7 +195,7 @@ function successBesidePending(
         appId === c.app_id &&
         typeof o['id'] === 'number' &&
         o['id'] < (c.generation as number) &&
-        checkRunState(o['status'], o['conclusion']) === 'pending'
+        ['pending', 'unknown'].includes(checkRunState(o['status'], o['conclusion']))
       );
     });
     if (behind) out.add(c.generation);
@@ -231,21 +234,27 @@ export async function readHeadChecks(
   const { collisions } = selected;
   let checks = selected.checks;
   if (skip?.draft === true) checks = checks.filter((c) => !isSkip(c));
-  else if (skip !== undefined) {
-    // GitHub does not say which event made a workflow run, so once the PR has been a draft a required skip
-    // proves nothing (a late draft run reads like the ready run's) and waits. Docs-only changes pass after
-    // a draft only when the required aggregate job itself succeeds. A success beside an unfinished older
-    // run of the check is ambiguous too.
-    const ambiguous = successBesidePending(runs.value.items, checks, skip.required, sha);
-    if (ambiguous.size > 0 || restsOnSkip(checks, skip.required)) {
-      const at = await skip.readyAt();
-      if (!at.ok) return { ok: false, error: at.error };
-      if (at.at !== null)
-        checks = checks.map((c) =>
-          (isSkip(c) && skip.required.includes(c.name)) || ambiguous.has(c.generation)
-            ? { ...c, state: 'pending' as const, raw: `${c.raw}?` }
-            : c,
-        );
+  else if (skip !== undefined && wouldPass(checks, skip.required)) {
+    // GitHub names no event for a workflow run, so once the PR has been a draft nothing ties a required
+    // result to the latest ready transition: a skip proves nothing (a draft's run reads like the ready
+    // run's) and waits, and a success counts only if it started after GitHub's ready time (one before it
+    // is the draft's or an earlier turn's), alone or beside no unfinished or unrecognized older run of the
+    // check. A success after the ready time is accepted as real work of this head, the same as GitHub's
+    // own merge rule does; it cannot be told from a draft's ungated one. Docs-only changes pass after a
+    // draft only when the required aggregate job itself succeeds, after the ready time (rerun if not).
+    const at = await skip.readyAt();
+    if (!at.ok) return { ok: false, error: at.error };
+    if (at.at !== null) {
+      const ready = at.at;
+      const ambiguous = successBesidePending(runs.value.items, checks, skip.required, sha);
+      checks = checks.map((c) =>
+        skip.required.includes(c.name) &&
+        (isSkip(c) ||
+          ambiguous.has(c.generation) ||
+          (c.state === 'success' && !(c.at != null && c.at > ready)))
+          ? { ...c, state: 'pending' as const, raw: `${c.raw}?` }
+          : c,
+      );
     }
   }
   return {

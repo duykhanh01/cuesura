@@ -1566,6 +1566,11 @@ describe('yolo merge', () => {
     const lateSkips = [run(1, 'build', 'skipped', late), run(2, 'test', 'skipped', late)];
     const stages = [
       lateSkips,
+      // Successes of an earlier turn of the same head, the ready run not yet visible.
+      [
+        run(1, 'build', 'success', '2026-11-17T23:19:24Z'),
+        run(2, 'test', 'success', '2026-11-17T23:19:24Z'),
+      ],
       [
         ...lateSkips,
         { ...run(3, 'changes', 'success', '2026-11-18T01:17:24Z'), status: 'in_progress' },

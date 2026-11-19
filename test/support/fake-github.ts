@@ -310,6 +310,8 @@ export class FakeGitHub implements GitHubPort {
         name,
         status: 'completed',
         conclusion,
+        // After the ready time this fake gives its PRs.
+        started_at: '2026-10-29T12:00:00Z',
         head_sha: sha,
         app: { id: 15368 },
       }));

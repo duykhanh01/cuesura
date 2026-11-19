@@ -528,6 +528,25 @@ describe('skipped runs of a draft PR', () => {
     );
   });
 
+  it('#362: a success from before the ready event is no pass; one after it is, with a repeated ready too', async () => {
+    const draftWon = ciOk(1, 'success', '2026-11-17T23:19:24Z');
+    const once = ok(ready('2026-11-18T01:17:20Z'));
+    const lone = await observe(script(false, [draftWon], once)).obs;
+    expect(verdict(lone).kind).not.toBe('pass');
+    expect(lone).toMatchObject({ checks: { checks: [{ name: 'ci-ok', state: 'pending' }] } });
+    // Turned ready twice on one head: the first turn's success is no evidence for the second.
+    const twice = ok(ready('2026-11-17T10:00:00Z', '2026-11-18T01:17:20Z'));
+    const firstTurn = ciOk(1, 'success', '2026-11-17T10:05:00Z');
+    expect(verdict(await observe(script(false, [firstTurn], twice)).obs).kind).not.toBe('pass');
+    const fresh = ciOk(2, 'success', '2026-11-18T01:17:40Z');
+    expect(verdict(await observe(script(false, [firstTurn, fresh], twice)).obs)).toEqual({
+      kind: 'pass',
+    });
+    // A competing generation of an unrecognized state waits too.
+    const odd = { ...ciOk(0, 'success', '2026-11-18T01:17:30Z'), status: 'mystery' };
+    expect(verdict(await observe(script(false, [odd, fresh], twice)).obs).kind).not.toBe('pass');
+  });
+
   it('turned ready a second time: the latest ready event decides, not the first', async () => {
     const events = ok(ready('2026-11-17T10:00:00Z', '2026-11-18T01:17:20Z'));
     const second = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
@@ -550,7 +569,7 @@ describe('skipped runs of a draft PR', () => {
     expect(o.count('/actions/runs/')).toBe(0);
   });
 
-  it('events are read only when the verdict rests on a skip of a required check', async () => {
+  it('events are read only when the verdict would pass', async () => {
     const optional = observe(
       script(false, [
         ciOk(1, 'success', '2026-11-17T23:19:24Z'),
@@ -558,7 +577,7 @@ describe('skipped runs of a draft PR', () => {
       ]),
     );
     expect(verdict(await optional.obs)).toEqual({ kind: 'pass' });
-    expect(optional.count('/events')).toBe(0);
+    expect(optional.count('/events')).toBe(1);
     // A required skip next to a failure cannot pass anyway.
     const failed = observe(
       script(false, [

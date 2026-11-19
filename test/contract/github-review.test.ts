@@ -547,6 +547,27 @@ describe('CI of a PR turned ready', () => {
       );
     });
 
+    it('a lone success that started before the ready time is the draft’s or an earlier turn’s: pending', async () => {
+      const early = { ...run(11, 'ci-ok', 'success', 101), started_at: '2026-11-18T01:17:19Z' };
+      expect(await state(github([early], {}))).toBe('pending');
+      const untimed = { ...run(12, 'ci-ok', 'success', 101), started_at: undefined };
+      expect(await state(github([untimed], {}))).toBe('pending');
+      // Repeated ready: the first turn’s success is no evidence for the second.
+      const twice = github([early], {}, [
+        { event: 'ready_for_review', created_at: '2026-11-17T09:00:00Z' },
+        { event: 'ready_for_review', created_at: READY },
+      ]);
+      expect(await state(twice)).toBe('pending');
+    });
+
+    it('a competing generation of an unrecognized state makes the success ambiguous, in both orders', async () => {
+      const odd = (id: number) => ({ ...run(id, 'ci-ok', 'success', 102), status: 'mystery' });
+      expect(await state(github([run(31, 'ci-ok', 'success', 101), odd(30)], {}))).toBe('pending');
+      expect(await state(github([run(30, 'ci-ok', 'success', 101), odd(31)], {}))).not.toBe(
+        'success',
+      );
+    });
+
     it('the required aggregate job’s success passes, over an older draft skip', async () => {
       const port = github([run(11, 'ci-ok', 'skipped', 101), run(14, 'ci-ok', 'success', 102)], {});
       expect(await read(port)).toEqual([{ name: 'ci-ok', state: 'success', run: 14 }]);
