@@ -39,6 +39,7 @@ import {
 } from './logs.ts';
 import {
   attemptGroups,
+  withDeputyRuns,
   groupAttempts,
   cursorIndex,
   pickerStart,
@@ -159,7 +160,7 @@ export function onDetailCommand(state: TuiState, command: Command): Reduced | nu
 
 /** The chooser's groups, from the attempts `task_show` lists. */
 export const pickerGroups = (s: TuiState): readonly AttemptGroup[] =>
-  attemptGroups(s.detail?.show.data?.provenance.usage ?? []);
+  attemptGroups(withDeputyRuns(s.detail?.show.data));
 
 function onPickerCommand(state: TuiState, logs: LogState, command: Command): Reduced | null {
   const rows = treeRows(pickerGroups(state), logs.pickerOpen);
@@ -415,10 +416,26 @@ export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {
     logs.generation !== m.generation
   )
     return state;
+  if (!m.result.ok) return { ...state, logs: failLogRead(logs, m.result.error.message, m.at) };
+  const read = applyLogPage(logs, m.request, m.result.value, m.at);
+  const stamp = m.result.value.deputy_stamp ?? null;
+  const logsNext = { ...read, deputyStamp: stamp };
+  const d = state.detail;
+  // What the `task_show` in use says, compared with this page: the same stamp means it is current, so the
+  // first page of an opened log asks no read more (T041); another one means a deputy run started or ended,
+  // or its turn changed state, which moves no version, so it is read again now, first page or not.
+  const shown = d?.show.data?.deputy_stamp;
+  const stale =
+    d !== null &&
+    d.show.data !== null &&
+    (shown === undefined
+      ? logs.deputyStamp !== null && stamp !== logs.deputyStamp
+      : stamp !== shown && (stamp !== logs.deputyStamp || !d.showWanted));
+  if (!stale) return { ...state, logs: logsNext };
   return {
     ...state,
-    logs: m.result.ok
-      ? applyLogPage(logs, m.request, m.result.value, m.at)
-      : failLogRead(logs, m.result.error.message, m.at),
+    logs: logsNext,
+    // Only a read asked after this page was asked can show what the new stamp stands for.
+    detail: { ...d, showWanted: true, showWantedAt: m.at },
   };
 }

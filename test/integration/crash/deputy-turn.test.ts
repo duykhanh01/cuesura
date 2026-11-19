@@ -95,6 +95,7 @@ function setup() {
     worktreePath: (id) => `/cusr-data/worktrees/${id}`,
     worktree: NO_WORKTREE,
     recordsDir,
+    dataDir: dir,
     redactor: new Redactor({ values: [] }),
   });
   const daemon = (): Deputy => createDeputy(deps());

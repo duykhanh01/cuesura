@@ -20,7 +20,11 @@ const task = {
   terminal: null,
 } as unknown as TaskState;
 
-const store = { readTask: () => task, readEvents: () => [] } as unknown as Store;
+const store = {
+  readTask: () => task,
+  readEvents: () => [],
+  deputy: { runsOf: () => [], runningTurn: () => null },
+} as unknown as Store;
 
 const stateAt = (now: number) => {
   const r = taskLogs(

@@ -50,6 +50,7 @@ function setup(steps: FakeStep[], setting: DeputySetting = FAKE_DEPUTY, tasks = 
     worktreePath: (id) => `/cusr-data/worktrees/${id}`,
     worktree: NO_WORKTREE,
     recordsDir: join(dir, 'deputy'),
+    dataDir: dir,
     redactor: new Redactor({ values: [] }),
   });
   return { d, t, more, harness, deputy };

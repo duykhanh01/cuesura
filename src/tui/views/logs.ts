@@ -12,6 +12,7 @@ import {
   stepName,
   tokensOf,
   treeRows,
+  withDeputyRuns,
   type Attempt,
   type TreeRow,
 } from '../model/attempt-tree.ts';
@@ -159,7 +160,38 @@ function newsLine(s: LogState, t: TuiState): SafeText {
   const quiet = quietFor(s, t);
   if (quiet !== null && quiet >= STUCK_MS)
     return uiText(`No output for ${duration(quiet) ?? ''}: it may be stuck`);
-  return uiText('');
+  return deputyNews(s, t) ?? uiText('');
+}
+
+/** What an empty log says: a native deputy run, opened on its own, wrote to its terminal, not here. */
+function emptyText(s: LogState, t: TuiState): SafeText {
+  const run = t.detail?.show.data?.deputy_runs?.find((r) => r.attempt_id === s.attemptFilter);
+  if (run?.mode === 'interactive')
+    return uiText(
+      'This deputy run was a native session in its own terminal window; its output is there, not here.',
+    );
+  return uiText('No log records here yet.');
+}
+
+/**
+ * A deputy turn at work that has written nothing here yet: without this the log shows only the worker's
+ * output, as if the task were waiting on it. A native session writes to its own terminal, not to the log.
+ */
+function deputyNews(s: LogState, t: TuiState): SafeText | null {
+  const turn = t.detail?.show.data?.deputy;
+  if (turn === undefined || s.attemptFilter !== null) return null;
+  if (turn.attempt_id !== undefined && s.buffer.some((e) => e.attemptId === turn.attempt_id))
+    return null;
+  if (turn.state === 'retry_wait')
+    return uiText('The deputy turn waits to run again; its output will appear here.');
+  if (turn.mode === 'interactive')
+    return uiText(
+      'The deputy is working in its own terminal window; its output shows there, not here.',
+    );
+  if (turn.mode === 'headless')
+    return uiText('The deputy is working on this task; its output will appear here.');
+  // A run recorded before modes were kept: where its output goes is not known.
+  return uiText('The deputy is working on this task.');
 }
 
 /** The stages in one row, where there is no room for a column of them. */
@@ -184,7 +216,7 @@ function filteredStage(s: TuiState): StageName | null {
   }
   const id = logs?.attemptFilter ?? null;
   if (id === null) return null;
-  const attempt = s.detail?.show.data?.provenance.usage.find((a) => a.attempt_id === id);
+  const attempt = withDeputyRuns(s.detail?.show.data).find((a) => a.attempt_id === id);
   return attempt === undefined ? null : stageOf(attempt.step);
 }
 
@@ -491,7 +523,7 @@ export const logsBody =
     const narrow = logColumns(cols, logs.paneHidden).pane === 0;
     const stages = narrow ? stagesRow(s, cols - 1) : null;
     const news = newsLine(logs, s);
-    const usage = s.detail?.show.data?.provenance.usage ?? [];
+    const usage = withDeputyRuns(s.detail?.show.data);
     const attemptId = logs.gates === null && logs.picker === null ? modeAttemptId(logs, s) : null;
     const attempt = attemptId === null ? undefined : usage.find((a) => a.attempt_id === attemptId);
     const mode = logs.picker === null ? modeLine(logs, s, attempt) : pickerSummary(s);
@@ -528,7 +560,7 @@ export const logsBody =
       return;
     }
     if (logs.buffer.length === 0 && !logs.filling && logs.lastReadAt !== null) {
-      frame.put(x + 1, listTop, uiText('No log records here yet.'), DIM);
+      frame.put(x + 1, listTop, emptyText(logs, s), DIM);
       return;
     }
     // Scrolling counts rows wrapped at this same width (`logColumns`), so the place kept is the place shown.

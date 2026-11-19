@@ -447,6 +447,7 @@ export async function productionControl(opts: {
       worktree: deputyWorktree(deps),
       blocked: (taskId) => deciderHeld === 'all' || deciderHeld.has(taskId),
       recordsDir: dir('deputy'),
+      dataDir: opts.dataDir,
       redactor: opts.redactor,
       statusSince: statusSinceReader(store),
       models: deputyModels,

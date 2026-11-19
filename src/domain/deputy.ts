@@ -7,6 +7,18 @@ export const DEPUTY_ACTOR = 'deputy';
 /** Who ends a task whose every action ran out on its failure signature (FR-044). */
 export const LOOP_GUARD_ACTOR = 'system:loop-guard';
 
+/** The step a deputy run's records show under in a task's log: a turn is no step of the task. */
+export const DEPUTY_STEP = 'deputy';
+
+/** How a log gap starts while a deputy run waits for the output before it to settle. */
+export const DEPUTY_WAITS = 'deputy output waits for the output before it';
+
+/** How a log gap starts while the output before a deputy run cannot be read yet, and may be once retried. */
+export const DEPUTY_RETRY = 'deputy output waits until the output before it can be read';
+
+/** How a log gap starts while a running deputy run holds back the output after it. */
+export const DEPUTY_HOLDS = 'a deputy turn is running; later output waits for it';
+
 /**
  * What the command ledger keeps with a deputy's `task fail` sent once every action ran out on the
  * failure signature (FR-075): retrying that unit is then a scope amendment, as after the loop guard.

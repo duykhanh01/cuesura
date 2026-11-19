@@ -73,6 +73,11 @@ export type TaskDetail = {
   };
   /** One read of `task_show` was asked for while Logs covers this screen, for its list of attempts. */
   readonly showWanted: boolean;
+  /**
+   * When the reason for the wanted read became known: an answer asked before then says nothing about it and
+   * leaves the read wanted. Null: any answer will do.
+   */
+  readonly showWantedAt: number | null;
   /** First row on screen. */
   readonly top: number;
 };
@@ -98,6 +103,7 @@ export function initialDetail(taskId: string, title: SafeText, session: number):
       attemptAt: null,
     },
     showWanted: false,
+    showWantedAt: null,
     top: 0,
   };
 }
@@ -267,11 +273,17 @@ export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
   let next: TaskDetail;
   switch (m.part) {
     case 'show':
-      next = {
-        ...d,
-        show: answered(d.show, m.result, m),
-        showWanted: !fresh,
-      };
+      {
+        // Asked in the same tick as the page that brought the new stamp counts as before it: at worst one
+        // read more, never the stale answer taken for the new one.
+        const early = d.showWantedAt !== null && m.askedAt <= d.showWantedAt;
+        next = {
+          ...d,
+          show: answered(d.show, m.result, m),
+          showWanted: !fresh || early,
+          showWantedAt: early ? d.showWantedAt : null,
+        };
+      }
       break;
     case 'progress':
       next = { ...d, progress: answered(d.progress, m.result, m) };

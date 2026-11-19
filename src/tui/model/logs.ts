@@ -4,6 +4,7 @@
  * position, because the daemon's cursor does not change through rotation or restart. The place being read is kept by record, not by row, so
  * neither a resize nor new records can move it.
  */
+import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_WAITS } from '../../domain/deputy.ts';
 import { LOG_POLL_INTERVAL_MS } from '../client/refresh.ts';
 import type { TaskLogs } from '../client/schemas.ts';
 import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
@@ -100,6 +101,8 @@ export type LogState = {
   /** While an attempt is being read: where following the latest step goes on from. */
   readonly resumeCursor: number | null;
   readonly newActivity: boolean;
+  /** The daemon's `deputy_stamp` last read: a change means the deputy runs beside the log moved on. */
+  readonly deputyStamp: string | null;
   /** The first row on screen while paused; `null` is the top of the buffer, `end` its last screen. */
   readonly anchor: { readonly seq: number; readonly row: number } | 'end' | null;
   /** Nothing read yet: the first read is the last page, so the screen opens at the end, as a chat does. */
@@ -153,6 +156,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     nextCursor: 0,
     resumeCursor: null,
     newActivity: false,
+    deputyStamp: null,
     anchor: null,
     tailing: true,
     behind: false,
@@ -187,6 +191,32 @@ function capped(whole: string): SafeText {
   ]);
 }
 
+/** What a gap says while deputy output only waits its turn: nothing is wrong, and it comes by itself. */
+function waitingText(reason: string): SafeText | null {
+  if (reason.startsWith(DEPUTY_RETRY))
+    return joinSafe([
+      uiText("Waiting for the previous worker's output, which cannot be read right now — "),
+      sanitize(reason.slice(DEPUTY_RETRY.length).replace(/^: /, '')),
+    ]);
+  if (reason.startsWith(DEPUTY_WAITS))
+    return uiText(
+      "Waiting for the previous worker's output. Deputy logs will appear here automatically.",
+    );
+  if (reason.startsWith(DEPUTY_HOLDS))
+    return uiText(
+      'Waiting for the deputy turn to end. Later output will appear here automatically.',
+    );
+  return null;
+}
+
+/** Records or a cursor that moved: a gap that only says output waits is no news. */
+function advanced(page: TaskLogs, after: number): boolean {
+  return (
+    page.next_cursor > after ||
+    page.records.some((r) => !('gap' in r) || (r.gap as { readonly records: number }).records > 0)
+  );
+}
+
 /** The record as a person reads it; `null` for bookkeeping with nothing to say (see `log-text.ts`). */
 export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
   if ('gap' in record) {
@@ -194,14 +224,17 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
       readonly records: number;
       readonly reason: SafeText;
     };
-    const text = joinSafe([
-      uiText(
-        records === 0
-          ? 'Log temporarily unavailable — '
-          : `Gap: ${records} ${records === 1 ? 'record' : 'records'} unavailable — `,
-      ),
-      reason,
-    ]);
+    const waiting = records === 0 ? waitingText(reason) : null;
+    const text =
+      waiting ??
+      joinSafe([
+        uiText(
+          records === 0
+            ? 'Log temporarily unavailable — '
+            : `Gap: ${records} ${records === 1 ? 'record' : 'records'} unavailable — `,
+        ),
+        reason,
+      ]);
     return {
       seq: record.seq,
       attemptId: record.attempt_id,
@@ -363,7 +396,10 @@ function applyForward(
   const asked = s.filling || s.wantForward;
   // Paused while this read was on its way: it says there is more, and nothing goes in (FR-014).
   if (s.mode !== 'live' && !asked)
-    return { ...s, newActivity: s.newActivity || entries.length > 0 };
+    return {
+      ...s,
+      newActivity: s.newActivity || (entries.length > 0 && advanced(page, s.nextCursor)),
+    };
   if (s.filling && wouldOverflow(s, entries)) return { ...s, filling: false, moreForward: true };
   const next = appendEntries(s, entries);
   const read: LogState = {
@@ -450,7 +486,7 @@ export function applyLogPage(
         ...read,
         // A probe reads one record. Bookkeeping there still means the log moved on, and what follows it
         // may be the agent speaking; hiding a record is for showing, never for telling news (FR-014).
-        newActivity: s.newActivity || sent > 0,
+        newActivity: s.newActivity || (sent > 0 && advanced(page, request.after)),
         complete: sent === 0 && page.complete,
       };
     case 'tail':

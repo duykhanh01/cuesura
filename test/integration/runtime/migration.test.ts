@@ -47,9 +47,10 @@ function copyFixture(): string {
   return path;
 }
 
-/** Undoes migration 008, so a test can roll the file back to an older schema version. */
+/** Undoes migrations 009 and 008, so a test can roll the file back to an older schema version. */
 function revert008(raw: Database.Database): void {
-  raw.exec(`DROP INDEX command_ledger_turn;
+  raw.exec(`DROP TABLE deputy_turn_runs;
+    DROP INDEX command_ledger_turn;
     ALTER TABLE command_ledger DROP COLUMN reason;
     ALTER TABLE command_ledger DROP COLUMN turn_id;
     ALTER TABLE command_ledger DROP COLUMN trial_json;
@@ -180,7 +181,7 @@ describe('migration 001 → 002 on a real schema-1 database', () => {
     expect(db.prepare('SELECT version FROM schema_meta').get()).toEqual({
       version: SCHEMA_VERSION,
     });
-    expect(SCHEMA_VERSION).toBe(8);
+    expect(SCHEMA_VERSION).toBe(9);
     for (const t of SOURCE_TABLES) expect(dump(db, t), t).toEqual(before[t]);
 
     expect(store.verifyProjections()).toMatchObject({
