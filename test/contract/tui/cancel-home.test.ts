@@ -105,6 +105,14 @@ describe('a cancel whose reply was lost', () => {
     },
   );
 
+  it('goes Home when it is sent again after the doubt and then accepted', () => {
+    const { state, command } = lost();
+    const resending = answer(state, command, { state: 'sending', result: null, resends: 1 });
+    expect(resending.screens.at(-1)).toBe('actions');
+    const after = answer(resending, command, {});
+    expect(after.screens).toEqual(['home']);
+  });
+
   it('does not move the user who left the menu, or opened another dialog, meanwhile', () => {
     const { state, command } = lost();
     const left = { ...state, screens: state.screens.slice(0, -1) } as TuiState;

@@ -407,13 +407,14 @@ function toHome(state: TuiState): TuiState {
 }
 
 /**
- * A cancel whose reply was lost and later found accepted: the dialog closed on the doubt, so the menu of its
+ * A cancel whose reply was lost and later found accepted (by a check or a resend): the dialog closed on the doubt, so the menu of its
  * task is left for Home only when it is still the screen on top. Anywhere else the user moved on by themselves.
  */
 export function onLateCancel(state: TuiState, before: Mutation | undefined, m: Mutation): TuiState {
   if (m.state !== 'accepted' || m.command.kind !== 'task_cancel') return state;
   if (before === undefined || before.requestId !== m.requestId) return state;
-  if (before.state !== 'unknown' && before.state !== 'unresolved') return state;
+  // Found by a check, or by a resend, which goes through `sending` again; never a repeat of a settled one.
+  if (before.state === 'accepted' || before.state === 'rejected') return state;
   if (m.result?.ok !== true || cancelNeedsMenu(m.result.value)) return state;
   if (state.dialog !== null || currentScreen(state) !== 'actions') return state;
   if (state.actions?.taskId !== mutationTarget(m.command)) return state;
