@@ -22,6 +22,7 @@ import {
   onDialogCommand,
   onDialogKey,
   onDialogMutation,
+  onLateCancel,
   onDialogRead,
   openQueueDialog,
 } from './dialog.ts';
@@ -161,11 +162,16 @@ export function reduce(state: TuiState, message: Message): Reduced {
       return same(onReviewRead(state, message));
     case 'mutation_changed': {
       const m = message.mutation;
+      const before = state.mutations.get(mutationTarget(m.command));
       const mutations = new Map(state.mutations).set(mutationTarget(m.command), m);
       const dialog = onDialogMutation({ ...state, mutations }, m);
       const review = onReviewMutation(dialog.state, m);
       // A write that went through moved the task: read the board now instead of at the next tick.
-      const after = onRunConfigMutation(onNewTaskMutation(review.state, m), m);
+      const after = onLateCancel(
+        onRunConfigMutation(onNewTaskMutation(review.state, m), m),
+        before,
+        m,
+      );
       return {
         state: { ...after, drafts: dropSentDraft(after.drafts, m) },
         effects: [

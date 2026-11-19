@@ -7,6 +7,7 @@ import type { ActionsMenu } from '../model/actions.ts';
 import type { TuiState } from '../model/state.ts';
 import { CHANGED_NOTICE } from '../model/actions.ts';
 import type { Mutation } from '../client/mutations.ts';
+import { cancelFacts } from '../model/cancel-result.ts';
 import { isForceCancel } from '../model/dialog.ts';
 import type { CallerInfo, TaskExplain } from '../client/schemas.ts';
 import { joinSafe, sanitize, uiText, type SafeText } from '../terminal/safe-text.ts';
@@ -204,26 +205,8 @@ const field = (v: unknown, k: string): unknown =>
  * change nothing (`already_cancelling`), wait on a merge the PR read saw, or wait for a PR read that failed.
  */
 function cancelLine(value: unknown, id: string): { text: string; style: Style } {
-  const status = field(value, 'status');
-  const ignored = field(value, 'ignored');
-  const forceIgnored = field(value, 'force_ignored');
-  const read = field(value, 'pr_read');
-  const unavailable = field(read, 'unavailable');
-  const facts = field(read, 'facts');
-  const blockers = field(value, 'blockers');
-  const completion = field(value, 'completion');
-  // A merge seen, even without its full evidence, decides over the cancel (FR-025.04, FR-040.12).
-  const mergeSeen =
-    forceIgnored === 'merge_seen' ||
-    field(field(value, 'cancellation'), 'merge_seen') !== undefined ||
-    (Array.isArray(blockers) &&
-      blockers.some((b) => field(b, 'code') === 'merge_evidence_incomplete'));
-  // A read that gave no observation reports no failure text, only the fact it recorded.
-  const unread =
-    (typeof unavailable === 'string' && unavailable !== '') ||
-    (Array.isArray(facts) && facts.some((f) => field(f, 'kind') === 'cancel_read_failed'));
-  const why =
-    typeof unavailable === 'string' && unavailable !== '' ? `: ${sanitize(unavailable)}` : '';
+  const { status, ignored, forceIgnored, completion, mergeSeen, unread } = cancelFacts(value);
+  const why = unread === null || unread === '' ? '' : `: ${sanitize(unread)}`;
   if (status === 'CANCELLED')
     return {
       text: `Cancelled: the daemon reports the task CANCELLED (${id})${field(value, 'warning') === undefined ? '' : '. The PR was not read: check it on GitHub'}`,
@@ -254,7 +237,7 @@ function cancelLine(value: unknown, id: string): { text: string; style: Style } 
       text: `Nothing changed: a cancel was already requested and is still waiting (${id}). See the actions below`,
       style: WARN,
     };
-  if (status === 'WAITING' && unread)
+  if (status === 'WAITING' && unread !== null)
     return {
       text: `Cancel requested, but the PR could not be read${why}. The task waits until a read shows it open or closed; see the actions below (${id})`,
       style: WARN,

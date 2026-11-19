@@ -347,9 +347,12 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
   // Short of room, the lines between stages go first: the stages and what to do matter more.
   const fits = head.length + timeline.length + tail.length <= height;
   const stagesShown = fits ? timeline : timeline.filter((_, i) => stages === null || i % 2 === 0);
-  [...head, ...stagesShown, ...tail]
-    .slice(0, height)
-    .forEach((segs, i) => putSegs(frame, 1, top + i, segs, width - 1));
+  const body = [...head, ...stagesShown, ...tail];
+  // The key that opens the attempt chooser sits at the foot of the pane, where there is room for it.
+  const hinted = body.length + 2 <= height && s.logs?.picker == null;
+  body.slice(0, height).forEach((segs, i) => putSegs(frame, 1, top + i, segs, width - 1));
+  if (hinted)
+    putSegs(frame, 1, top + height - 1, [ui('t', ACTIVE), ui(' attempts', DIM)], width - 1);
 }
 
 const NAME_COLS = 24;

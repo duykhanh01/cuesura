@@ -22,9 +22,10 @@ import { contentHeight } from '../views/disconnected.ts';
 import { dialogPaging } from '../views/dialog.ts';
 import { editField, textField, type TextField } from '../views/input.ts';
 import { writeBlock } from './actions.ts';
+import { cancelNeedsMenu } from './cancel-result.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
 import type { Effect } from './messages.ts';
-import { mutationLock, writeLock, type TuiState } from './state.ts';
+import { currentScreen, mutationLock, writeLock, type TuiState } from './state.ts';
 
 export type TaskDialogKind =
   | 'answer'
@@ -393,6 +394,33 @@ export function closeDialog(state: TuiState): TuiState {
   };
 }
 
+/** Back to Home from wherever the task was open, dropping everything held for it; drafts are kept. */
+function toHome(state: TuiState): TuiState {
+  return {
+    ...closeDialog(state),
+    screens: ['home'],
+    detail: null,
+    logs: null,
+    actions: null,
+    review: null,
+  };
+}
+
+/**
+ * A cancel whose reply was lost and later found accepted (by a check or a resend): the dialog closed on the doubt, so the menu of its
+ * task is left for Home only when it is still the screen on top. Anywhere else the user moved on by themselves.
+ */
+export function onLateCancel(state: TuiState, before: Mutation | undefined, m: Mutation): TuiState {
+  if (m.state !== 'accepted' || m.command.kind !== 'task_cancel') return state;
+  if (before === undefined || before.requestId !== m.requestId) return state;
+  // Found by a check, or by a resend, which goes through `sending` again; never a repeat of a settled one.
+  if (before.state === 'accepted' || before.state === 'rejected') return state;
+  if (m.result?.ok !== true || cancelNeedsMenu(m.result.value)) return state;
+  if (state.dialog !== null || currentScreen(state) !== 'actions') return state;
+  if (state.actions?.taskId !== mutationTarget(m.command)) return state;
+  return toHome(state);
+}
+
 /** Anything typed that leaving would lose, for the question quitting asks. */
 export function dialogHasText(state: TuiState): boolean {
   const d = state.dialog;
@@ -730,6 +758,10 @@ export function onDialogMutation(state: TuiState, m: Mutation): Reduced {
     case 'sending':
       return same(state);
     case 'accepted':
+      // A cancel that took effect ends the user's business with the task: Home, not a menu of a dead task.
+      if (d.kind === 'cancel' && m.result?.ok === true && !cancelNeedsMenu(m.result.value))
+        return same(toHome(state));
+      return same(closeDialog(state));
     case 'unknown':
     case 'unresolved':
       // The screen under says what is known of it, and goes on checking what is not.
