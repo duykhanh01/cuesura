@@ -151,8 +151,8 @@ Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tụ
   dung còn đúng như đã hiện, PR mở, không draft, `mergeable_state` sạch và compare với tip target, required checks
   hiện tại xanh như yolo (rỗng thì từ chối), xác nhận PR bằng GraphQL ngay trước khi ghi approval `user:merge`.
   Không cần bật yolo và không đổi cấu hình yolo. Lệnh lặp cùng request ID trả lại kết quả cũ; gửi lại sau khi kết quả
-  mất mà PR đã đóng thì trả `sent_earlier`.
-- Kết quả `sent`, `unknown` (GitHub không trả lời, PR có thể đã merge) hay `sent_earlier` đều chưa phải DONE: menu
+  mất thì daemon đọc PR trước: đang mở thì gửi lại đúng merge gắn head, đã merge thì không gửi và trả `already_merged`, đóng mà không merge thì từ chối `pr_closed_unmerged`. Target tip phải đọc được và trùng tip đã so với head, lệch thì từ chối.
+- Kết quả `sent`, `unknown` (GitHub không trả lời, PR có thể đã merge) hay `already_merged` đều chưa phải DONE: menu
   Actions nói `not DONE until the daemon sees the merge`, task chỉ DONE khi quan sát PR chứng minh merge (`recheck`
   ghi ngay). GitHub từ chối hoặc kiểm tra lại thất bại thì daemon trả `conflict` (`not_ready`, `checks_not_ready`,
   `merge_changed`, `github_refused`…), hộp thoại báo `Nothing was merged: <lý do>` và không gửi lại.

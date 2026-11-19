@@ -41,6 +41,8 @@ type Remote = {
   pull?: Record<string, unknown>;
   checks?: Record<string, string>;
   mergeStatus?: number | 'lost';
+  /** The target tip the last confirmation reports; `null` reports none. */
+  confirmTip?: string | null;
 };
 
 function github(r: Remote = {}) {
@@ -121,7 +123,9 @@ function github(r: Remote = {}) {
                 isDraft: pull['draft'],
                 headRefOid: pull.head.sha,
                 baseRefName: pull.base.ref,
-                baseRef: { target: { oid: 'b'.repeat(40) } },
+                baseRef: {
+                  target: { oid: r.confirmTip === undefined ? 'b'.repeat(40) : r.confirmTip },
+                },
               },
             },
           },
@@ -134,12 +138,13 @@ function github(r: Remote = {}) {
 
 const puts = (sent: readonly GitHubRequest[]) => sent.filter((r) => r.method === 'PUT');
 
-function deps(d: StoreDriver, port: GitHubPort): ManualMergeDeps {
+function deps(d: StoreDriver, port: GitHubPort, content = true): ManualMergeDeps {
   return {
     store: d.store,
     now: () => d.now,
     github: () => port,
-    content: () => ({ commit_message: MESSAGE, pr_title: 'title', pr_body: 'body' }),
+    content: () =>
+      content ? { commit_message: MESSAGE, pr_title: 'title', pr_body: 'body' } : null,
   };
 }
 
@@ -170,9 +175,15 @@ function body(d: StoreDriver, t: CanonicalTask, over: Record<string, unknown> = 
   };
 }
 
-const run = (d: StoreDriver, port: GitHubPort, input: CommandInput, caller: Caller = owner) =>
+const run = (
+  d: StoreDriver,
+  port: GitHubPort,
+  input: CommandInput,
+  caller: Caller = owner,
+  content = true,
+) =>
   taskMerge(
-    deps(d, port),
+    deps(d, port, content),
     {
       record: { request_id: input.request_id, assigned_ids: Array.from({ length: 8 }, newId) },
     } as unknown as Admitted,
@@ -251,7 +262,7 @@ describe('task_merge', () => {
   it('refuses a draft or closed PR, or one whose checks are not green', async () => {
     for (const [remote, reason] of [
       [{ pull: { draft: true } }, 'not_ready'],
-      [{ pull: { state: 'closed' } }, 'not_ready'],
+      [{ pull: { state: 'closed' } }, 'pr_closed_unmerged'],
       [{ pull: { mergeable_state: 'blocked' } }, 'not_ready'],
       [{ checks: { build: 'success', test: 'failure' } }, 'checks_not_ready'],
       [{ checks: { build: 'success', test: 'pending' } }, 'checks_not_ready'],
@@ -283,18 +294,68 @@ describe('task_merge', () => {
     expect(d.task(t.id)).toMatchObject({ status: 'WAITING', completion: null });
   });
 
-  it('answers a lost GitHub reply as unknown, and a resend after the PR closed as sent earlier', async () => {
+  it('fails closed when the final target tip is missing or moved after the head was compared', async () => {
+    for (const confirmTip of [null, 'c'.repeat(40)]) {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const { port, sent } = github({ confirmTip });
+      const r = await run(d, port, body(d, t));
+      expect(r, String(confirmTip)).toMatchObject({
+        ok: false,
+        error: { details: { reason: 'not_ready' } },
+      });
+      expect(puts(sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+    }
+  });
+
+  it('answers a lost GitHub reply as unknown, then reads the PR: open is sent again, merged is not', async () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
     const lost = await run(d, github({ mergeStatus: 'lost' }).port, body(d, t));
     expect(lost).toMatchObject({ ok: true, value: { outcome: 'unknown', done: false } });
-    // The same approval, asked again after GitHub shows the PR closed (merged): nothing is sent twice.
-    const later = github({ pull: { state: 'closed', merged: true } });
-    const again = await run(d, later.port, body(d, t));
-    expect(again).toMatchObject({ ok: true, value: { outcome: 'sent_earlier', done: false } });
-    expect(puts(later.sent)).toEqual([]);
+    // Still open: the same head-bound merge is sent again, once.
+    const open = github();
+    expect(await run(d, open.port, body(d, t))).toMatchObject({
+      ok: true,
+      value: { outcome: 'sent' },
+    });
+    expect(puts(open.sent)).toHaveLength(1);
+    // GitHub shows it merged: nothing is sent, and the task is still not DONE.
+    const merged = github({ pull: { state: 'closed', merged: true } });
+    expect(await run(d, merged.port, body(d, t))).toMatchObject({
+      ok: true,
+      value: { outcome: 'already_merged', done: false },
+    });
+    expect(puts(merged.sent)).toEqual([]);
     expect(d.task(t.id).status).toBe('WAITING');
+  });
+
+  it('does not take a closed PR for a merge after a refused or unsent request', async () => {
+    for (const first of ['refused', 'content'] as const) {
+      const d = setup();
+      const t = buildTask();
+      green(d, t);
+      const r = await run(
+        d,
+        github(first === 'refused' ? { mergeStatus: 405 } : {}).port,
+        body(d, t),
+        owner,
+        first !== 'content',
+      );
+      expect(r, first).toMatchObject({ ok: false });
+      // The approval stands, yet the PR closed without a merge is neither sent nor reported as one.
+      expect(approvals(d, t)).toHaveLength(1);
+      const closed = github({ pull: { state: 'closed', merged: false } });
+      expect(await run(d, closed.port, body(d, t)), first).toMatchObject({
+        ok: false,
+        error: { details: { reason: 'pr_closed_unmerged' } },
+      });
+      expect(puts(closed.sent)).toEqual([]);
+      expect(d.task(t.id)).toMatchObject({ status: 'WAITING', completion: null });
+    }
   });
 
   it('is not offered, and refused, for a task not waiting for its merge', async () => {

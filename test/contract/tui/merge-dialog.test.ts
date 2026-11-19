@@ -291,7 +291,7 @@ describe('what the menu says of a merge request', () => {
     })?.text ?? '';
 
   it('never says DONE for a merge GitHub took, a lost answer, or one sent before', () => {
-    for (const outcome of ['sent', 'unknown', 'sent_earlier']) {
+    for (const outcome of ['sent', 'unknown', 'already_merged']) {
       const text = line({ result: { ok: true, value: { outcome, done: false } } });
       expect(text, outcome).not.toMatch(/^Done|DONE:/);
       expect(text, outcome).toContain('not DONE until');

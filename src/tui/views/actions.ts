@@ -220,7 +220,7 @@ function mergeLine(value: unknown, id: string): { text: string; style: Style } {
       style: WARN,
     };
   return {
-    text: `${outcome === 'sent_earlier' ? 'Merge was already requested' : 'Merge sent: GitHub accepted it'}. The task is not DONE until the daemon sees the merge; Recheck records it at once (${id})`,
+    text: `${outcome === 'already_merged' ? 'Nothing sent: GitHub already shows the PR merged' : 'Merge sent: GitHub accepted it'}. The task is not DONE until the daemon sees the merge; Recheck records it at once (${id})`,
     style: { bold: true },
   };
 }

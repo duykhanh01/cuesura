@@ -9,6 +9,7 @@
  * targeting its goal branch is merged by the goal's own machinery (R-23), never from here.
  */
 import { readMergeReadiness, confirmPull, sendMerge } from '../adapters/github/merge.ts';
+import { pullFacts } from '../adapters/github/merge-proof.ts';
 import type { MergeTarget } from '../adapters/github/merge.ts';
 import type { GitHubPort } from '../adapters/ports.ts';
 import type { PublishContent } from '../adapters/context.ts';
@@ -128,13 +129,11 @@ export async function taskMerge(
   if (unlistedWaivers(s).length > 0) return err(refused('waivers_not_listed'));
 
   const port = deps.github();
-  const already = yoloApproval(s, p.head_sha)?.granted_by === MANUAL_APPROVER;
   const first = await readMergeReadiness(port, target);
   if (!first.ready) {
-    // A resend after a lost answer finds the PR closed: the earlier request may have merged it, and only
-    // the next observation says. Anything else is a PR that is not ready to merge.
-    if (already && first.reason === 'pull is not open')
-      return ok(result(deps.store, id, 'sent_earlier'));
+    // Not open: whether it was merged or closed is read from GitHub, never inferred from an earlier
+    // approval, which says nothing about a merge having been sent.
+    if (first.reason === 'pull is not open') return closedPull(deps, port, target, id);
     return err(
       refused('not_ready', {
         detail: first.reason,
@@ -158,6 +157,14 @@ export async function taskMerge(
   if (!last.ready) return err(refused('not_ready', { detail: last.reason }));
   const pull = await confirmPull(port, target);
   if (!pull.ok) return err(refused('not_ready', { detail: pull.reason }));
+  // The head was compared with `last.tip`: a target tip that is missing now, or moved since, was not.
+  if (last.tip === undefined || pull.tip === null || pull.tip !== last.tip)
+    return err(
+      refused('not_ready', {
+        detail:
+          pull.tip === null ? 'target tip unreadable' : 'target moved after the head was compared',
+      }),
+    );
 
   const approved = submit(deps.store, {
     task_id: s.id,
@@ -188,14 +195,40 @@ export async function taskMerge(
 }
 
 /**
- * `sent`: GitHub accepted the merge. `unknown`: the answer was lost, so the merge may have happened.
- * `sent_earlier`: an earlier request of this approval already sent it. None of them is DONE: the task
- * ends only when the observation of the PR proves the merge.
+ * A PR that is no longer open, as GitHub shows it now. Merged: the daemon's own observation proves it and
+ * ends the task, whoever merged and by whichever request, so nothing is sent. Closed without a merge, or
+ * unreadable, is refused: it is not a merge and not DONE.
+ */
+async function closedPull(
+  deps: ManualMergeDeps,
+  port: GitHubPort,
+  t: MergeTarget,
+  id: Uuid,
+): Promise<Result<unknown, AppError>> {
+  const r = await port.request({
+    method: 'GET',
+    path: `repos/${t.repo}/pulls/${t.pr_number}`,
+    query: {},
+    body: null,
+  });
+  if (!r.ok) return err(refused('not_ready', { detail: `pull unreadable: ${r.error.detail}` }));
+  const facts = pullFacts(r.value.body);
+  if (facts.merged === true) return ok(result(deps.store, id, 'already_merged'));
+  return err(
+    refused('pr_closed_unmerged', { detail: 'the pull request was closed without a merge' }),
+  );
+}
+
+/**
+ * `sent`: GitHub accepted the merge. `unknown`: the answer was lost, so the merge may have happened; asking
+ * again reads the PR first and sends the same head-bound merge only while it is still open.
+ * `already_merged`: GitHub shows the PR merged and nothing was sent. None of them is DONE: the task ends
+ * only when the observation of the PR proves the merge.
  */
 function result(
   store: Store,
   id: Uuid,
-  outcome: 'sent' | 'unknown' | 'sent_earlier',
+  outcome: 'sent' | 'unknown' | 'already_merged',
 ): Record<string, unknown> {
   const s = store.readTask(id) as TaskState;
   return { outcome, done: s.status === 'DONE', task: taskView(s) };
