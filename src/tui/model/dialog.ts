@@ -25,7 +25,7 @@ import { writeBlock } from './actions.ts';
 import { cancelNeedsMenu } from './cancel-result.ts';
 import { EXPLAIN_READ_MS, noPart, type Part } from './detail.ts';
 import type { Effect } from './messages.ts';
-import { mutationLock, writeLock, type TuiState } from './state.ts';
+import { currentScreen, mutationLock, writeLock, type TuiState } from './state.ts';
 
 export type TaskDialogKind =
   | 'answer'
@@ -404,6 +404,20 @@ function toHome(state: TuiState): TuiState {
     actions: null,
     review: null,
   };
+}
+
+/**
+ * A cancel whose reply was lost and later found accepted: the dialog closed on the doubt, so the menu of its
+ * task is left for Home only when it is still the screen on top. Anywhere else the user moved on by themselves.
+ */
+export function onLateCancel(state: TuiState, before: Mutation | undefined, m: Mutation): TuiState {
+  if (m.state !== 'accepted' || m.command.kind !== 'task_cancel') return state;
+  if (before === undefined || before.requestId !== m.requestId) return state;
+  if (before.state !== 'unknown' && before.state !== 'unresolved') return state;
+  if (m.result?.ok !== true || cancelNeedsMenu(m.result.value)) return state;
+  if (state.dialog !== null || currentScreen(state) !== 'actions') return state;
+  if (state.actions?.taskId !== mutationTarget(m.command)) return state;
+  return toHome(state);
 }
 
 /** Anything typed that leaving would lose, for the question quitting asks. */

@@ -87,6 +87,40 @@ describe('after a cancel', () => {
   });
 });
 
+describe('a cancel whose reply was lost', () => {
+  const lost = (): { state: TuiState; command: Mutation['command'] } => {
+    const { state, command } = sentCancel();
+    return { state: answer(state, command, { state: 'unknown', result: null }), command };
+  };
+
+  it.each(['unknown', 'unresolved'] as const)(
+    'goes Home when found accepted after %s and the menu is still on top',
+    (doubt) => {
+      const { state, command } = sentCancel();
+      const doubtful = answer(state, command, { state: doubt, result: null });
+      expect(doubtful.screens.at(-1)).toBe('actions');
+      const after = answer(doubtful, command, {});
+      expect(after.screens).toEqual(['home']);
+      expect(after.actions).toBeNull();
+    },
+  );
+
+  it('does not move the user who left the menu, or opened another dialog, meanwhile', () => {
+    const { state, command } = lost();
+    const left = { ...state, screens: state.screens.slice(0, -1) } as TuiState;
+    expect(answer(left, command, {}).screens).toEqual(['home', 'logs']);
+    const reopened = run(state, key('enter')).state;
+    expect(reopened.screens.at(-1)).toBe('dialog');
+    expect(answer(reopened, command, {}).screens.at(-1)).toBe('dialog');
+  });
+
+  it('stays on the menu when the late result still needs it', () => {
+    const { state, command } = lost();
+    const after = answer(state, command, { result: { ok: true, value: { status: 'DONE' } } });
+    expect(after.screens.at(-1)).toBe('actions');
+  });
+});
+
 describe('Progress sidebar', () => {
   it('shows the key that opens the attempt chooser', () => {
     const base = menu(OWNER, explainOf({}, ['cancel']));
@@ -98,5 +132,17 @@ describe('Progress sidebar', () => {
       logs: initialLogs(TASK, uiText('T'), 2),
     };
     expect(text(logs)).toMatch(/^.*\bt attempts\b/m);
+  });
+
+  it('hides it while the attempt chooser is open, where t does nothing', () => {
+    const base = menu(OWNER, explainOf({}, ['cancel']));
+    const logs: TuiState = {
+      ...base,
+      screens: ['home', 'logs'],
+      actions: null,
+      detail: initialDetail(TASK, uiText('T'), 1),
+      logs: { ...initialLogs(TASK, uiText('T'), 2), picker: 'x' },
+    };
+    expect(text(logs)).not.toMatch(/\bt attempts\b/);
   });
 });

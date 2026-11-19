@@ -257,11 +257,8 @@ describe('Cancel on a PTY against a real daemon', () => {
       COMMAND_TIMEOUT_MS + 5_000,
     );
     proxy.mode = 'forward';
-    await s.waitFor(
-      () => flat(s.screenText()).includes('Cancelled: the daemon reports the task CANCELLED'),
-      15_000,
-    );
-    expect(flat(s.screenText())).toContain('The PR was not read: check it on GitHub');
+    // Found accepted while the menu is still on top: Home, as for a reply that was not lost.
+    await s.waitForText('n new task');
     expect(flat(s.screenText())).not.toContain('Cancel accepted by the daemon');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
