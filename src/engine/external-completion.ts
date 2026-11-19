@@ -21,7 +21,9 @@ import { waitObservationExpired } from './observation.ts';
 const YOLO_APPROVER = 'policy:yolo';
 /** A unit's merge into its goal branch (007, R-23): the confirmed plan stands for the owner's yolo. */
 export const GOAL_APPROVER = 'policy:goal';
-const DAEMON_APPROVERS: readonly string[] = [YOLO_APPROVER, GOAL_APPROVER];
+/** The owner's explicit Merge PR action in the TUI: the daemon rechecks everything yolo does, yolo or not. */
+export const MANUAL_APPROVER = 'user:merge';
+const DAEMON_APPROVERS: readonly string[] = [YOLO_APPROVER, GOAL_APPROVER, MANUAL_APPROVER];
 
 /** Runtime tasks complete by external confirmation only (the snapshot's completion_mode is fixed). */
 export function externalConfirmation(ctx: Ctx): boolean {
@@ -117,6 +119,8 @@ export function onYoloMergeApprove(ctx: Ctx, t: YoloMergeApprove): void {
   if (s.wait?.detail.code !== 'merge') return ignored('yolo_not_waiting');
   if (s.cancellation !== null || s.completion !== null) return ignored('yolo_not_waiting');
   if (t.by === GOAL_APPROVER && !targetsGoalBranch(s)) return ignored('goal_not_unit');
+  // A unit's merge into its goal branch is the goal's to make, in order (R-23), never a person's click.
+  if (t.by === MANUAL_APPROVER && targetsGoalBranch(s)) return ignored('manual_goal_unit');
   if (!verifiedHead(ctx, t.head_sha)) return ignored('yolo_head_unverified');
   if (yoloApproval(s, t.head_sha) !== undefined) return ignored('yolo_approved');
   const content = s.run.content;

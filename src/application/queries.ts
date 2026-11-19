@@ -11,6 +11,7 @@ import {
   type CanonicalTask,
 } from '../domain/task.ts';
 import { DeclaredScopeSchema } from './scope-match.ts';
+import { DEFAULT_MERGE_METHOD } from '../domain/merge-method.ts';
 import type { TaskState } from '../domain/state.ts';
 import type { FrozenPolicy } from '../domain/policy.ts';
 import { stepVisitLimit } from '../engine/interpreter.ts';
@@ -164,6 +165,11 @@ export function mergeView(
   const content = c === null || c.revision !== s.revision ? null : read(c.ref, c.digest);
   return {
     method: rt.merge_method ?? null,
+    // What a merge sent by the daemon would use: the frozen method, else the default.
+    send_method: rt.merge_method ?? DEFAULT_MERGE_METHOD,
+    pr_ref: s.pr_ref,
+    target: s.task.base_branch,
+    head_sha: s.head_sha,
     proposed:
       content === null
         ? null

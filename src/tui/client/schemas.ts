@@ -418,7 +418,14 @@ export const TaskExplainSchema = z.looseObject({
   merge: z
     .looseObject({
       method: safe.nullable(),
-      proposed: z.looseObject({ title: safe, message: safeBlock }).nullable(),
+      /** What a merge sent by the daemon uses; older daemons do not say. */
+      send_method: safe.nullable().optional(),
+      pr_ref: safe.nullable().optional(),
+      target: safe.nullable().optional(),
+      head_sha: safe.nullable().optional(),
+      proposed: z
+        .looseObject({ title: safe, message: safeBlock, digest: safe.nullable().optional() })
+        .nullable(),
       observed_method: safe.nullable(),
     })
     .nullable(),

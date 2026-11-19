@@ -67,6 +67,7 @@ import { httpStatusFor } from '../cli/errors.ts';
 import { okEnvelope } from '../cli/output.ts';
 import type { Result } from '../shared/result.ts';
 import { errorReply, type Reply } from './server.ts';
+import { taskMerge, type ManualMergeDeps } from './manual-merge.ts';
 import { readQueuePause, type QueuePause } from './queue-pause.ts';
 import { validateConfig } from '../config/validate.ts';
 import type { CommandHandler, QueryHandler } from './main.ts';
@@ -92,6 +93,8 @@ export type TaskControlDeps = TaskServiceDeps & {
   readonly held?: DeputyWatch;
   /** Masks secrets in what a goal keeps verbatim. */
   readonly redact?: (text: string) => string;
+  /** What `task_merge` needs beyond the store; without it the command answers `not_available`. */
+  readonly merge?: Omit<ManualMergeDeps, 'store' | 'now'>;
 };
 
 /** One watch for the attention desk: held by either. */
@@ -184,6 +187,7 @@ export function taskControl(deps: TaskControlDeps): {
     task_resume: CommandHandler;
     task_message: CommandHandler;
     task_recheck?: CommandHandler;
+    task_merge?: CommandHandler;
     goal_add?: CommandHandler;
     goal_revise?: CommandHandler;
     goal_note?: CommandHandler;
@@ -281,6 +285,12 @@ export function taskControl(deps: TaskControlDeps): {
         ? {}
         : {
             task_recheck: (admitted, input, caller) => taskRecheck(deps, admitted, input, caller),
+          }),
+      ...(deps.merge === undefined
+        ? {}
+        : {
+            task_merge: (admitted, input, caller) =>
+              taskMerge({ store, now: deps.now, ...deps.merge! }, admitted, input, caller),
           }),
       ...(goals === null
         ? {}

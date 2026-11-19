@@ -41,6 +41,7 @@ const KNOWN: Readonly<Record<string, Known>> = {
   resume: { label: 'Resume task', kind: 'dialog', role: 'operate' },
   continue: { label: 'Continue task', kind: 'dialog', role: 'operate' },
   task_add: { label: 'New task', kind: 'dialog', role: 'operate' },
+  merge_pr: { label: 'Merge PR', kind: 'dialog', role: 'admin' },
   merge_manually: { label: 'Merge on GitHub', kind: 'guide' },
   fix_external: { label: 'Fix outside Cuesura', kind: 'guide' },
   wait: { label: 'Wait', kind: 'info' },
@@ -179,11 +180,18 @@ export function mutationLine(m: Mutation | undefined): { text: string; style: St
         style: WARN,
       };
     case 'accepted':
+      if (m.command.kind === 'task_merge')
+        return mergeLine(m.result?.ok === true ? m.result.value : null, id);
       return m.command.kind === 'task_cancel'
         ? cancelLine(m.result?.ok === true ? m.result.value : null, id)
         : { text: `Done (${id})`, style: { bold: true } };
     case 'rejected': {
       const r = m.result;
+      if (r?.ok === false && r.code === 'conflict' && m.command.kind === 'task_merge')
+        return {
+          text: `Merge not sent: ${sanitize(r.message)}. Nothing was sent again (${id})`,
+          style: BAD_STRONG,
+        };
       if (r?.ok === false && r.code === 'conflict')
         return {
           text: `Conflict: the daemon refused it because the task is not as the dialog saw it (${sanitize(r.message)}). Nothing was sent again (${id})${r.committed === undefined ? '' : ` ${r.committed}`}`,
@@ -199,6 +207,23 @@ export function mutationLine(m: Mutation | undefined): { text: string; style: St
 
 const field = (v: unknown, k: string): unknown =>
   typeof v === 'object' && v !== null ? (v as Record<string, unknown>)[k] : undefined;
+
+/**
+ * What became of an accepted merge: GitHub took the request, or its answer was lost. Neither is DONE, which
+ * only the daemon's next observation of the PR records.
+ */
+function mergeLine(value: unknown, id: string): { text: string; style: Style } {
+  const outcome = field(value, 'outcome');
+  if (outcome === 'unknown')
+    return {
+      text: `Merge result unknown: GitHub's answer was lost, so the PR may be merged. The task is not DONE until the daemon sees the merge; Recheck reads it now (${id})`,
+      style: WARN,
+    };
+  return {
+    text: `${outcome === 'sent_earlier' ? 'Merge was already requested' : 'Merge sent: GitHub accepted it'}. The task is not DONE until the daemon sees the merge; Recheck records it at once (${id})`,
+    style: { bold: true },
+  };
+}
 
 /**
  * What became of an accepted cancel, from the handler's value (`task cancel --json`): an accept can still
@@ -278,7 +303,7 @@ function ending(e: TaskExplain): { text: string; style: Style }[] {
     });
   else if (e.wait?.detail.code === 'merge')
     lines.push({
-      text: 'Waiting for a merge: merge the pull request on GitHub by hand (see Merge on GitHub), then recheck.',
+      text: 'Waiting for a merge: merge the pull request here (Merge PR) or on GitHub by hand (see Merge on GitHub), then recheck.',
       style: NOTICE,
     });
   return lines;

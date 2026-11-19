@@ -1,5 +1,6 @@
 import type { DetailCode, TaskState } from '../domain/state.ts';
 import { continuable } from '../engine/continue.ts';
+import { targetsGoalBranch } from '../engine/external-completion.ts';
 import { exhaustedByInfra } from '../engine/recheck.ts';
 import { runConfigConfirmed } from '../engine/run-config.ts';
 
@@ -11,6 +12,7 @@ import { runConfigConfirmed } from '../engine/run-config.ts';
 export type AllowedAction = {
   readonly action:
     | 'merge_manually'
+    | 'merge_pr'
     | 'recheck'
     | 'continue'
     | 'amend_policy'
@@ -107,6 +109,28 @@ const merge = (c: Ctx): AllowedAction | null =>
   c.hasPr
     ? { action: 'merge_manually', command: null, note: mergeNote(c.s), requires: null }
     : null;
+/**
+ * The owner's explicit merge, TUI only: it names no CLI command (the CLI has no merge approval), so it has
+ * no `requires`; the TUI takes the admin role it needs from the daemon's command table. Offered only while
+ * the daemon waits for the merge of a head it has verified, never to a goal unit (merged by its goal).
+ */
+const mergePr = (c: Ctx): AllowedAction | null => {
+  const s = c.s;
+  return c.hasPr &&
+    (s.runtime_ref ?? null) !== null &&
+    (s.head_sha ?? null) !== null &&
+    s.cancellation === null &&
+    s.completion === null &&
+    (s.pause ?? null) === null &&
+    !(s.task !== undefined && targetsGoalBranch(s))
+    ? {
+        action: 'merge_pr',
+        command: null,
+        note: 'Terminal UI only, owner (admin) only. Shows the PR, target, head, method and commit message, asks you to confirm, then the daemon checks readiness, CI and the exact head again and merges. The task is DONE only when the next observation of the PR proves the merge; Merge on GitHub below stays available.',
+        requires: null,
+      }
+    : null;
+};
 const external = (note: string): AllowedAction => ({
   action: 'fix_external',
   command: null,
@@ -386,7 +410,7 @@ const ROWS: Readonly<Record<DetailCode, Row>> = {
       cancel(c),
     ];
   },
-  merge: (c) => [merge(c), recheck(c, 'Reads the PR once.'), cancel(c)],
+  merge: (c) => [mergePr(c), merge(c), recheck(c, 'Reads the PR once.'), cancel(c)],
   checks_incomplete: (c) => [wait('CI is being observed within its limits.'), merge(c), cancel(c)],
   execution_slot: (c) => [
     wait(

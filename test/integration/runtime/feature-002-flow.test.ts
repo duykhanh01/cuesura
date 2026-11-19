@@ -956,6 +956,10 @@ describe.each(['full-review', 'direct-pr'] as const)(
         const rt = d.store.readRuntimeContext(task.id, 1);
         expect(mergeView(s, rt, readStoredContent)).toEqual({
           method,
+          send_method: method,
+          pr_ref: s.pr_ref,
+          target: s.task.base_branch,
+          head_sha: s.head_sha,
           proposed: {
             title: CONTENT.pr_title,
             message: CONTENT.commit_message,

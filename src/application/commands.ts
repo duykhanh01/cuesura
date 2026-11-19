@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { HandoffSchema, type SpentFail } from '../domain/deputy.ts';
 import { GoalHintsSchema } from '../domain/goal.ts';
 import { TrialSchema, type AuthzRole, type Trial } from '../domain/policy.ts';
+import { MergeMethodSchema } from '../domain/merge-method.ts';
 import { RunProposalSchema } from '../domain/run-config.ts';
 import { AmendPayloadSchema } from './amend-policy.ts';
 import { HashSchema, UuidSchema, type Uuid } from '../shared/brand.ts';
@@ -58,6 +59,19 @@ export const COMMAND_PAYLOADS = {
     .object({ step: z.string().min(1), rung: z.number().int().nonnegative() })
     .strict(),
   approve_adopt: z.object({ head_sha: z.string().regex(/^[0-9a-f]{40}$/) }).strict(),
+  /**
+   * The owner's explicit merge of the PR as the dialog showed it: the daemon sends it only while PR,
+   * target, head, method and commit message are still exactly these.
+   */
+  task_merge: z
+    .object({
+      pr_ref: z.string().min(1).max(256),
+      target: z.string().min(1).max(255),
+      head_sha: z.string().regex(/^[0-9a-f]{40}$/),
+      merge_method: MergeMethodSchema,
+      content_digest: HashSchema,
+    })
+    .strict(),
   deputy_handoff: HandoffSchema,
   goal_add: z
     .object({
@@ -103,6 +117,7 @@ const REQUIRED_ROLE: Record<CommandKind, AuthzRole> = {
   answer: 'operate',
   approve_escalation: 'operate',
   approve_adopt: 'admin',
+  task_merge: 'admin',
   deputy_handoff: 'operate',
   goal_add: 'operate',
   goal_revise: 'operate',
