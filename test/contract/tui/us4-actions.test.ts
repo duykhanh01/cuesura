@@ -200,7 +200,7 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
     await s.waitForText('Nothing was sent: press Y to cancel the task');
     s.send(KEY.tab);
     s.send(KEY.ctrlS);
-    await s.waitForText('Y cancels the task');
+    await s.waitForText('Y cancels · N or Esc leaves');
     s.send(KEY.enter);
     s.send('\x1b[200~Y\x1b[201~');
     await s.waitForText('Nothing was sent: press Y to cancel the task');
@@ -1304,7 +1304,7 @@ describe('a dialog on a small terminal (FR-035)', () => {
     const screen = text(cancel);
     expect(screen).toContain('Cancel this task now?');
     expect(screen).toContain('Y = yes, cancel it');
-    expect(screen).toContain('Y cancels the task');
+    expect(screen).toContain('Y cancels · N or Esc leaves');
   });
 
   it('shows the whole of an answer given elsewhere, by scrolling', () => {

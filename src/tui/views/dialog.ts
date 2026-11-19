@@ -143,7 +143,10 @@ function forceCancelBlocks(e: TaskExplain | null): Block[] {
   return rows;
 }
 
-/** What the daemon says the action does (`allowed_actions[].note`), such as dependent tasks it also cancels. */
+/**
+ * What the daemon says the action does (`allowed_actions[].note`), such as dependent tasks it also cancels.
+ * Kept by the question, in view however the text above is scrolled, so Y is never pressed without it.
+ */
 function noteBlocks(d: Dialog): Block[] {
   return d.note === null
     ? []
@@ -348,10 +351,7 @@ function layout(s: TuiState, d: Dialog) {
       head.push(...questionBlocks(questionView(d, explain), d, cols));
       break;
     case 'cancel':
-      head.push(
-        ...(d.force ? forceCancelBlocks(explain) : cancelBlocks(explain)),
-        ...noteBlocks(d),
-      );
+      head.push(...(d.force ? forceCancelBlocks(explain) : cancelBlocks(explain)));
       break;
     case 'recheck':
       head.push(...recheckBlocks(d));
@@ -371,7 +371,7 @@ function layout(s: TuiState, d: Dialog) {
       }),
     );
   const box: Block[] = [...nowBlocks(d)];
-  if (d.kind === 'cancel') box.push(...cancelConfirmBlocks(d));
+  if (d.kind === 'cancel') box.push(...noteBlocks(d), ...cancelConfirmBlocks(d));
   else if (word !== null)
     box.push(
       text(
@@ -441,8 +441,8 @@ export const dialogBody =
     const hint =
       (d.kind === 'cancel'
         ? d.focus === 'confirm'
-          ? `Y ${d.force ? 'force-cancels' : 'cancels'} the task · N or Esc leaves without sending · Tab edits the reason`
-          : 'Enter: next, to confirm with Y · Esc leaves without sending'
+          ? `Y ${d.force ? 'force-cancels' : 'cancels'} · N or Esc leaves · Tab: reason`
+          : 'Enter: next, to confirm with Y · Esc leaves'
         : word === null
           ? `${SEND_WORDS[d.kind]} · Esc leaves without sending`
           : 'Enter sends once the word is exact · Esc leaves without sending') +
