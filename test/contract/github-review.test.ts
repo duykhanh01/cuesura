@@ -550,14 +550,35 @@ describe('CI of a PR turned ready', () => {
     it('a lone success that started before the ready time is the draft’s or an earlier turn’s: pending', async () => {
       const early = { ...run(11, 'ci-ok', 'success', 101), started_at: '2026-11-18T01:17:19Z' };
       expect(await state(github([early], {}))).toBe('pending');
-      const untimed = { ...run(12, 'ci-ok', 'success', 101), started_at: undefined };
-      expect(await state(github([untimed], {}))).toBe('pending');
+      for (const started_at of [undefined, 'invalid', READY]) {
+        const untimed = {
+          ...run(12, 'ci-ok', 'success', 101),
+          started_at,
+          completed_at: '2026-11-18T01:17:30Z',
+        };
+        expect(await state(github([untimed], {}))).toBe('pending');
+      }
       // Repeated ready: the first turn’s success is no evidence for the second.
       const twice = github([early], {}, [
         { event: 'ready_for_review', created_at: '2026-11-17T09:00:00Z' },
         { event: 'ready_for_review', created_at: READY },
       ]);
       expect(await state(twice)).toBe('pending');
+    });
+
+    it('a late commit status update does not show when work started', async () => {
+      const status = {
+        context: 'ci-ok',
+        state: 'success',
+        created_at: '2026-11-18T01:17:19Z',
+        updated_at: '2026-11-18T01:17:30Z',
+      };
+      const port = fakePort({
+        [`GET repos/o/r/commits/${A}/check-runs`]: { check_runs: [] },
+        [`GET repos/o/r/commits/${A}/statuses`]: [status],
+        'GET repos/o/r/issues/1/events': [{ event: 'ready_for_review', created_at: READY }],
+      });
+      expect(await state(port)).toBe('pending');
     });
 
     it('a competing generation of an unrecognized state makes the success ambiguous, in both orders', async () => {

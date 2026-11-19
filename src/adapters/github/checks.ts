@@ -19,8 +19,7 @@ export type SourcedCheck = Check & {
   readonly source: 'check_run' | 'status';
   readonly app_id: number | null;
   readonly generation: number | string;
-  /** When the run started or the status was set; null when GitHub gave none. */
-  readonly at?: number | null;
+  readonly started_at?: number | null;
   readonly raw: string;
 };
 
@@ -104,7 +103,7 @@ export function selectCurrent(
       source: 'check_run',
       app_id: appId,
       generation: o['id'],
-      at: instant(o['started_at']) ?? instant(o['completed_at']),
+      started_at: instant(o['started_at']),
       raw: `${String(o['status'])}/${String(o['conclusion'])}`,
     });
   }
@@ -127,7 +126,6 @@ export function selectCurrent(
       source: 'status',
       app_id: null,
       generation: at,
-      at: instant(at),
       raw: String(o['state']),
     });
   }
@@ -235,13 +233,8 @@ export async function readHeadChecks(
   let checks = selected.checks;
   if (skip?.draft === true) checks = checks.filter((c) => !isSkip(c));
   else if (skip !== undefined && wouldPass(checks, skip.required)) {
-    // GitHub names no event for a workflow run, so once the PR has been a draft nothing ties a required
-    // result to the latest ready transition: a skip proves nothing (a draft's run reads like the ready
-    // run's) and waits, and a success counts only if it started after GitHub's ready time (one before it
-    // is the draft's or an earlier turn's), alone or beside no unfinished or unrecognized older run of the
-    // check. A success after the ready time is accepted as real work of this head, the same as GitHub's
-    // own merge rule does; it cannot be told from a draft's ungated one. Docs-only changes pass after a
-    // draft only when the required aggregate job itself succeeds, after the ready time (rerun if not).
+    // A skip does not show whether a job ran after Ready. A commit status update and a check's
+    // completion time likewise say nothing about when the check started.
     const at = await skip.readyAt();
     if (!at.ok) return { ok: false, error: at.error };
     if (at.at !== null) {
@@ -251,7 +244,7 @@ export async function readHeadChecks(
         skip.required.includes(c.name) &&
         (isSkip(c) ||
           ambiguous.has(c.generation) ||
-          (c.state === 'success' && !(c.at != null && c.at > ready)))
+          (c.state === 'success' && !(c.started_at != null && c.started_at > ready)))
           ? { ...c, state: 'pending' as const, raw: `${c.raw}?` }
           : c,
       );
