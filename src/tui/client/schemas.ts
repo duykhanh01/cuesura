@@ -307,7 +307,7 @@ export const TaskShowSchema = z.looseObject({
   deputy: z
     .looseObject({
       state: z.string(),
-      mode: z.enum(['interactive', 'headless']).optional(),
+      mode: z.enum(['interactive', 'headless']).nullable().optional(),
       attempt_id: z.string().optional(),
     })
     .optional(),

@@ -92,11 +92,15 @@ ghi của một lần chạy đứng sau output của mọi operation đăng ký
 output của operation đăng ký sau đó. Cursor không bị xê dịch vì:
 
 - lần chạy chỉ có vị trí khi các operation đăng ký trước nó đã xong (operation như `stop_attempt` dùng chung run
-  directory của attempt nó dừng không bị tính, giống ingester);
+  directory của attempt nó dừng không bị tính, giống ingester). Operation đã kết thúc mà spool mất hoặc hỏng thì
+  không ingest thêm được nữa: phần đã commit của nó thành gap, còn lần chạy giữ nguyên vị trí;
+- trong một lần chạy, bản ghi đứng theo `seq` bền của spool chứ không theo thứ tự đọc được: mất một segment để lại
+  gap đúng chỗ đó, các bản ghi sau giữ vị trí;
 - output phía sau một lần chạy còn đang chạy phải chờ;
 - lần chạy đã kết thúc giữ đúng số `records` đã xác nhận: spool mất thì thành gap cùng kích thước, lần chạy không ghi
   gì chiếm 0 vị trí;
 - số đã công bố (`published`) là mức sàn: spool mất trước khi lượt kết thúc vẫn để lại gap đúng số vị trí đã cấp.
+  `task_logs` chỉ ghi số này sau khi trang đã hợp lệ; không ghi được thì từ chối trang với `log_position_unsaved`.
 
 Task chỉ `complete` khi không còn lượt `running`/`retry_wait`. Bảng không sinh event (FR-025).
 
@@ -105,6 +109,8 @@ Giới hạn với dữ liệu ghi trước migration 009:
 - Mỗi lượt chỉ còn lần chạy cuối (attempt trong `deputy_turns`); các lần chạy trước một retry không hiện trong log.
 - Lần chạy đó được đặt sau event cuối của task lúc migrate, tức ở cuối log khi đó, không đúng thời điểm nó chạy.
 - `records` để NULL: số bản ghi đọc từ spool, nên spool mất thì lần chạy không còn vị trí.
+- `mode` để NULL: lượt bắt đầu native có thể đã resume headless, nên `task_show` báo mode chưa biết và TUI chỉ nói
+  deputy đang làm việc, không chỉ sang terminal native.
 - Lượt `plan` không có task nên không thuộc log của task nào.
 
 Lượt `interactive` chạy phiên native với stdio của terminal: output của phiên không vào spool, nên log chỉ có những gì

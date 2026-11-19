@@ -651,7 +651,9 @@ function liveTurn(store: Store, taskId: string): { deputy?: Record<string, unkno
       kind: t.kind,
       incident: t.incident,
       state: t.state,
-      mode: run?.mode ?? t.mode,
+      // A run recorded before modes were kept (migration 009) may have resumed headless: unknown, not the
+      // turn's first mode.
+      mode: run === undefined ? t.mode : run.mode,
       attempt_id: t.attempt_id,
       started_at: t.started_at,
       retry_at: t.retry_at,

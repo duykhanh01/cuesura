@@ -425,6 +425,9 @@ export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {
   return {
     ...state,
     logs: { ...read, deputyStamp: stamp },
-    ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
+    // Only a read asked after this page was asked can show what the new stamp stands for.
+    ...(state.detail === null
+      ? {}
+      : { detail: { ...state.detail, showWanted: true, showWantedAt: m.at } }),
   };
 }

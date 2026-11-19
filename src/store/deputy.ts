@@ -56,7 +56,7 @@ export type FinishTurn = {
 };
 
 /** The records a run wrote, kept once it ends so its place in the log survives losing its spool. */
-export type RunCount = { readonly records: number; readonly digest: string };
+export type RunCount = { readonly records: number; readonly digest: string | null };
 
 /** One run of a turn: where its spool is, and where its records go in its task's log. */
 export type DeputyRun = {

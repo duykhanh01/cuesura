@@ -28,7 +28,7 @@ import type { Redactor } from '../runner/redact.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import type { RunCount } from '../store/deputy.ts';
+import type { DeputyRun, RunCount } from '../store/deputy.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
@@ -293,7 +293,12 @@ function unsettled(
 }
 
 /** A deputy run's records; null when it has no run directory (never launched, or nothing written yet). */
-function deputyRecords(deps: SpoolDeps, attemptId: string): LogRecord[] | null | string {
+/**
+ * A deputy run's records by their place in it: record `seq` is at `seq - 1`, so a segment lost from the
+ * spool leaves holes where its records were instead of moving the later ones down (no ingester keeps a
+ * cursor for a deputy run). Null when the run has no directory (never launched, or nothing written yet).
+ */
+function deputyRecords(deps: SpoolDeps, attemptId: string): Spooled | null | string {
   try {
     RunDir.open({
       dataDir: deps.dataDir,
@@ -306,8 +311,15 @@ function deputyRecords(deps: SpoolDeps, attemptId: string): LogRecord[] | null |
     if (e instanceof RunnerFileError && e.code === 'not_found') return null;
     return e instanceof Error ? e.message : String(e);
   }
-  return openRecords(deps, { id: attemptId, attempt_id: attemptId });
+  const records = openRecords(deps, { id: attemptId, attempt_id: attemptId });
+  if (typeof records === 'string') return records;
+  const placed: Spooled = Array.from({ length: records.at(-1)?.seq ?? 0 }, () => undefined);
+  for (const r of records) if (r.seq >= 1 && r.seq <= placed.length) placed[r.seq - 1] = r;
+  return placed;
 }
+
+/** Records by place; `undefined` where a record is no longer on disk. */
+type Spooled = (LogRecord | undefined)[];
 
 /**
  * What a deputy run wrote, for the daemon to keep when the run ends (`deputy_turn_runs.records`); a run
@@ -317,7 +329,11 @@ export function runCount(deps: SpoolDeps, attemptId: string): RunCount | undefin
   const loaded = deputyRecords(deps, attemptId);
   if (typeof loaded === 'string') return undefined;
   const records = loaded ?? [];
-  return { records: records.length, digest: hashCanonical(records) };
+  // A run missing some of its records has no digest to keep: what is there is read by place.
+  return {
+    records: records.length,
+    digest: records.includes(undefined) ? null : hashCanonical(records),
+  };
 }
 
 /** What a record weighs against `LOG_PAGE_BYTES`. */
@@ -333,7 +349,7 @@ function tailStart(
   batches: readonly Batch[],
   limit: number,
   attemptId: string | undefined,
-  load: (id: string) => readonly LogRecord[] | string,
+  load: (id: string) => readonly (LogRecord | undefined)[] | string,
 ): number {
   const ends = new Map<string, number>();
   let end = 0;
@@ -407,7 +423,7 @@ export function taskLogs(
   let position = 0;
   let total = 0;
   const offsets = new Map<string, number>();
-  const cache = new Map<string, readonly LogRecord[] | string>();
+  const cache = new Map<string, readonly (LogRecord | undefined)[] | string>();
   const registeredAt = new Map<string, number>();
   const committed: Placed[] = [];
   for (const e of deps.store.readEvents(s.id as Uuid)) {
@@ -471,6 +487,8 @@ export function taskLogs(
   // group of output per stretch between two runs, each in ingestion order. Until every operation before
   // a run is settled, or while the run itself may still write, what follows it waits.
   const runs = deps.store.deputy.runsOf(s.id);
+  /** Counts to keep before the page that hands out their positions is returned. */
+  const publish: { readonly run: DeputyRun; readonly records: number }[] = [];
   const groups: Batch[][] = runs.map(() => []);
   groups.push([]);
   for (const item of items) {
@@ -496,16 +514,14 @@ export function taskLogs(
     let held: Unsettled | null = null;
     for (const op of Object.values(s.operations)) {
       if (regOf(op.id) > run.after_seq) continue;
-      held = unsettledOf(op);
+      // An operation that ended and whose spool cannot be read will never be ingested further: its
+      // committed records read as a gap, and the run keeps its place after them.
+      const h = unsettledOf(op);
+      held = h?.waiting === true ? h : null;
       if (held !== null) break;
     }
     if (held !== null) {
-      diagnostic ??= {
-        ...where,
-        reason: held.waiting
-          ? `${DEPUTY_WAITS}: ${held.reason}`
-          : `deputy output is held back: ${held.reason}`,
-      };
+      diagnostic ??= { ...where, reason: `${DEPUTY_WAITS}: ${held.reason}` };
       break;
     }
     let records = run.records;
@@ -519,8 +535,7 @@ export function taskLogs(
       }
       if (loaded !== null) cache.set(run.attempt_id, loaded);
       records = Math.max(loaded?.length ?? 0, run.published ?? 0);
-      if (records > (run.published ?? 0))
-        deps.store.deputy.publishRun(run.turn_id, run.attempt_id, records);
+      if (records > (run.published ?? 0)) publish.push({ run, records });
     }
     if (records > 0)
       batches.push({
@@ -540,7 +555,7 @@ export function taskLogs(
   }
   for (const b of batches) total += b.records;
   const deputyKeys = new Set(runs.map((r) => r.attempt_id));
-  const load = (key: string): readonly LogRecord[] | string => {
+  const load = (key: string): readonly (LogRecord | undefined)[] | string => {
     let loaded = cache.get(key);
     if (loaded === undefined) {
       const op = s.operations[key];
@@ -583,11 +598,18 @@ export function taskLogs(
       continue;
     }
     const loaded = load(key);
-    const batch = typeof loaded === 'string' ? null : loaded.slice(from, from + count);
+    const sliced = typeof loaded === 'string' ? null : loaded.slice(from, from + count);
+    // A deputy run is read by place: what its spool no longer holds is a hole, not a shorter run.
+    const batch =
+      sliced !== null && deputyKeys.has(key)
+        ? Array.from({ length: count }, (_, i) => sliced[i])
+        : sliced;
+    const holes = batch?.filter((r) => r === undefined).length ?? 0;
     if (
       batch === null ||
       batch.length < count ||
-      (digest !== null && hashCanonical(batch) !== digest)
+      holes === count ||
+      (holes === 0 && digest !== null && hashCanonical(batch) !== digest)
     ) {
       // Taken whole: a gap has no records to page through, and the cursor must still move past it.
       out.push({
@@ -600,7 +622,7 @@ export function taskLogs(
           reason:
             typeof loaded === 'string'
               ? `records unavailable: ${loaded}`
-              : batch !== null && batch.length < count
+              : batch !== null && (batch.length < count || holes === count)
                 ? 'records are no longer in the spool'
                 : 'records no longer match the committed digest',
         },
@@ -608,8 +630,30 @@ export function taskLogs(
       cursor = position;
       continue;
     }
-    for (const [i, r] of batch.entries()) {
+    for (let i = 0; i < batch.length; i++) {
+      const r = batch[i];
       const seq = first + i;
+      if (r === undefined) {
+        // A stretch of records lost from the spool: one gap, at the place of its last record.
+        let end = i;
+        while (batch[end + 1] === undefined && end + 1 < batch.length) end++;
+        i = end;
+        const last = first + end;
+        if (last <= after) continue;
+        if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
+        out.push({
+          seq: last,
+          cursor: last,
+          operation_id: id,
+          attempt_id: attemptId,
+          gap: {
+            records: last - Math.max(seq - 1, after),
+            reason: 'records are no longer in the spool',
+          },
+        });
+        cursor = last;
+        continue;
+      }
       if (seq <= after) continue;
       if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
       out.push({
@@ -641,6 +685,17 @@ export function taskLogs(
       operation_id: diagnostic.operation_id,
       attempt_id: diagnostic.attempt_id,
       gap: { records: 0, reason: diagnostic.reason },
+    });
+  }
+  try {
+    for (const p of publish)
+      deps.store.deputy.publishRun(p.run.turn_id, p.run.attempt_id, p.records);
+  } catch (e) {
+    // A cursor into a run whose count is not kept could be lost with its spool: no page without it.
+    return err({
+      code: 'log_position_unsaved',
+      message: 'could not keep the count of a running deputy run, so this page is not returned',
+      details: { reason: e instanceof Error ? e.message : String(e) },
     });
   }
   const turn = deps.store.deputy.runningTurn(s.id);

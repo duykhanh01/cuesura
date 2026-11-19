@@ -8,11 +8,17 @@ import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { runLocation } from '../../../src/daemon/retention.ts';
 import type { OperationMirror } from '../../../src/domain/state.ts';
-import { EventLogWriter, RunDir, type FileLimits } from '../../../src/runner/files.ts';
+import {
+  EventLogWriter,
+  listSegments,
+  RunDir,
+  SPOOL_DIR,
+  type FileLimits,
+} from '../../../src/runner/files.ts';
 import { claimLaunch } from '../../../src/runner/operation-lock.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
-import { openFileStoreForTest } from '../../../src/store/testing.ts';
+import { openFileStoreForTest, storeDb } from '../../../src/store/testing.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
@@ -194,6 +200,30 @@ function scenario(finish: boolean, o: { readonly pausedFirst?: boolean } = {}) {
     if (c === undefined) throw new Error('spool unreadable');
     return c;
   };
+  /** Cancels the task while its coder's effect is still open, as the daemon would end it. */
+  const cancel = () => {
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.complete(t.id, d.pendingOne(t.id, 'stop_attempt').id, 'succeeded', { stopped: true });
+    const coder = Object.values(d.task(t.id).effects).find((e) => e.kind === 'start_agent');
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: coder?.id as Uuid,
+      outcome: 'failed',
+      data: { failure_class: 'infra', message: 'cancelled', invoked: true, session_ref: null },
+    });
+    expect(d.task(t.id).status).toBe('CANCELLED');
+  };
+  /** Loses a finished operation's run directory, spool and all. */
+  const loseSpool = (op: string) =>
+    rmSync(
+      RunDir.open({
+        dataDir,
+        ...runLocation(d.task(t.id).operations[op] as OperationMirror),
+        redactor,
+        create: false,
+      }).dir,
+      { recursive: true },
+    );
   /** Loses the coder's run directory, spool and all. */
   const loseCoderSpool = () =>
     rmSync(
@@ -216,7 +246,15 @@ function scenario(finish: boolean, o: { readonly pausedFirst?: boolean } = {}) {
     ended,
     stopCoder,
     counted,
+    cancel,
+    loseSpool,
     loseCoderSpool,
+    rawLogs: (body: Record<string, unknown> = {}) =>
+      taskLogs({ store: d.store, dataDir, redactor }, OWNER, {
+        kind: 'task_logs',
+        task_id: t.id,
+        ...body,
+      }),
     logs,
   };
 }
@@ -492,13 +530,80 @@ describe('task_logs shows the deputy turns of the task', () => {
     ]);
   });
 
-  it("a worker whose spool is lost holds the deputy's output back with why, not as a wait", () => {
+  it("a worker whose spool is lost reads as a gap with why, not as a wait, and the deputy's output follows", () => {
     const { logs, write, deputyRun, startTurn, loseCoderSpool } = scenario(true);
     loseCoderSpool();
     startTurn();
     write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 1, 1);
-    const reason = logs().records.at(-1)?.gap?.reason ?? '';
-    expect(reason).toContain('spool is unavailable');
-    expect(reason.startsWith(DEPUTY_WAITS)).toBe(false);
+    const page = logs();
+    const gap = page.records.find((r) => r.gap !== undefined);
+    expect(gap?.gap?.records).toBe(3);
+    expect(gap?.gap?.reason).toContain('records unavailable');
+    expect(page.records.some((r) => r.gap?.reason.startsWith(DEPUTY_WAITS) === true)).toBe(false);
+    expect(said(page).at(-1)).toBe('deputy line 1');
+  });
+
+  it("a finished worker's spool lost later keeps the deputy's output where it was, and the log complete", () => {
+    const { d, logs, write, deputyRun, startTurn, counted, cancel, loseSpool } = scenario(true);
+    startTurn();
+    write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 1, 2);
+    expect(d.store.deputy.finishTurn(TURN, { state: 'done', now: d.now, run: counted() }).ok).toBe(
+      true,
+    );
+    cancel();
+    const before = logs();
+    expect(before.complete).toBe(true);
+    loseSpool(SETUP);
+    const after = logs();
+    expect(after.complete).toBe(true);
+    expect(after.next_cursor).toBe(before.next_cursor);
+    expect(after.records[0]?.gap?.records).toBe(2);
+    expect(after.records.slice(-2)).toMatchObject([
+      { seq: 6, data: 'deputy line 1' },
+      { seq: 7, data: 'deputy line 2' },
+    ]);
+  });
+
+  it('a segment lost from a running spool leaves a gap in its place; later records keep theirs', () => {
+    const { logs, write, deputyRun, startTurn } = scenario(true);
+    startTurn();
+    // One writer per line: each line in a segment of its own.
+    for (let i = 1; i <= 3; i++) write(deputyRun(RUN_1), RUN_1.op, 'deputy line', i, i);
+    const read = logs();
+    expect(read.next_cursor).toBe(8);
+    const run = deputyRun(RUN_1);
+    const first = listSegments(run)[0];
+    if (first === undefined) throw new Error('no segment');
+    rmSync(join(run.dir, SPOOL_DIR, first.name));
+    write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 4, 4);
+    expect(logs({ after: 8 }).records).toMatchObject([{ seq: 9, data: 'deputy line 4' }]);
+    const again = logs({ after: 5 });
+    expect(again.records.map((r) => [r.seq, r.data ?? r.gap?.records])).toEqual([
+      [6, 1],
+      [7, 'deputy line 2'],
+      [8, 'deputy line 3'],
+      [9, 'deputy line 4'],
+    ]);
+  });
+
+  it('keeps no count for a page it refuses, and refuses a page whose count it cannot keep', () => {
+    const { d, rawLogs, write, deputyRun, startTurn } = scenario(true);
+    startTurn();
+    write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 1, 3);
+    const taskId = d.store.deputy.turn(TURN)?.task_id ?? '';
+    const refused = rawLogs({ after: 999 });
+    expect(refused.ok ? null : refused.error.code).toBe('invalid_arguments');
+    expect(d.store.deputy.runsOf(taskId)[0]?.published).toBeNull();
+
+    const db = storeDb(d.store);
+    db.pragma('query_only = ON');
+    try {
+      const unsaved = rawLogs();
+      expect(unsaved.ok ? null : unsaved.error.code).toBe('log_position_unsaved');
+    } finally {
+      db.pragma('query_only = OFF');
+    }
+    expect(rawLogs().ok).toBe(true);
+    expect(d.store.deputy.runsOf(taskId)[0]?.published).toBe(3);
   });
 });

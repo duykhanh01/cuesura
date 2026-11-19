@@ -184,11 +184,14 @@ function deputyNews(s: LogState, t: TuiState): SafeText | null {
     return null;
   if (turn.state === 'retry_wait')
     return uiText('The deputy turn waits to run again; its output will appear here.');
-  return uiText(
-    turn.mode === 'interactive'
-      ? 'The deputy is working in its own terminal window; its output shows there, not here.'
-      : 'The deputy is working on this task; its output will appear here.',
-  );
+  if (turn.mode === 'interactive')
+    return uiText(
+      'The deputy is working in its own terminal window; its output shows there, not here.',
+    );
+  if (turn.mode === 'headless')
+    return uiText('The deputy is working on this task; its output will appear here.');
+  // A run recorded before modes were kept: where its output goes is not known.
+  return uiText('The deputy is working on this task.');
 }
 
 /** The stages in one row, where there is no room for a column of them. */

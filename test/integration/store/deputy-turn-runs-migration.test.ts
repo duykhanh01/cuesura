@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { describe, expect, it } from 'vitest';
 import { callerFor, type Caller } from '../../../src/application/authz.ts';
 import { taskLogs } from '../../../src/application/logs.ts';
+import { taskShow } from '../../../src/application/queries.ts';
 import { STORE_FILE } from '../../../src/daemon/main.ts';
 import { EventLogWriter, RunDir } from '../../../src/runner/files.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
@@ -97,6 +98,38 @@ describe('migration 009: the runs of deputy turns recorded before it', () => {
     expect((r.value as { records: { data: unknown }[] }).records.map((x) => x.data)).toEqual([
       'second run',
     ]);
+    store.close();
+  });
+
+  it('does not tell a run of unknown mode as native: a turn that began native may have resumed headless', () => {
+    const dataDir = tempDir();
+    const path = join(dataDir, STORE_FILE);
+    const d = new StoreDriver(openFileStoreForTest(path));
+    const t = buildTask();
+    d.must(t.id, { kind: 'create_task', task: t });
+    d.must(t.id, { kind: 'request_execution' });
+    const turns = d.store.deputy;
+    const ok = (r: { ok: boolean }) => expect(r.ok).toBe(true);
+    ok(
+      turns.startTurn(
+        deputyTurn({ turn_id: TASK_TURN, task_id: t.id, attempt_id: FIRST, mode: 'interactive' }),
+      ),
+    );
+    ok(turns.scheduleRetry(TASK_TURN, { retry_at: 1, infra: false, session_ref: null }));
+    ok(turns.resumeTurn(TASK_TURN, SECOND));
+    d.store.close();
+    const raw = new Database(path);
+    raw.exec('DROP TABLE deputy_turn_runs');
+    raw.prepare('UPDATE schema_meta SET version = 8').run();
+    raw.close();
+
+    const store = openFileStoreForTest(path);
+    const shown = taskShow(store, callerFor('owner') as Caller, {
+      kind: 'task_show',
+      task_id: t.id,
+    });
+    if (!shown.ok) throw new Error(shown.error.code);
+    expect((shown.value as { deputy?: { mode: unknown } }).deputy?.mode).toBeNull();
     store.close();
   });
 });
