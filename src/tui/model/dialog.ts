@@ -472,7 +472,7 @@ function onChoiceKey(state: TuiState, d: Dialog, key: Key): Reduced {
   }
 }
 
-/** Cancel: Enter or Ctrl-S go on from a written reason to the one Y that confirms it. */
+/** Cancel: Enter, Tab or Ctrl-S go on from a written reason to the one Y that confirms it. */
 function toCancelConfirm(state: TuiState, d: Dialog): Reduced {
   return (d.field?.text ?? '').trim() === ''
     ? refuse(state, d, 'A reason is required: write it first. Nothing was sent.')
@@ -499,6 +499,8 @@ function onFieldKey(state: TuiState, d: Dialog, key: Key): Reduced {
           );
     case 'next':
     case 'previous':
+      // Cancel: the question is asked only once there is a reason, so it never looks ready when it is not.
+      if (d.kind === 'cancel') return toCancelConfirm(state, { ...d, field: r.field });
       return put(state, d, { focus: nextFocus(d) });
     case 'leave':
       return same(closeDialog(state));

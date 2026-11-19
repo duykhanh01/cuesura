@@ -188,11 +188,10 @@ describe('US4 on a PTY: the same effect as the CLI', () => {
     expect(flat(s.screenText())).toContain('it is not CANCELLED before');
 
     // No reason: Y alone does not send.
+    // No reason: Tab does not go on to the question.
     s.send(KEY.tab);
-    await s.waitForText('Cancel this task now?');
-    s.send('Y');
     await s.waitForText('A reason is required');
-    s.send(KEY.tab);
+    expect(flat(s.screenText())).not.toContain('Cancel this task now?');
     // Enter goes on from the reason; anything but Y, Enter, a pasted Y and Ctrl-S are answered in place.
     s.send('stop it');
     s.send(KEY.enter);
@@ -905,9 +904,10 @@ describe('US4 below the PTY: what a dialog sends', () => {
     expect(screen).toContain('recorded as too late');
     expect(screen).toContain('not CANCELLED before');
 
-    // Word first, reason empty.
-    const noReason = run(open, key('tab'), ...chars('Y'));
+    // Reason empty: Tab does not go on to the question.
+    const noReason = run(open, key('tab'));
     expect(submits(noReason.effects)).toHaveLength(0);
+    expect(noReason.state.dialog?.focus).toBe('text');
     expect(text(noReason.state)).toContain('A reason is required');
 
     const typed = run(open, ...chars('stop'), key('tab'));
@@ -1300,7 +1300,7 @@ describe('a dialog on a small terminal (FR-035)', () => {
     expect(end.dialog?.field?.text).toBe('my text');
 
     const cancelState = small(menu(OWNER, explainOf({}, ['cancel'])));
-    const cancel = run(cancelState, key('enter'), key('tab'), key('enter')).state;
+    const cancel = run(cancelState, key('enter'), ...chars('x'), key('enter'), key('enter')).state;
     const screen = text(cancel);
     expect(screen).toContain('Cancel this task now?');
     expect(screen).toContain('Y = yes, cancel it');

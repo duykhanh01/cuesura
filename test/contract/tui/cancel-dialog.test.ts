@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Mutation } from '../../../src/tui/client/mutations.ts';
+import { todo } from '../../../src/tui/model/activity.ts';
 import { mutationLine } from '../../../src/tui/views/actions.ts';
 import { sanitize } from '../../../src/tui/terminal/safe-text.ts';
 import { authz, buildTask, uuidOf } from '../../support/builders.ts';
@@ -16,7 +17,15 @@ import {
   submits,
   text,
 } from '../../support/tui-dialogs.ts';
-import { flat, openMenuOf, pressAction, seedGreenPr, useTui } from '../../support/tui-fixtures.ts';
+import {
+  daemonSocket,
+  flat,
+  openMenuOf,
+  pressAction,
+  seedGreenPr,
+  useTui,
+} from '../../support/tui-fixtures.ts';
+import { COMMAND_TIMEOUT_MS } from '../../../src/tui/client/mutations.ts';
 
 // Cancel from the TUI: the reason goes on with Enter, one plain question asks for Y, and a cancel stuck on
 // a PR that cannot be read (`cancel_reconcile`) is ended with `force` instead of a cancel that is ignored.
@@ -50,7 +59,8 @@ const accepted = (value: unknown): Mutation => ({
     payload: { reason: 'x' },
   },
   state: 'accepted',
-  result: { ok: true, value: { request_id: 'r1', replayed: false, result: value } },
+  // The handler's value, as the tracker keeps it from a direct reply and from `request_show` alike.
+  result: { ok: true, value },
   checks: 0,
   resends: 0,
 });
@@ -61,9 +71,13 @@ describe('Cancel dialog below the PTY', () => {
     expect(open.dialog?.kind).toBe('cancel');
     expect(flat(text(open))).toContain('Then: press Enter, and Y to cancel the task.');
 
-    const empty = run(open, key('enter'));
-    expect(empty.state.dialog?.focus).toBe('text');
-    expect(text(empty.state)).toContain('A reason is required');
+    // With no reason neither Enter nor Tab goes on to the question.
+    for (const k of ['enter', 'tab', 'shift_tab'] as const) {
+      const empty = run(open, key(k));
+      expect(empty.state.dialog?.focus, k).toBe('text');
+      expect(text(empty.state), k).toContain('A reason is required');
+      expect(flat(text(empty.state)), k).not.toContain('Cancel this task now?');
+    }
 
     const typed = run(open, ...chars('no longer needed'), key('enter'));
     expect(typed.state.dialog?.field?.text).toBe('no longer needed');
@@ -124,11 +138,57 @@ describe('Cancel dialog below the PTY', () => {
         ignored: null,
         pr_read: { unavailable: null, facts: [{ kind: 'cancel_read_failed', accepted: true }] },
       }),
-    ).toContain('Force cancel (PR unread) ends it without that read');
+    ).toContain('The task waits until a read shows it open or closed');
     expect(
       line({ status: 'CANCELLED', force_ignored: null, warning: 'the PR may be unread' }),
     ).toContain('Cancelled: the daemon reports the task CANCELLED');
     expect(line({ status: 'WAITING', force_ignored: 'merge_seen' })).toContain('Not cancelled');
+  });
+
+  it('a plain cancel that met a merge says it is not cancelled, and DONE once the merge is confirmed', () => {
+    const line = (v: unknown): string => mutationLine(accepted(v))?.text ?? '';
+    const waiting = { status: 'WAITING', ignored: null, completion: null, blockers: [] };
+    const seen = line({ ...waiting, cancellation: { merge_seen: 'obs-1' } });
+    expect(seen).toContain('Not cancelled: a merge of the PR was seen and decides');
+    expect(seen).not.toContain('Cancel accepted');
+    expect(
+      line({ ...waiting, cancellation: {}, blockers: [{ code: 'merge_evidence_incomplete' }] }),
+    ).toContain('Not cancelled: a merge of the PR was seen and decides');
+    expect(line({ ...waiting, completion: { proof: {} } })).toContain(
+      'Not cancelled: the PR merge is confirmed, so the task ends DONE',
+    );
+    expect(line({ ...waiting, status: 'DONE' })).toContain('DONE: the PR was already merged');
+  });
+
+  it('Needs you of a cancel waiting on its PR read promises no Force cancel, which a merge seen withdraws', () => {
+    const words = todo({
+      status: 'WAITING',
+      wait_code: 'cancel_reconcile',
+      step: null,
+      mode: null,
+      needs_user: true,
+    });
+    expect(words).toBe('Open Actions: recheck, or force cancel when it is offered');
+  });
+
+  it('shows what the daemon says the cancel does, such as dependents it cancels, before Y', () => {
+    const cascade =
+      'Only if the user asks: reads the PR once more. Ending CANCELLED also cancels 2 dependent tasks listed under dependents; check them with the user first.';
+    const explain = explainOf(
+      {
+        ...RECONCILING,
+        allowed_actions: [
+          { action: 'cancel', command: sanitize('cusr x'), note: sanitize(cascade) },
+        ],
+      },
+      [],
+    );
+    const open = run(menu(OWNER, explain), key('enter')).state;
+    const asked = run(open, ...chars('why'), key('enter')).state;
+    const screen = flat(text(asked));
+    expect(screen).toContain('also cancels 2 dependent tasks');
+    expect(screen).toContain('Force-cancel this task now');
+    expect(screen).toContain('The reason below is recorded with the force');
   });
 });
 
@@ -154,6 +214,8 @@ describe('Cancel on a PTY against a real daemon', () => {
     s.send('repo is gone');
     s.send(KEY.enter);
     await s.waitForText('Force-cancel this task now');
+    expect(flat(s.screenText())).toContain('Y N confirm / go back');
+    expect(flat(s.screenText())).not.toContain('cancel / leave');
     s.send('Y');
     await s.waitFor(
       () => flat(s.screenText()).includes('Cancelled: the daemon reports the task CANCELLED'),
@@ -162,8 +224,45 @@ describe('Cancel on a PTY against a real daemon', () => {
     const e = await sd.query('owner', { kind: 'task_explain', task_id: t.id });
     expect(e.envelope.data?.['status']).toBe('CANCELLED');
     const h = await sd.query('owner', { kind: 'task_history', task_id: t.id });
-    const types = (h.envelope.data?.['events'] as { type: string }[]).map((x) => x.type);
-    expect(types).toContain('CancelForced');
+    const events = h.envelope.data?.['events'] as { type: string; payload: unknown }[];
+    // The force keeps its own reason; the cancel ends with the reason it was requested with.
+    expect(events.find((x) => x.type === 'CancelForced')?.payload).toMatchObject({
+      reason: 'repo is gone',
+    });
+    expect(e.envelope.data?.['terminal']).toMatchObject({ reason: 'first try' });
+    s.send('q');
+    expect((await s.waitForExit()).status).toBe(0);
+  }, 60_000);
+
+  it('a Force cancel whose reply is lost shows the CANCELLED the daemon stored, found by request_show', async () => {
+    const sd = tui.daemon({ recheck: { observed: () => {} } });
+    const t = buildTask({ id: uuidOf(1), title: 'Stuck cancel' });
+    sd.seed((d) => {
+      seedGreenPr(d, sd, t, 'full-review', { title: 'T', message: 'M' });
+      d.must(t.id, { kind: 'cancel', reason: 'first try' });
+    });
+    await sd.start();
+    const proxy = await tui.proxy(daemonSocket(sd));
+    const s = tui.cusr(proxy.dataDir);
+    await openMenuOf(s, 'Stuck cancel');
+    await pressAction(s, 'Force cancel (PR unread)');
+    await s.waitForText('What force cancelling does');
+    s.send('repo is gone');
+    s.send(KEY.enter);
+    await s.waitForText('Force-cancel this task now');
+    proxy.mode = 'drop_response';
+    s.send('Y');
+    await s.waitFor(
+      () => flat(s.screenText()).includes('Result unknown - checking'),
+      COMMAND_TIMEOUT_MS + 5_000,
+    );
+    proxy.mode = 'forward';
+    await s.waitFor(
+      () => flat(s.screenText()).includes('Cancelled: the daemon reports the task CANCELLED'),
+      15_000,
+    );
+    expect(flat(s.screenText())).toContain('The PR was not read: check it on GitHub');
+    expect(flat(s.screenText())).not.toContain('Cancel accepted by the daemon');
     s.send('q');
     expect((await s.waitForExit()).status).toBe(0);
   }, 60_000);

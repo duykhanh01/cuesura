@@ -200,17 +200,24 @@ const field = (v: unknown, k: string): unknown =>
   typeof v === 'object' && v !== null ? (v as Record<string, unknown>)[k] : undefined;
 
 /**
- * What became of an accepted cancel, from the daemon's reply (`task cancel --json`): an accept can still
- * change nothing (`already_cancelling`), or leave the task waiting for a PR read that failed.
+ * What became of an accepted cancel, from the handler's value (`task cancel --json`): an accept can still
+ * change nothing (`already_cancelling`), wait on a merge the PR read saw, or wait for a PR read that failed.
  */
-function cancelLine(reply: unknown, id: string): { text: string; style: Style } {
-  const value = field(reply, 'result');
+function cancelLine(value: unknown, id: string): { text: string; style: Style } {
   const status = field(value, 'status');
   const ignored = field(value, 'ignored');
   const forceIgnored = field(value, 'force_ignored');
   const read = field(value, 'pr_read');
   const unavailable = field(read, 'unavailable');
   const facts = field(read, 'facts');
+  const blockers = field(value, 'blockers');
+  const completion = field(value, 'completion');
+  // A merge seen, even without its full evidence, decides over the cancel (FR-025.04, FR-040.12).
+  const mergeSeen =
+    forceIgnored === 'merge_seen' ||
+    field(field(value, 'cancellation'), 'merge_seen') !== undefined ||
+    (Array.isArray(blockers) &&
+      blockers.some((b) => field(b, 'code') === 'merge_evidence_incomplete'));
   // A read that gave no observation reports no failure text, only the fact it recorded.
   const unread =
     (typeof unavailable === 'string' && unavailable !== '') ||
@@ -227,9 +234,14 @@ function cancelLine(reply: unknown, id: string): { text: string; style: Style } 
       text: `DONE: the PR was already merged, the cancel came too late (${id})`,
       style: WARN,
     };
-  if (forceIgnored === 'merge_seen')
+  if (completion !== undefined && completion !== null)
     return {
-      text: `Not cancelled: a merge of the PR was seen, so it decides and force does not apply (${id})`,
+      text: `Not cancelled: the PR merge is confirmed, so the task ends DONE once its cleanup finishes; the cancel is recorded as too late (${id})`,
+      style: WARN,
+    };
+  if (mergeSeen)
+    return {
+      text: `Not cancelled: a merge of the PR was seen and decides; the task waits until GitHub shows the merge in full, then ends DONE (${id}). Recheck once it does`,
       style: WARN,
     };
   if (forceIgnored === null)
@@ -244,7 +256,7 @@ function cancelLine(reply: unknown, id: string): { text: string; style: Style } 
     };
   if (status === 'WAITING' && unread)
     return {
-      text: `Cancel requested, but the PR could not be read${why}. The task waits until a read shows it open or closed; Force cancel (PR unread) ends it without that read (${id})`,
+      text: `Cancel requested, but the PR could not be read${why}. The task waits until a read shows it open or closed; see the actions below (${id})`,
       style: WARN,
     };
   // The daemon says when a task is CANCELLED, never this screen: stopping and reconciling come first.

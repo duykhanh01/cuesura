@@ -1665,6 +1665,30 @@ describe('cancel while a publish is unknown (US5.4, FR-025.03/05)', () => {
     expect(needsUser(s)).toBe(true);
   });
 
+  it('a forced cancel records its own reason; the task ends with the reason the cancel was requested with', () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = buildTask();
+    const head = 'a'.repeat(40);
+    createGrantStart(d, t, 'direct-pr');
+    toPublish(d, t, head);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(head));
+    const pr = d.pendingOne(t.id, 'create_pr');
+    d.complete(t.id, pr.id, 'unknown');
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.claim(d.pendingOne(t.id, 'reconcile').id);
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: pr.id as Uuid,
+      finding: 'executed_succeeded',
+      data: { pr_ref: 'acme#7', head_sha: head },
+    });
+    expect(d.task(t.id).wait?.detail.code).toBe('cancel_reconcile');
+    d.must(t.id, { kind: 'cancel', reason: 'the repo is gone', force: true });
+    const forced = d.store.readEvents(t.id).find((e) => e.type === 'CancelForced');
+    expect(forced?.payload).toMatchObject({ reason: 'the repo is gone' });
+    expect(d.task(t.id).terminal).toMatchObject({ kind: 'CANCELLED', reason: 'stop' });
+  });
+
   it('#267: the daemon reads the PR found after the cancel by itself and ends the cancel', async () => {
     const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
     const t = buildTask();

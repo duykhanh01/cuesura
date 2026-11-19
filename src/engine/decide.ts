@@ -212,7 +212,7 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       return;
     case 'cancel':
       if (t.force === true && ctx.state.cancellation !== null) {
-        forceCancel(ctx);
+        forceCancel(ctx, t.reason);
         return;
       }
       if (ctx.state.cancellation !== null) {

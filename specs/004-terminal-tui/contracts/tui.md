@@ -97,18 +97,23 @@ Trong ô xác nhận, `Enter` chỉ gửi khi nội dung đúng bằng từ yêu
 hết giờ. Mở lại Review sau khi bộ lựa chọn đổi thì hiện khác biệt và xóa từ đã gõ (FR-028).
 
 Hủy task (#307) chỉ có hai thao tác: nhập lý do, rồi `Y`. Lý do là ô một dòng. Rời ô lý do sang ô xác nhận bằng `Enter`,
-`Ctrl-S` hoặc `Tab`: `Enter` và `Ctrl-S` không sang khi lý do rỗng và báo tại chỗ, còn `Tab` vẫn sang được ô xác nhận khi lý do
-rỗng, nhưng ở đó `Y` không gửi và báo cần lý do cho đến khi lý do không rỗng. Ô xác nhận hỏi một câu nêu việc sẽ làm và phím:
+`Ctrl-S`, `Tab` hoặc `Shift-Tab`; khi lý do rỗng thì không sang và báo cần lý do tại chỗ. Hộp thoại hiện `note` của action
+(`The daemon says: …`), gồm các task phụ thuộc bị hủy theo, trước câu hỏi. Ô xác nhận hỏi một câu nêu việc sẽ làm và phím:
 `Y = yes, cancel it`, `N or Esc = no, go back (nothing is sent)`. Một phím `Y` hoặc `y` gửi ngay, không cần Enter. `N`, `n` hoặc
 `Esc` rời hộp thoại không gửi và giữ lý do làm bản nháp. Enter, `Ctrl-S`, phím khác và paste không gửi, chỉ báo tại chỗ. Daemon
-nhận thì menu Actions nói kết quả theo trả lời của daemon: `Cancelled` khi task đã CANCELLED, `Nothing changed` khi cancel đã có
-từ trước (`already_cancelling`), hoặc PR chưa đọc được và task còn chờ. Các quy tắc về từ phải gõ ở đoạn trên áp dụng cho những
+nhận thì menu Actions nói kết quả theo giá trị handler của daemon, như nhau dù lấy từ phản hồi trực tiếp hay từ `request_show`
+khi phản hồi bị mất: `Cancelled` khi task đã CANCELLED, `DONE` hoặc `Not cancelled` khi PR đã merge hoặc daemon đã thấy merge
+(`completion`, `cancellation.merge_seen`, blocker `merge_evidence_incomplete`), `Nothing changed` khi cancel đã có từ trước
+(`already_cancelling`), hoặc PR chưa đọc được và task còn chờ. Các quy tắc về từ phải gõ ở đoạn trên áp dụng cho những
 hộp thoại còn lại.
 
 Task có cancel đang chờ đọc PR (`cancel_reconcile`) thì daemon chỉ còn mời `cancel --force`; cancel thường bị bỏ qua
 (`already_cancelling`). Menu Actions gọi mục đó là `Force cancel (PR unread)`, hộp thoại `Force cancel task` nêu hậu quả (đọc PR
 thêm một lần; không đọc được thì task CANCELLED mà không có lần đọc đó, PR có thể còn mở hoặc được merge sau, không gì trên GitHub
-bị đổi; nên Recheck nếu GitHub có thể trả lời lại) và gửi `task_cancel` với `force: true`, cùng hai bước lý do rồi `Y`.
+bị đổi; nên Recheck nếu GitHub có thể trả lời lại) và gửi `task_cancel` với `force: true`, cùng hai bước lý do rồi `Y`. Lý do
+này được ghi vào sự kiện `CancelForced`; cancel giữ lý do lúc được yêu cầu. Ngoại lệ: daemon đã thấy merge của PR (kể cả bằng chứng
+chưa đủ) thì không mời force nữa, merge quyết định; task vẫn ở `cancel_reconcile`, nên dòng "Needs you" chỉ chỉ sang Actions
+(`recheck, or force cancel when it is offered`) chứ không hứa có mục Force cancel.
 
 Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tục, hàng đợi) dùng chung một khung và một quy ước:
 

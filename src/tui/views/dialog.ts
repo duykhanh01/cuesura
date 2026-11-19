@@ -135,9 +135,19 @@ function forceCancelBlocks(e: TaskExplain | null): Block[] {
     text(
       '• Nothing on GitHub is changed: no pull request, branch or commit is closed, deleted or reset. Check the pull request yourself.',
     ),
+    text(
+      'The reason below is recorded with the force; the cancel keeps the reason it was first requested with.',
+    ),
     text('If GitHub may answer again soon, press Esc and use Recheck instead.', NOTICE),
   ];
   return rows;
+}
+
+/** What the daemon says the action does (`allowed_actions[].note`), such as dependent tasks it also cancels. */
+function noteBlocks(d: Dialog): Block[] {
+  return d.note === null
+    ? []
+    : [text(joinSafe([uiText('The daemon says: '), d.note]), { bold: true })];
 }
 
 function approveBlocks(e: TaskExplain | null, s: TuiState): Block[] {
@@ -338,7 +348,10 @@ function layout(s: TuiState, d: Dialog) {
       head.push(...questionBlocks(questionView(d, explain), d, cols));
       break;
     case 'cancel':
-      head.push(...(d.force ? forceCancelBlocks(explain) : cancelBlocks(explain)));
+      head.push(
+        ...(d.force ? forceCancelBlocks(explain) : cancelBlocks(explain)),
+        ...noteBlocks(d),
+      );
       break;
     case 'recheck':
       head.push(...recheckBlocks(d));

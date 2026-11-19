@@ -484,8 +484,9 @@ const KEYS: Readonly<Record<Context, readonly Binding[]>> = {
   dialog_confirm: [
     {
       keys: 'Y N',
-      hint: 'cancel / leave',
-      help: 'Y cancels the task with the reason written; N leaves without sending',
+      // The same words fit a plain and a forced cancel; the question above says which it is.
+      hint: 'confirm / go back',
+      help: 'Y confirms the cancel (or force cancel) asked above, with the reason written; N goes back without sending',
       press: [],
       when: (s) => s.dialog?.kind === 'cancel',
     },
