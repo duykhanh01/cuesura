@@ -63,7 +63,26 @@ function scenario() {
       digest: hashCanonical(list.slice(from, to)),
       cursor: {},
     });
-  const events: DomainEvent[] = [event('OperationRegistered', { operation_id: A.op })];
+  const opus = {
+    harness: 'h',
+    model: 'opus',
+    model_id: 'claude-opus-5-5',
+    effort: 'medium',
+    add_context: [],
+    permissions: 'write',
+    limits: { max_turns: null, stall_timeout_ms: null, wall_timeout_ms: null },
+  };
+  const events: DomainEvent[] = [
+    // What names A's model: the policy in force and the rung and binding the attempt event recorded.
+    event('PolicyFrozen', { policy: { steps: { code: { ladder: [{ binding: opus }] } } } }),
+    event('AttemptRequested', {
+      attempt_id: A.attempt,
+      step: 'code',
+      rung: 0,
+      binding: 'opus/medium',
+    }),
+    event('OperationRegistered', { operation_id: A.op }),
+  ];
   const run: DeputyRun = {
     attempt_id: RUN,
     turn_id: RUN,
@@ -94,7 +113,6 @@ function scenario() {
         id: A.attempt,
         step: 'code',
         binding: 'opus/medium',
-        model_id: 'claude-opus-5-5',
       },
       // Recorded before the model ID was kept.
       [B.attempt]: { id: B.attempt, step: 'review', binding: 'sol/high' },

@@ -987,7 +987,6 @@ export function startAttempt(ctx: Ctx, step: string, kind: AttemptKind): void {
     kind,
     rung: rungIndex,
     binding: bindingName(rung.binding),
-    model_id: rung.binding.model_id,
     effect_id: effectId,
     reservation_id: reservationId,
     ...(resume.resume == null ? {} : { resumed_from: resume.resume.from_attempt_id }),

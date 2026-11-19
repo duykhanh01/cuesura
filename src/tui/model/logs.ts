@@ -12,7 +12,7 @@ import { displayWidth, truncate, wrap } from '../terminal/width.ts';
 import { stepWords } from './activity.ts';
 import type { GatesView } from './gates.ts';
 import { describeRecord, type Tone } from './log-text.ts';
-import { modelLabel, type ModelRef } from './model-label.ts';
+import { modelLabel, modelShort, type ModelRef } from './model-label.ts';
 import type { Seg } from '../views/ink.ts';
 import { markdownRows } from '../views/markdown.ts';
 
@@ -647,7 +647,7 @@ function textRows(entry: LogEntry, cols: number, expanded: boolean): LogRow[] {
   return rows;
 }
 
-function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null {
+function separator(entry: LogEntry, prev: LogEntry | undefined, cols: number): SafeText | null {
   if (entry.gap) return null;
   const same =
     prev === undefined
@@ -655,15 +655,33 @@ function separator(entry: LogEntry, prev: LogEntry | undefined): SafeText | null
       : !prev.gap && prev.step === entry.step && prev.attemptId === entry.attemptId;
   if (same) return null;
   // A gap has no step to compare with; only a change of attempt after one is news.
+  const step = entry.step ?? uiText('outside any step');
   const words = entry.step === null ? null : stepWords(entry.step);
-  return joinSafe([
-    uiText('── '),
-    entry.step ?? uiText('outside any step'),
-    uiText(words === null ? '' : ` · ${words}`),
-    uiText(entry.attemptId === null ? '' : ` · attempt ${shortAttempt(entry.attemptId)}`),
-    entry.model === null ? uiText('') : joinSafe([uiText(' · '), modelLabel(entry.model)]),
-    uiText(' ──'),
-  ]);
+  const attempt =
+    entry.attemptId === null ? null : uiText(`attempt ${shortAttempt(entry.attemptId)}`);
+  const line = (parts: readonly (SafeText | null)[]): SafeText =>
+    joinSafe([
+      uiText('── '),
+      joinSafe(
+        parts.filter((p) => p !== null),
+        ' · ',
+      ),
+      uiText(' ──'),
+    ]);
+  if (entry.model === null) return line([step, words === null ? null : uiText(words), attempt]);
+  // The model leads, so a pane too narrow for the rest still shows which model wrote the segment.
+  const model = modelLabel(entry.model);
+  const options = [
+    [model, step, words === null ? null : uiText(words), attempt],
+    [model, step, attempt],
+    [model, step],
+    [modelShort(entry.model), step],
+  ];
+  for (const parts of options) {
+    const text = line(parts);
+    if (displayWidth(text) <= cols) return text;
+  }
+  return line(options[3] as SafeText[]);
 }
 
 function entryRows(
@@ -672,7 +690,7 @@ function entryRows(
   cols: number,
   expanded: boolean,
 ): LogRow[] {
-  const sep = separator(entry, prev);
+  const sep = separator(entry, prev, cols);
   const rows = textRows(entry, cols, expanded);
   return sep === null
     ? rows

@@ -187,8 +187,6 @@ export type Attempt = {
   revision: number;
   rung: number;
   binding: string;
-  /** Absent on attempts recorded before the ID was kept. */
-  model_id?: string;
   effect_id: string;
   reservation_id: string;
   status: 'running' | 'finished';

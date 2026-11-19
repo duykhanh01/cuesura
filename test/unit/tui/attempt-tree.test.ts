@@ -350,6 +350,12 @@ describe('agent attempts on the Logs screen', () => {
     operation_id: 'op',
     attempt_id,
     step: uiText('code'),
+    // What the daemon sends: the alias of the attempt's own binding (the model ID was not recorded).
+    model: {
+      id: null,
+      binding: attempt_id === raised.attempt_id ? raised.binding : first.binding,
+      effort: null,
+    },
     at: uiText('2026-11-01T10:20:30.000Z'),
     kind: uiText('stdout'),
     data: `output ${seq}`,
@@ -401,7 +407,9 @@ describe('agent attempts on the Logs screen', () => {
     const live = tail(initial, 2, raised.attempt_id);
     const screen = draw(cols, live, [first, raised]);
     expect(screen.slice(0, 3).join('\n')).toContain('Live · latest step · sonnet/high');
-    expect(screen.find((line) => line.includes('── code'))).toContain('sonnet/high');
+    expect(screen.find((line) => line.includes('── ') && line.includes('· code'))).toContain(
+      'sonnet/high',
+    );
     expect(screen.join('\n')).not.toContain('opus/medium');
 
     const historic = tail(filterAttempt(live, first.attempt_id), 1, first.attempt_id);
@@ -413,7 +421,9 @@ describe('agent attempts on the Logs screen', () => {
     );
     expect(archived.slice(0, 3).join('\n')).toContain('Code · opus/medium');
     expect(archived.slice(0, 3).join('\n')).toContain('New activity');
-    expect(archived.find((line) => line.includes('── code'))).toContain('opus/medium');
+    expect(archived.find((line) => line.includes('── ') && line.includes('· code'))).toContain(
+      'opus/medium',
+    );
     expect(archived.join('\n')).not.toContain('sonnet/high');
   });
 
@@ -421,7 +431,7 @@ describe('agent attempts on the Logs screen', () => {
     const logs = tail(initial, 1, first.attempt_id);
     const screen = draw(80, logs, [first, raised], raised.attempt_id);
     expect(screen.slice(0, 3).join('\n')).toContain('Live · latest step · sonnet/high');
-    const separator = screen.find((line) => line.includes('── code'));
+    const separator = screen.find((line) => line.includes('── ') && line.includes('· code'));
     expect(separator).toContain('opus/medium');
     expect(separator).not.toContain('sonnet/high');
     expect(screen.join('\n')).toContain('output 1');

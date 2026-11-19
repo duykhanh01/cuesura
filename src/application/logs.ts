@@ -22,6 +22,7 @@ import {
   type ReadBatch,
   type ReadError,
 } from '../runner/files.ts';
+import { attemptModelIds } from './attempt-models.ts';
 import { runLocation } from '../daemon/retention.ts';
 import { readLaunchMarker } from '../runner/operation-lock.ts';
 import type { Redactor } from '../runner/redact.ts';
@@ -245,7 +246,13 @@ const at = (op: TaskState['operations'][string], reason: string): Diagnostic => 
   reason,
 });
 
-function operationBatch(s: TaskState, id: string, records: number, digest: string): Batch {
+function operationBatch(
+  s: TaskState,
+  models: ReadonlyMap<string, string>,
+  id: string,
+  records: number,
+  digest: string,
+): Batch {
   const attemptId = s.operations[id]?.attempt_id ?? null;
   const attempt = attemptId === null ? undefined : s.attempts[attemptId];
   return {
@@ -256,7 +263,7 @@ function operationBatch(s: TaskState, id: string, records: number, digest: strin
     model:
       attempt === undefined
         ? null
-        : { id: attempt.model_id ?? null, binding: attempt.binding, effort: null },
+        : { id: models.get(attempt.id) ?? null, binding: attempt.binding, effort: null },
     records,
     digest,
   };
@@ -470,11 +477,13 @@ export function taskLogs(
   const cache = new Map<string, readonly (LogRecord | undefined)[] | string>();
   const registeredAt = new Map<string, number>();
   const committed: Placed[] = [];
-  for (const e of deps.store.readEvents(s.id as Uuid)) {
+  const history = deps.store.readEvents(s.id as Uuid);
+  const models = attemptModelIds(history);
+  for (const e of history) {
     if (e.type === 'OperationRegistered') registeredAt.set(e.payload.operation_id, e.seq);
     else if (e.type === 'OutputIngested') {
       const { operation_id: id, records, digest } = e.payload;
-      committed.push({ batch: operationBatch(s, id, records, digest), operation_id: id });
+      committed.push({ batch: operationBatch(s, models, id, records, digest), operation_id: id });
     }
   }
   const regOf = (id: string): number => registeredAt.get(id) ?? 0;
@@ -512,7 +521,7 @@ export function taskLogs(
           const tail = live.value.records.slice(done);
           if (tail.length > 0 && live.value.cursor !== null)
             items.push({
-              batch: operationBatch(s, active.id, tail.length, hashCanonical(tail)),
+              batch: operationBatch(s, models, active.id, tail.length, hashCanonical(tail)),
               operation_id: active.id,
             });
         }

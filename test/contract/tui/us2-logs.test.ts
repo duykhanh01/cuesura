@@ -290,8 +290,8 @@ describe('US2 scenarios 9 and 10: when the workflow moves to a new step', () => 
     await openLogs(s);
     await s.waitForText('fixer line 2');
     const screen = s.screenText();
-    expect(screen).toContain(`── ${second?.step} · `);
-    expect(screen).toContain(`attempt ${second?.id.slice(-8)} · sonnet · medium ──`);
+    expect(screen).toContain(`── sonnet · medium · ${second?.step} · `);
+    expect(screen).toContain(`attempt ${second?.id.slice(-8)} ──`);
     expect(screen).not.toContain('coder line 3');
     await quit(s);
   });

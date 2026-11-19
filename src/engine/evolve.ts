@@ -229,7 +229,6 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
         revision: s.revision,
         rung: p.rung,
         binding: p.binding,
-        ...(p.model_id === undefined ? {} : { model_id: p.model_id }),
         effect_id: p.effect_id,
         reservation_id: p.reservation_id,
         status: 'running',

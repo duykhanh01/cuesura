@@ -3,6 +3,11 @@ import { modelLabel, modelName, modelShort } from '../../../src/tui/model/model-
 import { withDeputyRuns } from '../../../src/tui/model/attempt-tree.ts';
 import { applyLogPage, initialLogs, toEntry, visibleRows } from '../../../src/tui/model/logs.ts';
 import type { TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
+import { initialDetail } from '../../../src/tui/model/detail.ts';
+import { initialState } from '../../../src/tui/model/state.ts';
+import { Frame } from '../../../src/tui/terminal/screen.ts';
+import { logsBody } from '../../../src/tui/views/logs.ts';
+import { uuidOf } from '../../support/builders.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
 const s = sanitize;
@@ -118,5 +123,64 @@ describe('deputy runs among the attempts', () => {
     const [first, second] = withDeputyRuns(show);
     expect([first?.binding, first?.model_id]).toEqual(['claude/high', 'claude-opus-5-5']);
     expect([second?.binding, second?.model_id ?? null]).toEqual(['claude', null]);
+  });
+});
+
+describe('the model stays in sight', () => {
+  const task = uuidOf(1);
+  const sol = { id: 'gpt-6.1-sol', binding: null, effort: 'high' };
+  const rec = (seq: number, attempt: string, step: string): TaskLogs['records'][number] =>
+    ({
+      seq,
+      cursor: seq,
+      operation_id: 'op',
+      attempt_id: attempt,
+      step: s(step),
+      model: sol,
+      at: s('2026-11-01T10:20:30.000Z'),
+      kind: s('progress'),
+      data: `line ${seq}`,
+    }) as TaskLogs['records'][number];
+  const read = (records: TaskLogs['records']) =>
+    applyLogPage(
+      { ...initialLogs(task, uiText('T'), 1), attemptFilter: 'a9' },
+      { kind: 'forward', after: 0 },
+      { task_id: task, records: [...records], next_cursor: records.length, complete: false },
+      0,
+    );
+
+  it.each([30, 44, 60])(
+    'leads a segment with the model at %i columns, past a long step name',
+    (cols) => {
+      const state = read([rec(1, 'a9', 'fix_review_after_the_gates_failed_twice')]);
+      const sep = visibleRows(state, cols, 10).find((r) => r.kind === 'separator');
+      expect(sep?.text).toMatch(/^── Sol 6\.1/);
+    },
+  );
+
+  it('keeps the full model in the segment head when there is room, then the step', () => {
+    const state = read([rec(1, 'a9', 'code')]);
+    const sep = visibleRows(state, 120, 10).find((r) => r.kind === 'separator');
+    expect(sep?.text).toBe('── Sol 6.1 (gpt-6.1-sol) · high · code · Writing code · attempt a9 ──');
+  });
+
+  it('names the model in the header from the log when the task snapshot does not list the attempt', () => {
+    const title = uiText('T');
+    const detail = initialDetail(task, title, 1);
+    const show = {
+      status: 'RUNNING',
+      version: 1,
+      provenance: { usage: [] },
+    } as unknown as TaskShow;
+    // The log has moved on into the middle of a segment: its separator is above the window.
+    const logs = { ...read([rec(5, 'a9', 'code'), rec(6, 'a9', 'code')]), windowStart: 4 };
+    const frame = new Frame(100, 12, { color: false });
+    logsBody({
+      ...initialState({ cols: 100, rows: 12 }),
+      detail: { ...detail, show: { ...detail.show, data: show } },
+      logs,
+    })(frame, 0, 12);
+    const head = Array.from({ length: 3 }, (_, y) => frame.rowBytes(y)).join('\n');
+    expect(head).toContain('Sol 6.1 (gpt-6.1-sol) · high');
   });
 });
