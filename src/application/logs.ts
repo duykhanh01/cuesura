@@ -28,6 +28,7 @@ import type { Redactor } from '../runner/redact.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
+import type { DeputyTurn } from '../domain/deputy.ts';
 import type { DeputyRun, RunCount } from '../store/deputy.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
@@ -345,6 +346,21 @@ export function runCount(deps: SpoolDeps, attemptId: string): RunCount | undefin
     records: records.length,
     digest: records.includes(undefined) ? null : hashCanonical(records),
   };
+}
+
+function stampOf(runs: readonly DeputyRun[], turn: DeputyTurn | null): string {
+  return hashCanonical({
+    runs: runs.map((r) => [r.attempt_id, r.live, r.mode]),
+    turn: turn === null ? null : [turn.turn_id, turn.state, turn.attempt_id],
+  });
+}
+
+/**
+ * What the task's deputy runs and live turn are now, as one value: `task_logs` and `task_show` both carry it,
+ * so a reader holding a `task_show` can tell from a log page whether that snapshot is still current.
+ */
+export function deputyStamp(store: Store, taskId: string): string {
+  return stampOf(store.deputy.runsOf(taskId), store.deputy.runningTurn(taskId));
 }
 
 /** What a record weighs against `LOG_PAGE_BYTES`. */
@@ -722,10 +738,7 @@ export function taskLogs(
     complete: diagnostic === null && s.terminal !== null && cursor >= total && turn === null,
     // Changes when a deputy run starts or ends, or the live turn changes state. None of that moves the
     // task's version, so a reader that keeps the turn's state beside the log reads it again on this.
-    deputy_stamp: hashCanonical({
-      runs: runs.map((r) => [r.attempt_id, r.live, r.mode]),
-      turn: turn === null ? null : [turn.turn_id, turn.state, turn.attempt_id],
-    }),
+    deputy_stamp: stampOf(runs, turn),
     // Committed or live records past this page: a follower that is behind reads on at once.
     more: cursor < total,
     state: taskStateOf(deps, s),

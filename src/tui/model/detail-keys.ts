@@ -419,18 +419,23 @@ export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {
   if (!m.result.ok) return { ...state, logs: failLogRead(logs, m.result.error.message, m.at) };
   const read = applyLogPage(logs, m.request, m.result.value, m.at);
   const stamp = m.result.value.deputy_stamp ?? null;
-  if (stamp === logs.deputyStamp) return { ...state, logs: read };
-  // The first stamp only says where things stand: opening the task reads `task_show` anyway, and a read
-  // more here would break "read only when the version moves" (T041).
-  if (logs.deputyStamp === null) return { ...state, logs: { ...read, deputyStamp: stamp } };
-  // A deputy run started or ended, or its turn changed state: none of it moves the task's version, so the
-  // runs and the turn shown beside the log are read again now.
+  const logsNext = { ...read, deputyStamp: stamp };
+  const d = state.detail;
+  // What the `task_show` in use says, compared with this page: the same stamp means it is current, so the
+  // first page of an opened log asks no read more (T041); another one means a deputy run started or ended,
+  // or its turn changed state, which moves no version, so it is read again now, first page or not.
+  const shown = d?.show.data?.deputy_stamp;
+  const stale =
+    d !== null &&
+    d.show.data !== null &&
+    (shown === undefined
+      ? logs.deputyStamp !== null && stamp !== logs.deputyStamp
+      : stamp !== shown && (stamp !== logs.deputyStamp || !d.showWanted));
+  if (!stale) return { ...state, logs: logsNext };
   return {
     ...state,
-    logs: { ...read, deputyStamp: stamp },
+    logs: logsNext,
     // Only a read asked after this page was asked can show what the new stamp stands for.
-    ...(state.detail === null
-      ? {}
-      : { detail: { ...state.detail, showWanted: true, showWantedAt: m.at } }),
+    detail: { ...d, showWanted: true, showWantedAt: m.at },
   };
 }

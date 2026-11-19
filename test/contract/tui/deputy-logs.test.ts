@@ -8,7 +8,7 @@ import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import type { Store } from '../../../src/store/index.ts';
 import type { StoreDriver } from '../../support/store-driver.ts';
-import { LogFeed, openTask, useTui } from '../../support/tui-fixtures.ts';
+import { daemonSocket, LogFeed, openTask, useTui } from '../../support/tui-fixtures.ts';
 
 // A deputy turn's run writes its spool outside the task's operations; the Logs screen still shows it.
 const tui = useTui();
@@ -38,6 +38,11 @@ type Seed = {
   readonly runs: readonly (readonly string[])[];
   /** Whether the turn ended. */
   readonly done?: boolean;
+  /**
+   * The turn begins once the opened task's `task_show` has come back and before the daemon answers the
+   * first `task_logs`: no event, so the snapshot the screen holds is from before it.
+   */
+  readonly beginsAfterOpen?: boolean;
 };
 
 /** A task whose coder wrote one line, then a deputy turn on it. */
@@ -63,7 +68,12 @@ async function deputyDaemon(o: Seed): Promise<{ s: PtySession; store: Store }> {
     feed.write(d, t.id, d.pendingOne(t.id, 'start_agent').id, CODER, 'agent', ['coder line 1']);
     ended(d, t.id, SETUP);
     ended(d, t.id, CODER);
-    const turns = d.store.deputy;
+    if (o.beginsAfterOpen !== true) begin(d.store);
+  });
+  /** The deputy turn and its runs, as the daemon records them. */
+  function begin(store: Store): void {
+    const turns = store.deputy;
+    const now = Date.now();
     const ok = (r: { ok: boolean; error?: unknown }) => {
       if (!r.ok) throw new Error(JSON.stringify(r.error));
     };
@@ -80,13 +90,13 @@ async function deputyDaemon(o: Seed): Promise<{ s: PtySession; store: Store }> {
         operation_id: RUN_1.op,
         mode: o.mode ?? 'headless',
         context_bytes: 0,
-        now: d.now,
+        now,
       }),
     );
     o.runs.forEach((lines, i) => {
       const r = i === 0 ? RUN_1 : RUN_2;
       if (i > 0) {
-        ok(turns.scheduleRetry(TURN, { retry_at: d.now, infra: true, session_ref: null }));
+        ok(turns.scheduleRetry(TURN, { retry_at: now, infra: true, session_ref: null }));
         ok(turns.resumeTurn(TURN, r.attempt, r.op));
       }
       const run = RunDir.open({
@@ -102,9 +112,33 @@ async function deputyDaemon(o: Seed): Promise<{ s: PtySession; store: Store }> {
       }
       log.sync();
     });
-    if (o.done !== false) ok(turns.finishTurn(TURN, { state: 'done', now: d.now }));
-  });
+    if (o.done !== false) ok(turns.finishTurn(TURN, { state: 'done', now }));
+  }
   const running = await sd.start();
+  if (o.beginsAfterOpen === true) {
+    // The first log read is held at a proxy until task_show has answered and the turn has begun.
+    const proxy = await tui.proxy(daemonSocket(sd));
+    let release = (): void => undefined;
+    const held = new Promise<void>((r) => (release = r));
+    let first = true;
+    let shown = false;
+    proxy.tap = (direction, data) => {
+      if (direction === 'response' && data.toString('utf8').includes('"provenance"')) shown = true;
+    };
+    proxy.beforeForward = (request) => {
+      if (!first || !request.includes('"task_logs"')) return undefined;
+      first = false;
+      return held;
+    };
+    const s = tui.cusr(proxy.dataDir, { cols: 120, rows: 24 });
+    await s.waitForText('Deputy task');
+    s.send(KEY.enter);
+    await s.waitForText('Logs:');
+    await s.waitFor(() => shown, 10_000);
+    begin(running.store);
+    release();
+    return { s, store: running.store };
+  }
   const s = tui.cusr(sd.dataDir, { cols: 120, rows: 24 });
   await openTask(s, 'Deputy task');
   s.send('l');
@@ -184,6 +218,20 @@ describe('Logs of a task the deputy acted on', () => {
     s.send(KEY.up);
     s.send(KEY.enter);
     await s.waitForText('This deputy run was a native session in its own terminal window');
+    await quit(s);
+  });
+
+  it('a turn that began after the task was read is told on the first log page, without `t`', async () => {
+    const { s, store } = await deputyDaemon({
+      mode: 'interactive',
+      runs: [],
+      done: false,
+      beginsAfterOpen: true,
+    });
+    const version = store.readTask(uuidOf(1))?.version;
+    await s.waitForText('coder line 1');
+    await s.waitForText('The deputy is working in its own terminal window', 5_000);
+    expect(store.readTask(uuidOf(1))?.version).toBe(version);
     await quit(s);
   });
 });

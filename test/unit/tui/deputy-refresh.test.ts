@@ -80,6 +80,38 @@ describe('the deputy beside the log, read again when its stamp changes', () => {
     expect(fresh.detail?.show.data?.deputy).toBeUndefined();
   });
 
+  it('the first page of an opened log reads task_show again when its stamp is not the snapshot in use', () => {
+    // task_show answered before a deputy turn began; the first log page already sees the turn.
+    const fresh = opened();
+    const first: TuiState = {
+      ...fresh,
+      detail:
+        fresh.detail === null
+          ? null
+          : {
+              ...fresh.detail,
+              show: { ...fresh.detail.show, data: { ...show(null), deputy_stamp: 'none' } },
+            },
+      logs: fresh.logs === null ? null : { ...fresh.logs, deputyStamp: null },
+    };
+    const read = onLogsRead(first, logsPage(first, 200, 'turn began'));
+    expect(read.detail?.showWanted).toBe(true);
+    expect(read.detail?.showWantedAt).toBe(200);
+    // Polled again before the read came back: the same stamp keeps the first mark.
+    expect(onLogsRead(read, logsPage(read, 300, 'turn began')).detail?.showWantedAt).toBe(200);
+    // The read asked after it brings the stamp of the page: nothing more is asked.
+    const taken = onDetailRead(
+      read,
+      showRead(400, { ...show('interactive'), deputy_stamp: 'turn began' }),
+    );
+    expect(taken.detail?.showWanted).toBe(false);
+    expect(onLogsRead(taken, logsPage(taken, 500, 'turn began')).detail?.showWanted).toBe(false);
+
+    // The same stamp as the snapshot asks no read, first page or not (T041).
+    const same = onLogsRead(first, logsPage(first, 200, 'none'));
+    expect(same.detail?.showWanted).toBe(false);
+  });
+
   it('the first stamp of an opened log asks no read: opening the task already read task_show', () => {
     const fresh = opened();
     const first: TuiState = {

@@ -33,6 +33,7 @@ import {
   type Redact,
   type WaiverView,
 } from './deputy-decisions.ts';
+import { deputyStamp } from './logs.ts';
 import { authorize, authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { confirmTask, type ConfirmDeps } from './confirm.ts';
@@ -616,6 +617,7 @@ export function taskShow(
     ),
     ...liveTurn(store, s.value.id),
     deputy_runs: deputyRuns(store, s.value),
+    deputy_stamp: deputyStamp(store, s.value.id),
     ...loopView(store, s.value, redact),
     deputy_decisions: taskDecisions(store, s.value, redact),
   });

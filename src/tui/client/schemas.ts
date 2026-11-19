@@ -311,6 +311,8 @@ export const TaskShowSchema = z.looseObject({
       attempt_id: z.string().optional(),
     })
     .optional(),
+  /** What the deputy runs and live turn were for this snapshot: `task_logs` carries the same value. */
+  deputy_stamp: z.string().optional(),
   /** The runs of the task's deputy turns, each after the attempt it follows in the log. */
   deputy_runs: z
     .array(
