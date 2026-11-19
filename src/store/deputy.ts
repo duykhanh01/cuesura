@@ -37,6 +37,8 @@ export type StartTurn = {
   readonly signature: string | null;
   readonly harness: string;
   readonly attempt_id: string;
+  /** The runner operation of the first run, whose records the run's spool holds. */
+  readonly operation_id?: string;
   readonly mode: 'interactive' | 'headless';
   readonly context_bytes: number;
   readonly now: number;
@@ -49,6 +51,17 @@ export type FinishTurn = {
   readonly final_message?: string | null;
   readonly session_ref?: string | null;
   readonly now: number;
+};
+
+/** One run of a turn: where its spool is, and where its records go in its task's log. */
+export type DeputyRun = {
+  readonly attempt_id: string;
+  readonly turn_id: string;
+  readonly operation_id: string | null;
+  /** The task's last event when the run was recorded. */
+  readonly after_seq: number;
+  /** The turn's current run, still running: its spool may still grow. */
+  readonly live: boolean;
 };
 
 type Row = Omit<DeputyTurn, 'handoff'> & { handoff_json: string | null };
@@ -89,26 +102,10 @@ export class DeputyTurns {
   /** Recorded before the harness is spawned; a second live turn for the task or plan is refused. */
   startTurn(t: StartTurn): Result<DeputyTurn, TurnError> {
     try {
-      this.#db
-        .prepare(
-          `INSERT INTO deputy_turns (turn_id, goal_id, task_id, kind, incident, signature, harness, session_ref,
-             attempt_id, mode, state, infra_failures, retry_at, handoff_json, final_message, handoff_reason,
-             context_bytes, started_at, ended_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'running', 0, NULL, NULL, NULL, NULL, ?, ?, NULL)`,
-        )
-        .run(
-          t.turn_id,
-          t.goal_id,
-          t.task_id,
-          t.kind,
-          t.incident,
-          t.signature,
-          t.harness,
-          t.attempt_id,
-          t.mode,
-          t.context_bytes,
-          t.now,
-        );
+      this.#db.transaction(() => {
+        this.#insertTurn(t);
+        this.#recordRun(t.attempt_id, t.turn_id, t.task_id, t.operation_id ?? null);
+      })();
     } catch (e) {
       if (isUniqueViolation(e)) return err({ code: 'conflict', reason: 'turn_live' });
       const wf = writeFailure(e);
@@ -116,6 +113,44 @@ export class DeputyTurns {
       throw e;
     }
     return ok(this.turn(t.turn_id) as DeputyTurn);
+  }
+
+  #insertTurn(t: StartTurn): void {
+    this.#db
+      .prepare(
+        `INSERT INTO deputy_turns (turn_id, goal_id, task_id, kind, incident, signature, harness, session_ref,
+             attempt_id, mode, state, infra_failures, retry_at, handoff_json, final_message, handoff_reason,
+             context_bytes, started_at, ended_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, 'running', 0, NULL, NULL, NULL, NULL, ?, ?, NULL)`,
+      )
+      .run(
+        t.turn_id,
+        t.goal_id,
+        t.task_id,
+        t.kind,
+        t.incident,
+        t.signature,
+        t.harness,
+        t.attempt_id,
+        t.mode,
+        t.context_bytes,
+        t.now,
+      );
+  }
+
+  #recordRun(
+    attemptId: string,
+    turnId: string,
+    taskId: string | null,
+    operationId: string | null,
+  ): void {
+    this.#db
+      .prepare(
+        `INSERT INTO deputy_turn_runs (attempt_id, turn_id, task_id, operation_id, after_seq)
+         VALUES (?, ?, ?, ?,
+           COALESCE((SELECT MAX(seq) FROM events WHERE task_id = ? AND stream = 'task'), 0))`,
+      )
+      .run(attemptId, turnId, taskId, operationId, taskId);
   }
 
   finishTurn(turnId: string, f: FinishTurn): Result<void, TurnError> {
@@ -159,17 +194,31 @@ export class DeputyTurns {
   }
 
   /** Back to `running` for the next run of the same turn, under a new runner attempt. */
-  resumeTurn(turnId: string, attemptId: string): Result<void, TurnError> {
-    return update(
-      this.#db,
-      () =>
-        this.#db
-          .prepare(
-            `UPDATE deputy_turns SET state = 'running', retry_at = NULL, attempt_id = ?
-             WHERE turn_id = ? AND state = 'retry_wait'`,
-          )
-          .run(attemptId, turnId).changes === 1,
-    );
+  resumeTurn(turnId: string, attemptId: string, operationId?: string): Result<void, TurnError> {
+    return update(this.#db, () => {
+      const row = this.#db
+        .prepare(
+          `UPDATE deputy_turns SET state = 'running', retry_at = NULL, attempt_id = ?
+           WHERE turn_id = ? AND state = 'retry_wait' RETURNING task_id`,
+        )
+        .get(attemptId, turnId) as { task_id: string | null } | undefined;
+      if (row === undefined) return false;
+      this.#recordRun(attemptId, turnId, row.task_id, operationId ?? null);
+      return true;
+    });
+  }
+
+  /** Every run of the task's turns, in the order its log shows them. */
+  runsOf(taskId: string): DeputyRun[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT r.attempt_id, r.turn_id, r.operation_id, r.after_seq,
+                (t.state = 'running' AND t.attempt_id = r.attempt_id) AS live
+         FROM deputy_turn_runs r JOIN deputy_turns t ON t.turn_id = r.turn_id
+         WHERE r.task_id = ? ORDER BY r.after_seq, r.rowid`,
+      )
+      .all(taskId) as (Omit<DeputyRun, 'live'> & { live: number })[];
+    return rows.map((r) => ({ ...r, live: r.live === 1 }));
   }
 
   /** Only while the turn runs; the last handoff of a turn wins (FR-021). */

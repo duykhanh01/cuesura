@@ -3,10 +3,11 @@
  * active worker's durable, redacted spool extends it without a domain write or version change. Final
  * ingestion keeps the same order. Rotation and restart do not change cursors, so a follower resumes with no
  * record repeated or lost. A batch whose files are gone (retention) or no longer match their digest is
- * reported as a gap of that size, never skipped silently.
+ * reported as a gap of that size, never skipped silently. The runs of the task's deputy turns, recorded
+ * outside the event log, are read from their spools and placed among the operations' output by when they
+ * were recorded (`deputy_turn_runs`).
  */
 import { z } from 'zod';
-import type { DomainEvent } from '../domain/event.ts';
 import type { TaskState } from '../domain/state.ts';
 import {
   listSegments,
@@ -137,9 +138,10 @@ export type LogEntry =
       readonly gap: { readonly records: number; readonly reason: string };
     };
 
-type OutputEvent = Extract<DomainEvent, { type: 'OutputIngested' }>;
-
-function openRecords(deps: LogsDeps, op: TaskState['operations'][string]): LogRecord[] | string {
+function openRecords(
+  deps: LogsDeps,
+  op: { readonly id: string; readonly attempt_id: string | null },
+): LogRecord[] | string {
   try {
     const run = RunDir.open({
       dataDir: deps.dataDir,
@@ -195,6 +197,102 @@ function liveRecords(
   return ok({ records, cursor });
 }
 
+/** The step a deputy run's records show under: a turn is no step of the task. */
+export const DEPUTY_STEP = 'deputy';
+
+const LIVE_STATUSES: readonly string[] = ['registered', 'running', 'unknown'];
+
+/** One stretch of the task's log: an ingest of an operation, a worker's live tail, or a deputy run. */
+type Batch = {
+  /** What `load` reads: an operation's id, or a deputy run's attempt. */
+  readonly key: string;
+  readonly operation_id: string;
+  readonly attempt_id: string | null;
+  readonly step: string | null;
+  readonly records: number;
+  /** Null for a deputy run, whose records no event commits. */
+  readonly digest: string | null;
+};
+
+type Placed = { readonly batch: Batch; readonly operation_id: string };
+
+type Diagnostic = {
+  readonly operation_id: string;
+  readonly attempt_id: string | null;
+  readonly reason: string;
+};
+
+const at = (op: TaskState['operations'][string], reason: string): Diagnostic => ({
+  operation_id: op.id,
+  attempt_id: op.attempt_id,
+  reason,
+});
+
+function operationBatch(s: TaskState, id: string, records: number, digest: string): Batch {
+  const attemptId = s.operations[id]?.attempt_id ?? null;
+  return {
+    key: id,
+    operation_id: id,
+    attempt_id: attemptId,
+    step: attemptId === null ? null : (s.attempts[attemptId]?.step ?? null),
+    records,
+    digest,
+  };
+}
+
+/**
+ * Why an operation may still add committed records, or null when it never will. One that ended before it
+ * wrote anything (e.g. blocked before invoking the model) has no run directory and nothing left to append.
+ */
+function unsettled(
+  deps: LogsDeps,
+  op: TaskState['operations'][string],
+  committed: boolean,
+): string | null {
+  if (op.status === 'not_launched') return null;
+  if (!['finished', 'lost'].includes(op.status))
+    return 'earlier worker is not resolved; live output waits for its ingestion';
+  try {
+    const run = RunDir.open({
+      dataDir: deps.dataDir,
+      ...runLocation(op),
+      redactor: deps.redactor,
+      create: false,
+    });
+    const tail = readRecords(
+      run,
+      op.id,
+      op.cursor === null ? null : { operation_id: op.id, ...op.cursor },
+      { maxRecords: 1, final: true },
+    );
+    if (!tail.ok) return `earlier spool is unreadable: ${JSON.stringify(tail.error)}`;
+    return tail.value.records.length > 0
+      ? 'earlier worker has uncommitted output; later live output waits'
+      : null;
+  } catch (e) {
+    if (e instanceof RunnerFileError && e.code === 'not_found' && op.cursor === null && !committed)
+      return null;
+    return `earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`;
+  }
+}
+
+/** A deputy run's records; null when it has no run directory (never launched, or nothing written yet). */
+function deputyRecords(deps: LogsDeps, attemptId: string): LogRecord[] | null | string {
+  try {
+    RunDir.open({
+      dataDir: deps.dataDir,
+      kind: 'runs',
+      id: attemptId,
+      redactor: deps.redactor,
+      create: false,
+    });
+  } catch (e) {
+    if (e instanceof RunnerFileError && e.code === 'not_found') return null;
+    return e instanceof Error ? e.message : String(e);
+  }
+  return openRecords(deps, { id: attemptId, attempt_id: attemptId });
+}
+
 /** What a record weighs against `LOG_PAGE_BYTES`. */
 const recordBytes = (r: LogRecord): number => JSON.stringify(r.data).length;
 
@@ -205,8 +303,7 @@ const recordBytes = (r: LogRecord): number => JSON.stringify(r.data).length;
  * records that cannot be read weigh nothing, as in the page itself.
  */
 function tailStart(
-  s: TaskState,
-  batches: readonly { readonly operation_id: string; readonly records: number }[],
+  batches: readonly Batch[],
   limit: number,
   attemptId: string | undefined,
   load: (id: string) => readonly LogRecord[] | string,
@@ -214,7 +311,7 @@ function tailStart(
   const ends = new Map<string, number>();
   let end = 0;
   for (const b of batches) {
-    ends.set(b.operation_id, (ends.get(b.operation_id) ?? 0) + b.records);
+    ends.set(b.key, (ends.get(b.key) ?? 0) + b.records);
     end += b.records;
   }
   // Fewer records than a page: from the first of them, or past everything when there are none.
@@ -223,13 +320,12 @@ function tailStart(
   let bytes = 0;
   for (const b of batches.toReversed()) {
     const start = end - b.records;
-    const from = (ends.get(b.operation_id) ?? 0) - b.records;
-    ends.set(b.operation_id, from);
+    const from = (ends.get(b.key) ?? 0) - b.records;
+    ends.set(b.key, from);
     end = start;
-    const mine =
-      attemptId === undefined || (s.operations[b.operation_id]?.attempt_id ?? null) === attemptId;
+    const mine = attemptId === undefined || b.attempt_id === attemptId;
     if (!mine || b.records === 0) continue;
-    const loaded = load(b.operation_id);
+    const loaded = load(b.key);
     for (let i = b.records - 1; i >= 0; i--) {
       const record = typeof loaded === 'string' ? undefined : loaded[from + i];
       const size = record === undefined ? 0 : recordBytes(record);
@@ -285,64 +381,28 @@ export function taskLogs(
   let total = 0;
   const offsets = new Map<string, number>();
   const cache = new Map<string, readonly LogRecord[] | string>();
-  const events = deps.store
-    .readEvents(s.id as Uuid)
-    .filter((e): e is OutputEvent => e.type === 'OutputIngested');
-  const batches = events.map((e) => e.payload);
-  let diagnostic: {
-    op: TaskState['operations'][string];
-    reason: string;
-  } | null = null;
+  const registeredAt = new Map<string, number>();
+  const committed: Placed[] = [];
+  for (const e of deps.store.readEvents(s.id as Uuid)) {
+    if (e.type === 'OperationRegistered') registeredAt.set(e.payload.operation_id, e.seq);
+    else if (e.type === 'OutputIngested') {
+      const { operation_id: id, records, digest } = e.payload;
+      committed.push({ batch: operationBatch(s, id, records, digest), operation_id: id });
+    }
+  }
+  const regOf = (id: string): number => registeredAt.get(id) ?? 0;
+  const hasCommitted = (id: string): boolean => committed.some((c) => c.operation_id === id);
+  const items = [...committed];
+  let diagnostic: Diagnostic | null = null;
   const workers = Object.values(s.operations).filter((o) => o.kind === 'agent');
   const active = workers.at(-1);
-  if (active !== undefined && ['registered', 'running', 'unknown'].includes(active.status)) {
+  if (active !== undefined && LIVE_STATUSES.includes(active.status)) {
     // Do not expose B's uncommitted tail while A can still append records to the committed prefix.
     // Otherwise a later successful ingest of A would change the cursors already handed out for B.
     for (const previous of workers.slice(0, -1)) {
-      if (previous.status === 'not_launched') continue;
-      try {
-        if (!['finished', 'lost'].includes(previous.status)) {
-          diagnostic = {
-            op: previous,
-            reason: 'earlier worker is not resolved; live output waits for its ingestion',
-          };
-          break;
-        }
-        const run = RunDir.open({
-          dataDir: deps.dataDir,
-          ...runLocation(previous),
-          redactor: deps.redactor,
-          create: false,
-        });
-        const tail = readRecords(
-          run,
-          previous.id,
-          previous.cursor === null ? null : { operation_id: previous.id, ...previous.cursor },
-          { maxRecords: 1, final: true },
-        );
-        if (!tail.ok || tail.value.records.length > 0) {
-          diagnostic = {
-            op: previous,
-            reason: tail.ok
-              ? 'earlier worker has uncommitted output; later live output waits'
-              : `earlier spool is unreadable: ${JSON.stringify(tail.error)}`,
-          };
-          break;
-        }
-      } catch (e) {
-        // A worker that ended before it wrote anything (e.g. blocked before invoking the model) has no
-        // run directory and nothing left to append: there is no gap to wait for.
-        if (
-          e instanceof RunnerFileError &&
-          e.code === 'not_found' &&
-          previous.cursor === null &&
-          !batches.some((b) => b.operation_id === previous.id)
-        )
-          continue;
-        diagnostic = {
-          op: previous,
-          reason: `earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`,
-        };
+      const reason = unsettled(deps, previous, hasCommitted(previous.id));
+      if (reason !== null) {
+        diagnostic = at(previous, reason);
         break;
       }
     }
@@ -356,40 +416,102 @@ export function taskLogs(
         });
         const live = liveRecords(deps, run, active.id);
         if (!live.ok)
-          diagnostic = {
-            op: active,
-            reason: `live spool is unreadable: ${JSON.stringify(live.error)}`,
-          };
+          diagnostic = at(active, `live spool is unreadable: ${JSON.stringify(live.error)}`);
         else {
           cache.set(active.id, live.value.records);
-          const committed = batches
-            .filter((b) => b.operation_id === active.id)
-            .reduce((n, b) => n + b.records, 0);
-          const tail = live.value.records.slice(committed);
+          const done = items
+            .filter((c) => c.operation_id === active.id)
+            .reduce((n, c) => n + c.batch.records, 0);
+          const tail = live.value.records.slice(done);
           if (tail.length > 0 && live.value.cursor !== null)
-            batches.push({
+            items.push({
+              batch: operationBatch(s, active.id, tail.length, hashCanonical(tail)),
               operation_id: active.id,
-              records: tail.length,
-              digest: hashCanonical(tail),
-              cursor: { ...live.value.cursor },
             });
         }
       } catch (e) {
         if (!(e instanceof RunnerFileError && e.code === 'not_found'))
-          diagnostic = {
-            op: active,
-            reason: `live spool is unreadable: ${e instanceof Error ? e.message : String(e)}`,
-          };
+          diagnostic = at(
+            active,
+            `live spool is unreadable: ${e instanceof Error ? e.message : String(e)}`,
+          );
       }
     }
   }
+
+  // Deputy runs. A run goes after the output of every operation registered before it and before
+  // the output of any registered later, so its place holds whenever their ingestion lands. Until each of
+  // those operations is settled, or while the run itself may still write, what follows it waits.
+  const settled = new Map<string, string | null>();
+  const unsettledOf = (op: TaskState['operations'][string]): string | null => {
+    let reason = settled.get(op.id);
+    if (reason === undefined) {
+      reason = unsettled(deps, op, hasCommitted(op.id));
+      settled.set(op.id, reason);
+    }
+    return reason;
+  };
+  const runs: { readonly index: number; readonly batch: Batch }[] = [];
+  let cut = items.length;
+  for (const run of deps.store.deputy.runsOf(s.id)) {
+    const index = items.findLastIndex((c) => regOf(c.operation_id) <= run.after_seq) + 1;
+    const where = {
+      operation_id: run.operation_id ?? run.attempt_id,
+      attempt_id: run.attempt_id,
+    };
+    let waits: string | null = null;
+    for (const op of Object.values(s.operations)) {
+      if (regOf(op.id) > run.after_seq) continue;
+      waits = unsettledOf(op);
+      if (waits !== null) break;
+    }
+    if (waits !== null) {
+      cut = index;
+      diagnostic ??= { ...where, reason: `deputy output waits for earlier output: ${waits}` };
+      break;
+    }
+    const loaded = deputyRecords(deps, run.attempt_id);
+    if (typeof loaded === 'string') {
+      cut = index;
+      diagnostic ??= { ...where, reason: `deputy spool is unreadable: ${loaded}` };
+      break;
+    }
+    if (loaded !== null && loaded.length > 0) {
+      cache.set(run.attempt_id, loaded);
+      runs.push({
+        index,
+        batch: {
+          key: run.attempt_id,
+          operation_id: run.operation_id ?? loaded[0]?.operation_id ?? run.attempt_id,
+          attempt_id: run.attempt_id,
+          step: DEPUTY_STEP,
+          records: loaded.length,
+          digest: null,
+        },
+      });
+    }
+    if (run.live) {
+      // Its count still grows: nothing after it has a place yet.
+      cut = index;
+      if (index < items.length)
+        diagnostic ??= { ...where, reason: 'a deputy turn is running; later output waits for it' };
+      break;
+    }
+  }
+  const batches: Batch[] = [];
+  let next = 0;
+  for (let i = 0; i <= cut; i++) {
+    for (let run = runs[next]; run?.index === i; run = runs[++next]) batches.push(run.batch);
+    const item = items[i];
+    if (i < cut && item !== undefined) batches.push(item.batch);
+  }
   for (const b of batches) total += b.records;
-  const load = (id: string): readonly LogRecord[] | string => {
-    let loaded = cache.get(id);
+  const load = (key: string): readonly LogRecord[] | string => {
+    let loaded = cache.get(key);
     if (loaded === undefined) {
-      const op = s.operations[id];
+      const op = s.operations[key];
       loaded = op === undefined ? 'operation unknown' : openRecords(deps, op);
-      cache.set(id, loaded);
+      cache.set(key, loaded);
     }
     return loaded;
   };
@@ -405,29 +527,27 @@ export function taskLogs(
       },
     });
   const after = q.data.tail
-    ? tailStart(s, batches, q.data.limit, q.data.attempt_id, load)
+    ? tailStart(batches, q.data.limit, q.data.attempt_id, load)
     : q.data.after;
   let cursor = after;
 
   for (const b of batches) {
-    const { operation_id: id, records: count, digest } = b;
-    const from = offsets.get(id) ?? 0;
-    offsets.set(id, from + count);
+    const { key, operation_id: id, attempt_id: attemptId, step, records: count, digest } = b;
+    const from = offsets.get(key) ?? 0;
+    offsets.set(key, from + count);
     const first = position + 1;
     position += count;
     if (position <= after) continue;
     if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
-    const op = s.operations[id];
-    const attemptId = op?.attempt_id ?? null;
     // Another attempt's records are passed over, not hidden: the cursor still counts them, so it stays the
     // task's cursor and a reader can drop the filter and resume from the same place.
     if (q.data.attempt_id !== undefined && attemptId !== q.data.attempt_id) {
       cursor = position;
       continue;
     }
-    const loaded = load(id);
+    const loaded = load(key);
     const batch = typeof loaded === 'string' ? null : loaded.slice(from, from + count);
-    if (batch === null || hashCanonical(batch) !== digest) {
+    if (batch === null || (digest !== null && hashCanonical(batch) !== digest)) {
       // Taken whole: a gap has no records to page through, and the cursor must still move past it.
       out.push({
         seq: position,
@@ -445,7 +565,6 @@ export function taskLogs(
       cursor = position;
       continue;
     }
-    const step = op?.attempt_id == null ? null : (s.attempts[op.attempt_id]?.step ?? null);
     for (const [i, r] of batch.entries()) {
       const seq = first + i;
       if (seq <= after) continue;
@@ -466,7 +585,7 @@ export function taskLogs(
   }
   if (
     diagnostic !== null &&
-    (q.data.attempt_id === undefined || diagnostic.op.attempt_id === q.data.attempt_id) &&
+    (q.data.attempt_id === undefined || diagnostic.attempt_id === q.data.attempt_id) &&
     cursor >= total &&
     out.length < q.data.limit &&
     bytes < LOG_PAGE_BYTES
@@ -476,8 +595,8 @@ export function taskLogs(
     out.push({
       seq: Math.max(position, cursor) + 1,
       cursor,
-      operation_id: diagnostic.op.id,
-      attempt_id: diagnostic.op.attempt_id,
+      operation_id: diagnostic.operation_id,
+      attempt_id: diagnostic.attempt_id,
       gap: { records: 0, reason: diagnostic.reason },
     });
   }

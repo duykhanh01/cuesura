@@ -541,7 +541,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     };
     const next: TurnRecord = { ...record, input };
     writeRecord(next);
-    const r = store.deputy.resumeTurn(turn.turn_id, attempt);
+    const r = store.deputy.resumeTurn(turn.turn_id, attempt, input.operation_id);
     if (!r.ok) {
       log(`turn ${turn.turn_id}: not resumed: ${r.error.code}`);
       return;
@@ -793,6 +793,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       signature: facts.signature.signature,
       harness: setting.harness,
       attempt_id: attemptId,
+      operation_id: input.operation_id,
       mode: harness.interactive === true ? 'interactive' : 'headless',
       context_bytes: built.bytes,
       now,
@@ -910,7 +911,11 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       baseline: null,
     };
     writeRecord(record);
-    const started = store.deputy.startTurn({ ...row, context_bytes: built.bytes });
+    const started = store.deputy.startTurn({
+      ...row,
+      operation_id: input.operation_id,
+      context_bytes: built.bytes,
+    });
     if (!started.ok) {
       forget(turnId);
       log(`goal ${g.id}: plan turn not started: ${started.error.code}`);

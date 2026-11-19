@@ -67,6 +67,23 @@ task chưa kết thúc mỗi khóa (unique index một phần, điều kiện ki
 Ràng buộc: tối đa một lượt `running`/`retry_wait` mỗi `task_id` (unique index một phần); tối đa một lượt `plan`
 `running`/`retry_wait` mỗi `goal_id` (unique index một phần trên `goal_id` với `kind = 'plan'`).
 
+### `deputy_turn_runs` (migration 009)
+
+Mỗi lần chạy của một lượt: lần đầu và mỗi lần resume dưới attempt mới. `task_logs` (CLI `task logs`, màn Logs của TUI)
+đọc spool của từng lần chạy ở `runs/<attempt_id>` và xếp nó vào log của task, dưới step `deputy`.
+
+| Cột | Kiểu | Ghi chú |
+| --- | --- | --- |
+| `turn_id` | TEXT | |
+| `attempt_id` | TEXT | Attempt của runner cho lần chạy này |
+| `task_id` | TEXT NULL | NULL với lượt `plan` |
+| `operation_id` | TEXT NULL | Operation của runner; NULL với dòng backfill |
+| `after_seq` | INTEGER | Event cuối của task lúc ghi lần chạy |
+
+PK `(turn_id, attempt_id)`. Bản ghi của lần chạy đứng sau output của mọi operation đăng ký tới `after_seq` và trước
+output của operation đăng ký sau đó. Vị trí này chỉ được dùng khi các operation trước đó đã xong, và output phía sau
+một lần chạy còn đang chạy phải chờ, nên cursor không bị xê dịch. Không sinh event (FR-025).
+
 ### `branch_conflicts` (mới)
 
 | Cột | Kiểu | Ghi chú |
