@@ -173,14 +173,22 @@ function restsOnSkip(checks: readonly SourcedCheck[], required: readonly string[
 type Turn = 'ready' | 'draft' | 'undetermined';
 const WORKFLOW_RUN = /\/actions\/runs\/(\d+)\/job\//;
 const MAX_RUN_READS = 10;
+const runIdOf = (o: Obj): number => Number(WORKFLOW_RUN.exec(String(o['details_url']))?.[1]);
+
+type Resolved = { readonly turn: Turn; readonly replacement: SourcedCheck | null };
 
 /**
- * Which turn of the PR the skipped check runs `skipped` answer, given GitHub's time of its latest
- * draft → ready change. A check run answers the workflow run that made it: a workflow run created before
- * that time ran for the draft (its jobs may start or skip after it), one created strictly after it for
- * the ready PR. GitHub dates both to the second, so a workflow run created in that very second proves
- * neither and stays undetermined, as does one that cannot be read or belongs to another head, or that a
- * newer workflow run of the head (same workflow, or unfinished) may supersede: a wait, never a wrong pass. Only the workflow run of each check's current run is read, once per run.
+ * What a skipped check run of a PR turned ready proves. GitHub gives no payload that names the event of a
+ * workflow run (two runs of one workflow, one gated off by the draft and one for the ready PR, read alike,
+ * and a run's creation time lags the ready event by a second or more), so neither a timestamp, nor the
+ * newest run, nor the absence of a sibling run is proof. A skip counts for the ready PR only when
+ *  - its workflow run was created strictly after GitHub's ready time (earlier: the draft's; the same
+ *    second: undetermined), and
+ *  - that same workflow run really ran work: another of its jobs completed successfully. A run whose
+ *    every job skipped is what the draft gate leaves, and no job of it decided anything.
+ * Anything else is `undetermined`, a wait. A skip that is the newest of its check but unproven can hide a
+ * ready run's own result of that check (the draft's run may publish later with a higher ID): then the
+ * newest non-skipped run of the check made after the ready time stands in. Each workflow run is read once.
  */
 async function skipTurns(
   port: GitHubPort,
@@ -189,10 +197,10 @@ async function skipTurns(
   readyAt: number,
   runs: readonly unknown[],
   skipped: readonly SourcedCheck[],
-): Promise<{ ok: true; turns: Map<number, Turn> } | { ok: false; error: GitHubFailure }> {
+): Promise<{ ok: true; resolved: Map<number, Resolved> } | { ok: false; error: GitHubFailure }> {
   const created = new Map<number, number | null>();
   const createdAt = async (o: Obj): Promise<number | null | { error: GitHubFailure }> => {
-    const id = Number(WORKFLOW_RUN.exec(String(o['details_url']))?.[1]);
+    const id = runIdOf(o);
     if (!Number.isSafeInteger(id)) return null;
     if (created.has(id)) return created.get(id) ?? null;
     if (created.size >= MAX_RUN_READS) return null;
@@ -214,68 +222,45 @@ async function skipTurns(
     created.set(id, value);
     return value;
   };
-  // A skip after the ready time can still be the draft's own aggregate that GitHub created late. It is
-  // the ready PR's only while no newer workflow run of the head is of the same workflow or unfinished:
-  // the ready workflow's check may simply not exist yet. Unreadable or capped listings fail closed.
-  let heads: ReadonlyMap<number, Obj> | null | undefined;
-  const newestOfHead = async (
-    id: number,
-    at: number,
-  ): Promise<boolean | { error: GitHubFailure }> => {
-    if (heads === undefined) {
-      const l = await listAll(
-        port,
-        `repos/${repo}/actions/runs`,
-        (b) => {
-          const list = obj(b)['workflow_runs'];
-          return Array.isArray(list) ? list : null;
-        },
-        { query: { head_sha: sha } },
-      );
-      if (!l.ok && l.error.status !== 404) return { error: l.error };
-      heads =
-        l.ok && l.value.complete
-          ? new Map(
-              l.value.items
-                .map(obj)
-                .filter((w) => typeof w['id'] === 'number' && w['head_sha'] === sha)
-                .map((w) => [w['id'] as number, w] as const),
-            )
-          : null;
-    }
-    const own = heads?.get(id);
-    if (heads == null || own === undefined) return false;
-    for (const w of heads.values()) {
-      const wid = w['id'] as number;
-      if (wid === id) continue;
-      const wat = Date.parse(String(w['created_at']));
-      const newer = !Number.isFinite(wat) || wat > at || (wat === at && wid > id);
-      if (newer && (w['workflow_id'] === own['workflow_id'] || w['status'] !== 'completed'))
-        return false;
-    }
-    return true;
-  };
-  const byId = new Map<number, Obj>();
-  for (const r of runs) {
-    const o = obj(r);
-    if (typeof o['id'] === 'number' && o['head_sha'] === sha) byId.set(o['id'], o);
-  }
-  const turns = new Map<number, Turn>();
+  const all = runs.map(obj).filter((o) => typeof o['id'] === 'number' && o['head_sha'] === sha);
+  const byId = new Map(all.map((o) => [o['id'] as number, o] as const));
+  const ranWork = (id: number): boolean =>
+    Number.isSafeInteger(id) &&
+    all.some(
+      (o) => runIdOf(o) === id && o['status'] === 'completed' && o['conclusion'] === 'success',
+    );
+  const resolved = new Map<number, Resolved>();
   for (const c of skipped) {
     const o = byId.get(c.generation as number);
     const at = o === undefined ? null : await createdAt(o);
     if (typeof at === 'object' && at !== null) return { ok: false, error: at.error };
-    let turn: Turn =
-      at === null || at === readyAt ? 'undetermined' : at < readyAt ? 'draft' : 'ready';
-    if (turn === 'ready' && at !== null) {
-      const id = Number(WORKFLOW_RUN.exec(String(obj(o)['details_url']))?.[1]);
-      const sibling = await newestOfHead(id, at);
-      if (typeof sibling === 'object') return { ok: false, error: sibling.error };
-      if (!sibling) turn = 'undetermined';
+    if (at !== null && at < readyAt) {
+      resolved.set(c.generation as number, { turn: 'draft', replacement: null });
+      continue;
     }
-    turns.set(c.generation as number, turn);
+    if (at !== null && at > readyAt && o !== undefined && ranWork(runIdOf(o))) {
+      resolved.set(c.generation as number, { turn: 'ready', replacement: null });
+      continue;
+    }
+    // Unproven: a result of this check from a run made after the ready time, if one is visible.
+    const appId = c.app_id;
+    const others = all.filter(
+      (x) =>
+        x['name'] === c.name &&
+        (typeof obj(x['app'])['id'] === 'number' ? obj(x['app'])['id'] : null) === appId &&
+        !(x['status'] === 'completed' && x['conclusion'] === 'skipped'),
+    );
+    let replacement: SourcedCheck | null = null;
+    const best = selectCurrent(others, [], sha).checks[0];
+    const bestRun = best === undefined ? undefined : byId.get(best.generation as number);
+    if (best !== undefined && bestRun !== undefined) {
+      const bat = await createdAt(bestRun);
+      if (typeof bat === 'object' && bat !== null) return { ok: false, error: bat.error };
+      if (bat !== null && bat > readyAt) replacement = best;
+    }
+    resolved.set(c.generation as number, { turn: 'undetermined', replacement });
   }
-  return { ok: true, turns };
+  return { ok: true, resolved };
 }
 
 export async function readHeadChecks(
@@ -317,9 +302,10 @@ export async function readHeadChecks(
       const read = await skipTurns(port, repo, sha, at.at, runs.value.items, skipped);
       if (!read.ok) return { ok: false, error: read.error };
       checks = checks.flatMap((c) => {
-        const turn = read.turns.get(c.generation as number);
-        if (!isSkip(c) || turn === undefined || turn === 'ready') return [c];
-        return turn === 'draft' ? [] : [{ ...c, state: 'pending' as const, raw: `${c.raw}?` }];
+        const r = read.resolved.get(c.generation as number);
+        if (!isSkip(c) || r === undefined || r.turn === 'ready') return [c];
+        if (r.turn === 'draft') return [];
+        return [r.replacement ?? { ...c, state: 'pending' as const, raw: `${c.raw}?` }];
       });
     }
   }
