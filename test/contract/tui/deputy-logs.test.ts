@@ -3,6 +3,7 @@ import { EventLogWriter, RunDir } from '../../../src/runner/files.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
+import { KEY, type PtySession } from '../../support/pty.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import type { StoreDriver } from '../../support/store-driver.ts';
@@ -13,8 +14,8 @@ const tui = useTui();
 const SETUP = uuidOf(700);
 const CODER = uuidOf(701);
 const TURN = uuidOf(900);
-const DEPUTY_ATTEMPT = uuidOf(901);
-const DEPUTY_OP = uuidOf(902);
+const RUN_1 = { attempt: uuidOf(901), op: uuidOf(902) };
+const RUN_2 = { attempt: uuidOf(903), op: uuidOf(904) };
 
 function ended(d: StoreDriver, taskId: string, op: string): void {
   d.must(taskId, {
@@ -30,25 +31,38 @@ function ended(d: StoreDriver, taskId: string, op: string): void {
   });
 }
 
-describe('Logs of a task the deputy acted on', () => {
-  it("shows the deputy turn's output under its own step", async () => {
-    const sd = tui.daemon();
-    const t = buildTask({ id: uuidOf(1), title: 'Deputy task' });
-    const feed = new LogFeed(sd);
-    sd.seed((d) => {
-      createGrantStart(d, t, 'direct-pr');
-      const prepare = d.pendingOne(t.id, 'prepare');
-      feed.write(d, t.id, prepare.id, SETUP, 'setup', ['setup line 1']);
-      d.must(t.id, {
-        kind: 'effect_result',
-        effect_id: prepare.id as never,
-        outcome: 'succeeded',
-        data: PREPARE_DATA,
-      });
-      feed.write(d, t.id, d.pendingOne(t.id, 'start_agent').id, CODER, 'agent', ['coder line 1']);
-      ended(d, t.id, SETUP);
-      ended(d, t.id, CODER);
-      const started = d.store.deputy.startTurn({
+type Seed = {
+  readonly mode?: 'headless' | 'interactive';
+  /** One list of lines per run of the turn; more than one is a turn that was retried. */
+  readonly runs: readonly (readonly string[])[];
+  /** Whether the turn ended. */
+  readonly done?: boolean;
+};
+
+/** A task whose coder wrote one line, then a deputy turn on it. */
+async function deputyTask(o: Seed): Promise<PtySession> {
+  const sd = tui.daemon();
+  const t = buildTask({ id: uuidOf(1), title: 'Deputy task' });
+  const feed = new LogFeed(sd);
+  sd.seed((d) => {
+    createGrantStart(d, t, 'direct-pr');
+    const prepare = d.pendingOne(t.id, 'prepare');
+    feed.write(d, t.id, prepare.id, SETUP, 'setup', ['setup line 1']);
+    d.must(t.id, {
+      kind: 'effect_result',
+      effect_id: prepare.id as never,
+      outcome: 'succeeded',
+      data: PREPARE_DATA,
+    });
+    feed.write(d, t.id, d.pendingOne(t.id, 'start_agent').id, CODER, 'agent', ['coder line 1']);
+    ended(d, t.id, SETUP);
+    ended(d, t.id, CODER);
+    const turns = d.store.deputy;
+    const ok = (r: { ok: boolean; error?: unknown }) => {
+      if (!r.ok) throw new Error(JSON.stringify(r.error));
+    };
+    ok(
+      turns.startTurn({
         turn_id: TURN,
         goal_id: t.id,
         task_id: t.id,
@@ -56,32 +70,52 @@ describe('Logs of a task the deputy acted on', () => {
         incident: `${t.id}:1:timeout:1`,
         signature: null,
         harness: 'fake',
-        attempt_id: DEPUTY_ATTEMPT,
-        mode: 'headless',
+        attempt_id: RUN_1.attempt,
+        operation_id: RUN_1.op,
+        mode: o.mode ?? 'headless',
         context_bytes: 0,
         now: d.now,
-      });
-      if (!started.ok) throw new Error(JSON.stringify(started.error));
+      }),
+    );
+    o.runs.forEach((lines, i) => {
+      const r = i === 0 ? RUN_1 : RUN_2;
+      if (i > 0) {
+        ok(turns.scheduleRetry(TURN, { retry_at: d.now, infra: true, session_ref: null }));
+        ok(turns.resumeTurn(TURN, r.attempt, r.op));
+      }
       const run = RunDir.open({
         dataDir: sd.dataDir,
         kind: 'runs',
-        id: DEPUTY_ATTEMPT,
+        id: r.attempt,
         redactor: new Redactor(),
       });
-      const log = EventLogWriter.open(run, DEPUTY_OP);
-      for (const line of ['deputy read the failure', 'deputy continued the task']) {
-        const r = log.append('progress', line);
-        if (!r.ok) throw new Error(r.error.code);
+      const log = EventLogWriter.open(run, r.op);
+      for (const line of lines) {
+        const appended = log.append('progress', line);
+        if (!appended.ok) throw new Error(appended.error.code);
       }
       log.sync();
-      if (!d.store.deputy.finishTurn(TURN, { state: 'done', now: d.now }).ok)
-        throw new Error('turn not finished');
     });
-    await sd.start();
-    const s = tui.cusr(sd.dataDir, { cols: 120, rows: 30 });
-    await openTask(s, 'Deputy task');
-    s.send('l');
-    await s.waitForText('Logs:');
+    if (o.done !== false) ok(turns.finishTurn(TURN, { state: 'done', now: d.now }));
+  });
+  await sd.start();
+  const s = tui.cusr(sd.dataDir, { cols: 120, rows: 24 });
+  await openTask(s, 'Deputy task');
+  s.send('l');
+  await s.waitForText('Logs:');
+  return s;
+}
+
+async function quit(s: PtySession): Promise<void> {
+  s.send('q');
+  expect((await s.waitForExit()).status).toBe(0);
+}
+
+describe('Logs of a task the deputy acted on', () => {
+  it("shows the deputy turn's output under its own step", async () => {
+    const s = await deputyTask({
+      runs: [['deputy read the failure', 'deputy continued the task']],
+    });
     // The turn came last, so it is the step the log opens on.
     await s.waitForText('deputy continued the task');
     const screen = s.screenText();
@@ -90,7 +124,35 @@ describe('Logs of a task the deputy acted on', () => {
     expect(screen.indexOf('deputy read the failure')).toBeLessThan(
       screen.indexOf('deputy continued the task'),
     );
-    s.send('q');
-    expect((await s.waitForExit()).status).toBe(0);
+    await quit(s);
+  });
+
+  it('reaches each run of a retried turn with ← and the attempt chooser', async () => {
+    const s = await deputyTask({ runs: [['first run line'], ['second run line']] });
+    await s.waitForText('second run line');
+    s.send(KEY.left);
+    await s.waitForText('first run line');
+    expect(s.screenText()).not.toContain('second run line');
+    s.send(KEY.left);
+    await s.waitForText('coder line 1');
+
+    s.send('t');
+    await s.waitForText('deputy ×2');
+    s.send('G');
+    s.send(KEY.enter);
+    // The folded run of the turn opens on its runs; the last is the second.
+    await s.waitForText('#2');
+    s.send('G');
+    s.send(KEY.enter);
+    await s.waitForText('second run line');
+    expect(s.screenText()).not.toContain('first run line');
+    await quit(s);
+  });
+
+  it('a native turn with nothing in the log says where its output is', async () => {
+    const s = await deputyTask({ mode: 'interactive', runs: [], done: false });
+    await s.waitForText('coder line 1');
+    await s.waitForText('The deputy is working in its own terminal window');
+    await quit(s);
   });
 });

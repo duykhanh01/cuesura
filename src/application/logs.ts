@@ -8,6 +8,7 @@
  * were recorded (`deputy_turn_runs`).
  */
 import { z } from 'zod';
+import { DEPUTY_HOLDS, DEPUTY_STEP, DEPUTY_WAITS } from '../domain/deputy.ts';
 import type { TaskState } from '../domain/state.ts';
 import {
   listSegments,
@@ -22,10 +23,12 @@ import {
   type ReadError,
 } from '../runner/files.ts';
 import { runLocation } from '../daemon/retention.ts';
+import { readLaunchMarker } from '../runner/operation-lock.ts';
 import type { Redactor } from '../runner/redact.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
+import type { RunCount } from '../store/deputy.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
@@ -138,8 +141,10 @@ export type LogEntry =
       readonly gap: { readonly records: number; readonly reason: string };
     };
 
+type SpoolDeps = Pick<LogsDeps, 'dataDir' | 'redactor' | 'cache'>;
+
 function openRecords(
-  deps: LogsDeps,
+  deps: SpoolDeps,
   op: { readonly id: string; readonly attempt_id: string | null },
 ): LogRecord[] | string {
   try {
@@ -197,8 +202,7 @@ function liveRecords(
   return ok({ records, cursor });
 }
 
-/** The step a deputy run's records show under: a turn is no step of the task. */
-export const DEPUTY_STEP = 'deputy';
+export { DEPUTY_STEP, DEPUTY_WAITS };
 
 const LIVE_STATUSES: readonly string[] = ['registered', 'running', 'unknown'];
 
@@ -259,6 +263,10 @@ function unsettled(
       redactor: deps.redactor,
       create: false,
     });
+    // As the ingester does: an operation such as stop_attempt shares the attempt of the run it acts on,
+    // and that run's records are never its own.
+    const marker = readLaunchMarker(run);
+    if (marker.state === 'valid' && marker.value.operation_id !== op.id) return null;
     const tail = readRecords(
       run,
       op.id,
@@ -277,7 +285,7 @@ function unsettled(
 }
 
 /** A deputy run's records; null when it has no run directory (never launched, or nothing written yet). */
-function deputyRecords(deps: LogsDeps, attemptId: string): LogRecord[] | null | string {
+function deputyRecords(deps: SpoolDeps, attemptId: string): LogRecord[] | null | string {
   try {
     RunDir.open({
       dataDir: deps.dataDir,
@@ -291,6 +299,17 @@ function deputyRecords(deps: LogsDeps, attemptId: string): LogRecord[] | null | 
     return e instanceof Error ? e.message : String(e);
   }
   return openRecords(deps, { id: attemptId, attempt_id: attemptId });
+}
+
+/**
+ * What a deputy run wrote, for the daemon to keep when the run ends (`deputy_turn_runs.records`); a run
+ * with no directory wrote nothing. Undefined when its spool cannot be read: the count stays unconfirmed.
+ */
+export function runCount(deps: SpoolDeps, attemptId: string): RunCount | undefined {
+  const loaded = deputyRecords(deps, attemptId);
+  if (typeof loaded === 'string') return undefined;
+  const records = loaded ?? [];
+  return { records: records.length, digest: hashCanonical(records) };
 }
 
 /** What a record weighs against `LOG_PAGE_BYTES`. */
@@ -439,9 +458,18 @@ export function taskLogs(
     }
   }
 
-  // Deputy runs. A run goes after the output of every operation registered before it and before
-  // the output of any registered later, so its place holds whenever their ingestion lands. Until each of
-  // those operations is settled, or while the run itself may still write, what follows it waits.
+  // Deputy runs. A run goes after the output of every operation registered before it and before the
+  // output of any registered later, so its place holds whenever their ingestion lands: the log is one
+  // group of output per stretch between two runs, each in ingestion order. Until every operation before
+  // a run is settled, or while the run itself may still write, what follows it waits.
+  const runs = deps.store.deputy.runsOf(s.id);
+  const groups: Batch[][] = runs.map(() => []);
+  groups.push([]);
+  for (const item of items) {
+    const reg = regOf(item.operation_id);
+    const g = runs.findIndex((r) => reg <= r.after_seq);
+    (groups[g < 0 ? runs.length : g] as Batch[]).push(item.batch);
+  }
   const settled = new Map<string, string | null>();
   const unsettledOf = (op: TaskState['operations'][string]): string | null => {
     let reason = settled.get(op.id);
@@ -451,14 +479,12 @@ export function taskLogs(
     }
     return reason;
   };
-  const runs: { readonly index: number; readonly batch: Batch }[] = [];
-  let cut = items.length;
-  for (const run of deps.store.deputy.runsOf(s.id)) {
-    const index = items.findLastIndex((c) => regOf(c.operation_id) <= run.after_seq) + 1;
-    const where = {
-      operation_id: run.operation_id ?? run.attempt_id,
-      attempt_id: run.attempt_id,
-    };
+  const batches: Batch[] = [];
+  for (const [g, group] of groups.entries()) {
+    batches.push(...group);
+    const run = runs[g];
+    if (run === undefined) break;
+    const where = { operation_id: run.operation_id ?? run.attempt_id, attempt_id: run.attempt_id };
     let waits: string | null = null;
     for (const op of Object.values(s.operations)) {
       if (regOf(op.id) > run.after_seq) continue;
@@ -466,51 +492,46 @@ export function taskLogs(
       if (waits !== null) break;
     }
     if (waits !== null) {
-      cut = index;
-      diagnostic ??= { ...where, reason: `deputy output waits for earlier output: ${waits}` };
+      diagnostic ??= { ...where, reason: `${DEPUTY_WAITS}: ${waits}` };
       break;
     }
-    const loaded = deputyRecords(deps, run.attempt_id);
-    if (typeof loaded === 'string') {
-      cut = index;
-      diagnostic ??= { ...where, reason: `deputy spool is unreadable: ${loaded}` };
-      break;
+    let records = run.records;
+    if (records === null) {
+      // Not confirmed when it ended (still running, or recorded before counts were kept): its spool says.
+      const loaded = deputyRecords(deps, run.attempt_id);
+      if (typeof loaded === 'string') {
+        diagnostic ??= { ...where, reason: `deputy spool is unreadable: ${loaded}` };
+        break;
+      }
+      if (loaded !== null) cache.set(run.attempt_id, loaded);
+      records = loaded?.length ?? 0;
     }
-    if (loaded !== null && loaded.length > 0) {
-      cache.set(run.attempt_id, loaded);
-      runs.push({
-        index,
-        batch: {
-          key: run.attempt_id,
-          operation_id: run.operation_id ?? loaded[0]?.operation_id ?? run.attempt_id,
-          attempt_id: run.attempt_id,
-          step: DEPUTY_STEP,
-          records: loaded.length,
-          digest: null,
-        },
+    if (records > 0)
+      batches.push({
+        key: run.attempt_id,
+        operation_id: where.operation_id,
+        attempt_id: run.attempt_id,
+        step: DEPUTY_STEP,
+        records,
+        digest: run.digest,
       });
-    }
     if (run.live) {
       // Its count still grows: nothing after it has a place yet.
-      cut = index;
-      if (index < items.length)
-        diagnostic ??= { ...where, reason: 'a deputy turn is running; later output waits for it' };
+      if (groups.slice(g + 1).some((later) => later.length > 0))
+        diagnostic ??= { ...where, reason: DEPUTY_HOLDS };
       break;
     }
   }
-  const batches: Batch[] = [];
-  let next = 0;
-  for (let i = 0; i <= cut; i++) {
-    for (let run = runs[next]; run?.index === i; run = runs[++next]) batches.push(run.batch);
-    const item = items[i];
-    if (i < cut && item !== undefined) batches.push(item.batch);
-  }
   for (const b of batches) total += b.records;
+  const deputyKeys = new Set(runs.map((r) => r.attempt_id));
   const load = (key: string): readonly LogRecord[] | string => {
     let loaded = cache.get(key);
     if (loaded === undefined) {
       const op = s.operations[key];
-      loaded = op === undefined ? 'operation unknown' : openRecords(deps, op);
+      if (op !== undefined) loaded = openRecords(deps, op);
+      else if (deputyKeys.has(key))
+        loaded = deputyRecords(deps, key) ?? 'the run directory is gone';
+      else loaded = 'operation unknown';
       cache.set(key, loaded);
     }
     return loaded;
@@ -604,8 +625,13 @@ export function taskLogs(
     task_id: s.id,
     records: out,
     next_cursor: cursor,
-    // A finished task whose committed records were all read: a follower may stop here.
-    complete: diagnostic === null && s.terminal !== null && cursor >= total,
+    // A finished task whose committed records were all read, and no deputy turn of it that may still
+    // write (running, or waiting to run again): a follower may stop here.
+    complete:
+      diagnostic === null &&
+      s.terminal !== null &&
+      cursor >= total &&
+      deps.store.deputy.runningTurn(s.id) === null,
     // Committed or live records past this page: a follower that is behind reads on at once.
     more: cursor < total,
     state: taskStateOf(deps, s),

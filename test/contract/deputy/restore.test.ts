@@ -101,6 +101,7 @@ function setup(name: string, steps: FakeStep[], failRestores = 0, hooks: Hooks =
       worktreePath: (id) => `/cusr-data/worktrees/${id}`,
       worktree: flaky(gitWorktree(dir)),
       recordsDir,
+      dataDir: dir,
       redactor: new Redactor({ values: [] }),
     });
   const started: string[] = [];

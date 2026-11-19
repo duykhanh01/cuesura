@@ -70,7 +70,8 @@ Ràng buộc: tối đa một lượt `running`/`retry_wait` mỗi `task_id` (un
 ### `deputy_turn_runs` (migration 009)
 
 Mỗi lần chạy của một lượt: lần đầu và mỗi lần resume dưới attempt mới. `task_logs` (CLI `task logs`, màn Logs của TUI)
-đọc spool của từng lần chạy ở `runs/<attempt_id>` và xếp nó vào log của task, dưới step `deputy`.
+đọc spool của từng lần chạy ở `runs/<attempt_id>` và xếp nó vào log của task, dưới step `deputy`. `task_show` liệt kê
+các lần chạy trong `deputy_runs` để TUI chọn được từng lần (`t`, `←`/`→`).
 
 | Cột | Kiểu | Ghi chú |
 | --- | --- | --- |
@@ -79,10 +80,30 @@ Mỗi lần chạy của một lượt: lần đầu và mỗi lần resume dư�
 | `task_id` | TEXT NULL | NULL với lượt `plan` |
 | `operation_id` | TEXT NULL | Operation của runner; NULL với dòng backfill |
 | `after_seq` | INTEGER | Event cuối của task lúc ghi lần chạy |
+| `records`, `digest` | INTEGER NULL, TEXT NULL | Số bản ghi và digest của spool, daemon ghi khi lần chạy kết thúc |
 
-PK `(turn_id, attempt_id)`. Bản ghi của lần chạy đứng sau output của mọi operation đăng ký tới `after_seq` và trước
-output của operation đăng ký sau đó. Vị trí này chỉ được dùng khi các operation trước đó đã xong, và output phía sau
-một lần chạy còn đang chạy phải chờ, nên cursor không bị xê dịch. Không sinh event (FR-025).
+PK `(turn_id, attempt_id)`. Log của task chia thành từng đoạn giữa hai lần chạy, mỗi đoạn theo thứ tự ingest. Bản
+ghi của một lần chạy đứng sau output của mọi operation đăng ký tới `after_seq`, kể cả phần ingest muộn, và trước
+output của operation đăng ký sau đó. Cursor không bị xê dịch vì:
+
+- lần chạy chỉ có vị trí khi các operation đăng ký trước nó đã xong (operation như `stop_attempt` dùng chung run
+  directory của attempt nó dừng không bị tính, giống ingester);
+- output phía sau một lần chạy còn đang chạy phải chờ;
+- lần chạy đã kết thúc giữ đúng số `records` đã xác nhận: spool mất thì thành gap cùng kích thước, lần chạy không ghi
+  gì chiếm 0 vị trí.
+
+Task chỉ `complete` khi không còn lượt `running`/`retry_wait`. Bảng không sinh event (FR-025).
+
+Giới hạn với dữ liệu ghi trước migration 009:
+
+- Mỗi lượt chỉ còn lần chạy cuối (attempt trong `deputy_turns`); các lần chạy trước một retry không hiện trong log.
+- Lần chạy đó được đặt sau event cuối của task lúc migrate, tức ở cuối log khi đó, không đúng thời điểm nó chạy.
+- `records` để NULL: số bản ghi đọc từ spool, nên spool mất thì lần chạy không còn vị trí.
+- Lượt `plan` không có task nên không thuộc log của task nào.
+
+Lượt `interactive` chạy phiên native với stdio của terminal: output của phiên không vào spool, nên log chỉ có những gì
+runner tự ghi. Trong lúc lượt đó chạy mà chưa có bản ghi, màn Logs của TUI báo rằng deputy đang làm việc ở terminal
+riêng.
 
 ### `branch_conflicts` (mới)
 

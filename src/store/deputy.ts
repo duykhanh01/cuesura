@@ -51,7 +51,12 @@ export type FinishTurn = {
   readonly final_message?: string | null;
   readonly session_ref?: string | null;
   readonly now: number;
+  /** What the run that just ended wrote; absent when its spool could not be read. */
+  readonly run?: RunCount;
 };
+
+/** The records a run wrote, kept once it ends so its place in the log survives losing its spool. */
+export type RunCount = { readonly records: number; readonly digest: string };
 
 /** One run of a turn: where its spool is, and where its records go in its task's log. */
 export type DeputyRun = {
@@ -62,6 +67,9 @@ export type DeputyRun = {
   readonly after_seq: number;
   /** The turn's current run, still running: its spool may still grow. */
   readonly live: boolean;
+  /** Confirmed when the run ended; null while it runs, or for runs recorded before counts were kept. */
+  readonly records: number | null;
+  readonly digest: string | null;
 };
 
 type Row = Omit<DeputyTurn, 'handoff'> & { handoff_json: string | null };
@@ -154,9 +162,9 @@ export class DeputyTurns {
   }
 
   finishTurn(turnId: string, f: FinishTurn): Result<void, TurnError> {
-    return update(
-      this.#db,
-      () =>
+    return update(this.#db, () => {
+      this.#confirmRun(turnId, f.run);
+      return (
         this.#db
           .prepare(
             `UPDATE deputy_turns SET state = ?, handoff_reason = COALESCE(?, handoff_reason),
@@ -171,26 +179,46 @@ export class DeputyTurns {
             f.session_ref ?? null,
             f.now,
             turnId,
-          ).changes === 1,
-    );
+          ).changes === 1
+      );
+    });
+  }
+
+  /** Keeps the count of the turn's current run, once: a later close of the same run changes nothing. */
+  #confirmRun(turnId: string, run: RunCount | undefined): void {
+    if (run === undefined) return;
+    this.#db
+      .prepare(
+        `UPDATE deputy_turn_runs SET records = ?, digest = ?
+         WHERE turn_id = ? AND records IS NULL
+           AND attempt_id = (SELECT attempt_id FROM deputy_turns WHERE turn_id = ? AND ${LIVE})`,
+      )
+      .run(run.records, run.digest, turnId, turnId);
   }
 
   /** A rate limit or an infra failure: the turn waits and resumes the same session (FR-011, FR-024). */
   scheduleRetry(
     turnId: string,
-    r: { readonly retry_at: number; readonly infra: boolean; readonly session_ref: string | null },
+    r: {
+      readonly retry_at: number;
+      readonly infra: boolean;
+      readonly session_ref: string | null;
+      /** What the run that just ended wrote; absent when its spool could not be read. */
+      readonly run?: RunCount;
+    },
   ): Result<void, TurnError> {
-    return update(
-      this.#db,
-      () =>
+    return update(this.#db, () => {
+      this.#confirmRun(turnId, r.run);
+      return (
         this.#db
           .prepare(
             `UPDATE deputy_turns SET state = 'retry_wait', retry_at = ?,
                infra_failures = infra_failures + ?, session_ref = COALESCE(?, session_ref)
              WHERE turn_id = ? AND state = 'running'`,
           )
-          .run(r.retry_at, r.infra ? 1 : 0, r.session_ref, turnId).changes === 1,
-    );
+          .run(r.retry_at, r.infra ? 1 : 0, r.session_ref, turnId).changes === 1
+      );
+    });
   }
 
   /** Back to `running` for the next run of the same turn, under a new runner attempt. */
@@ -212,7 +240,7 @@ export class DeputyTurns {
   runsOf(taskId: string): DeputyRun[] {
     const rows = this.#db
       .prepare(
-        `SELECT r.attempt_id, r.turn_id, r.operation_id, r.after_seq,
+        `SELECT r.attempt_id, r.turn_id, r.operation_id, r.after_seq, r.records, r.digest,
                 (t.state = 'running' AND t.attempt_id = r.attempt_id) AS live
          FROM deputy_turn_runs r JOIN deputy_turns t ON t.turn_id = r.turn_id
          WHERE r.task_id = ? ORDER BY r.after_seq, r.rowid`,

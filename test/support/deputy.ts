@@ -163,6 +163,7 @@ export function deputyDaemon(
       worktreePath: (id) => `/cusr-data/worktrees/${id}`,
       worktree: o.worktree ?? NO_WORKTREE,
       recordsDir: join(sd.dataDir, 'deputy'),
+      dataDir: sd.dataDir,
       redactor: new Redactor({ values: ['s3cret'] }),
     });
     return {

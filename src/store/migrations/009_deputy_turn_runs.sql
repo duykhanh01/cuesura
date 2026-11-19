@@ -8,13 +8,17 @@ CREATE TABLE deputy_turn_runs (
   task_id TEXT,
   operation_id TEXT,
   after_seq INTEGER NOT NULL,
+  -- What the run wrote, kept when it ends: a cursor already handed out stays valid if its spool is lost.
+  records INTEGER,
+  digest TEXT,
   PRIMARY KEY (turn_id, attempt_id)
 ) STRICT;
 CREATE INDEX deputy_turn_runs_task ON deputy_turn_runs (task_id, after_seq);
 
 -- Turns recorded before this table keep only their latest run; their place is the log as it stands now.
-INSERT INTO deputy_turn_runs (turn_id, attempt_id, task_id, operation_id, after_seq)
+INSERT INTO deputy_turn_runs (turn_id, attempt_id, task_id, operation_id, after_seq, records, digest)
 SELECT t.turn_id, t.attempt_id, t.task_id, NULL,
-       COALESCE((SELECT MAX(e.seq) FROM events e WHERE e.task_id = t.task_id AND e.stream = 'task'), 0)
+       COALESCE((SELECT MAX(e.seq) FROM events e WHERE e.task_id = t.task_id AND e.stream = 'task'), 0),
+       NULL, NULL
 FROM deputy_turns t
 ORDER BY t.started_at, t.turn_id;

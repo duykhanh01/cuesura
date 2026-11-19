@@ -22,6 +22,7 @@ import type { WorktreeBaseline } from '../adapters/git/restore.ts';
 import type { Clock, HarnessInput, HarnessOutcome, HarnessPort } from '../adapters/ports.ts';
 import type { DeputyWatch } from '../application/attention.ts';
 import { incidentReader } from '../application/deputy-incident.ts';
+import { runCount } from '../application/logs.ts';
 import {
   DEFAULT_CONTEXT_BYTES,
   incidentContext,
@@ -103,6 +104,8 @@ export type DeputyDeps = {
   readonly blocked?: (taskId: string) => boolean;
   /** Where a turn's input and baseline wait for its end, across daemons. */
   readonly recordsDir: string;
+  /** The data dir, whose `runs/<attempt>` hold each run's spool: counted when the run ends. */
+  readonly dataDir: string;
   readonly redactor: Redactor;
   readonly statusSince?: (s: TaskState) => number | null;
   /** Models the loop guard lets the deputy move this task to (FR-043.2); null or absent: unknown. */
@@ -371,12 +374,14 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         reason = null;
       }
     }
+    const counted = runCount(deps, turn.attempt_id);
     const r = store.deputy.finishTurn(record.turn_id, {
       state,
       handoff_reason: reason,
       final_message: message === null ? null : deps.redactor.text(message),
       session_ref: sessionRef,
       now: deps.clock.now(),
+      ...(counted === undefined ? {} : { run: counted }),
     });
     if (!r.ok) log(`turn ${record.turn_id}: not closed: ${r.error.code}`);
     forget(record.turn_id);
@@ -430,10 +435,12 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     const at = rateLimit
       ? Math.max(now, out.reset_at ?? now + backoffDelay(backoff.rate_limit, 1, record.turn_id))
       : now + backoffDelay(backoff.infra, count, record.turn_id);
+    const counted = runCount(deps, record.input.attempt_id);
     const r = store.deputy.scheduleRetry(record.turn_id, {
       retry_at: at,
       infra: !rateLimit,
       session_ref: out.session_ref,
+      ...(counted === undefined ? {} : { run: counted }),
     });
     if (!r.ok) log(`turn ${record.turn_id}: retry not scheduled: ${r.error.code}`);
     log(`task ${record.task_id}: turn ${record.turn_id} waits: ${out.failure}: ${out.detail}`);
@@ -460,10 +467,12 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     };
     // A native session that stalled goes on headless in its own session at once, uncounted (FR-013, SC-003).
     if (record.input.interactive === true && out.failure === 'timeout') {
+      const counted = runCount(deps, record.input.attempt_id);
       const r = store.deputy.scheduleRetry(record.turn_id, {
         retry_at: deps.clock.now(),
         infra: false,
         session_ref: out.session_ref,
+        ...(counted === undefined ? {} : { run: counted }),
       });
       if (!r.ok) log(`turn ${record.turn_id}: headless resume not scheduled: ${r.error.code}`);
       return;

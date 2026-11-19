@@ -8,6 +8,7 @@ import {
   groupFlow,
   pickerStart,
   treeRows,
+  withDeputyRuns,
 } from '../../../src/tui/model/attempt-tree.ts';
 import { initialDetail } from '../../../src/tui/model/detail.ts';
 import { onLogsCommand } from '../../../src/tui/model/detail-keys.ts';
@@ -537,5 +538,54 @@ describe('the end of the log on screen', () => {
     expect(frame.rowBytes(10)).toContain('line 40');
     expect(frame.rowBytes(11)).toBe('');
     expect(logRows(12)).toBe(8);
+  });
+});
+
+describe('the runs of deputy turns among the attempts', () => {
+  // A finished task: the coder, a deputy turn retried once, then the reviewer.
+  const state = (): TuiState => {
+    const title = uiText('A task');
+    const detail = initialDetail('t1', title, 1);
+    const show = {
+      status: 'DONE',
+      provenance: { usage: usage(['code', 'review']) },
+      deputy_runs: [
+        { attempt_id: 'deputy-0', binding: sanitize('claude'), at: 1 },
+        { attempt_id: 'deputy-1', binding: sanitize('claude'), at: 1 },
+      ],
+    } as unknown as TaskShow;
+    return {
+      ...initialState({ cols: 120, rows: 40 }),
+      screens: ['home', 'logs'],
+      detail: { ...detail, show: { ...detail.show, data: show } },
+      logs: { ...initialLogs('t1', title, 2), complete: true },
+    };
+  };
+  const run = (s: TuiState, ...commands: Command[]): TuiState =>
+    commands.reduce((acc, c) => onLogsCommand(acc, c)?.state ?? acc, s);
+
+  it('takes each run where the log shows it, between the workers', () => {
+    const reviewer = run(state(), 'attempts', 'end', 'open');
+    expect(reviewer.logs?.attemptFilter).toBe('attempt-1');
+    const second = run(reviewer, 'previous_step');
+    expect(second.logs?.attemptFilter).toBe('deputy-1');
+    expect(run(second, 'previous_step').logs?.attemptFilter).toBe('deputy-0');
+    expect(run(second, 'previous_step', 'previous_step').logs?.attemptFilter).toBe('attempt-0');
+  });
+
+  it('lists the runs of the retried turn in the chooser, each one to open', () => {
+    const rows = treeRows(attemptGroups(withDeputyRuns(state().detail?.show.data)), [
+      'g:0',
+      'r:deputy-0',
+    ]);
+    expect(rows.map((r) => (r.kind === 'attempt' ? r.attempt.id : r.kind))).toEqual([
+      'live',
+      'group',
+      'attempt-0',
+      'run',
+      'deputy-0',
+      'deputy-1',
+      'group',
+    ]);
   });
 });

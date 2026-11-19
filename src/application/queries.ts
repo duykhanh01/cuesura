@@ -615,6 +615,7 @@ export function taskShow(
         : store.readPolicy(s.value.id as Uuid, s.value.policy_ref.revision),
     ),
     ...liveTurn(store, s.value.id),
+    deputy_runs: deputyRuns(store, s.value),
     ...loopView(store, s.value, redact),
     deputy_decisions: taskDecisions(store, s.value, redact),
   });
@@ -650,10 +651,39 @@ function liveTurn(store: Store, taskId: string): { deputy?: Record<string, unkno
           kind: t.kind,
           incident: t.incident,
           state: t.state,
+          mode: t.mode,
+          attempt_id: t.attempt_id,
           started_at: t.started_at,
           retry_at: t.retry_at,
         },
       };
+}
+
+/**
+ * The runs of the task's deputy turns, in the order its log shows them, each with `at`: how many attempts of
+ * `provenance.usage` come before it. A run follows the attempts whose first operation was registered by
+ * the time it was recorded, as `task_logs` places it.
+ */
+function deputyRuns(store: Store, s: TaskState): Record<string, unknown>[] {
+  const runs = store.deputy.runsOf(s.id);
+  if (runs.length === 0) return [];
+  const registered = new Map<string, number>();
+  for (const e of store.readEvents(s.id as Uuid))
+    if (e.type === 'OperationRegistered' && e.payload.attempt_id !== null)
+      if (!registered.has(e.payload.attempt_id)) registered.set(e.payload.attempt_id, e.seq);
+  const attempts = Object.keys(s.attempts);
+  return runs.map((r) => {
+    const turn = store.deputy.turn(r.turn_id);
+    return {
+      attempt_id: r.attempt_id,
+      turn_id: r.turn_id,
+      binding: turn?.harness ?? 'deputy',
+      mode: turn?.mode ?? null,
+      live: r.live,
+      at: attempts.filter((id) => (registered.get(id) ?? Number.POSITIVE_INFINITY) <= r.after_seq)
+        .length,
+    };
+  });
 }
 
 /**

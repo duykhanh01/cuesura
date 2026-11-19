@@ -374,6 +374,7 @@ describe('a stalled interactive run goes on headless in the same session and tur
       worktreePath: (id) => `/cusr-data/worktrees/${id}`,
       worktree: NO_WORKTREE,
       recordsDir: join(dir, 'deputy'),
+      dataDir: dir,
       redactor: new Redactor({ values: [] }),
     });
     await deputy.round();

@@ -39,6 +39,7 @@ import {
 } from './logs.ts';
 import {
   attemptGroups,
+  withDeputyRuns,
   groupAttempts,
   cursorIndex,
   pickerStart,
@@ -159,7 +160,7 @@ export function onDetailCommand(state: TuiState, command: Command): Reduced | nu
 
 /** The chooser's groups, from the attempts `task_show` lists. */
 export const pickerGroups = (s: TuiState): readonly AttemptGroup[] =>
-  attemptGroups(s.detail?.show.data?.provenance.usage ?? []);
+  attemptGroups(withDeputyRuns(s.detail?.show.data));
 
 function onPickerCommand(state: TuiState, logs: LogState, command: Command): Reduced | null {
   const rows = treeRows(pickerGroups(state), logs.pickerOpen);

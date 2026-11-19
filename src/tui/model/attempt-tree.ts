@@ -5,10 +5,37 @@
  * is the daemon's, oldest first.
  */
 import type { TaskShow } from '../client/schemas.ts';
+import { DEPUTY_STEP } from '../../domain/deputy.ts';
 import { sanitize, type SafeText } from '../terminal/safe-text.ts';
 import { stageOf, type StageName } from './stages.ts';
 
 type Usage = TaskShow['provenance']['usage'][number];
+
+const DEPUTY_STEP_TEXT = sanitize(DEPUTY_STEP);
+
+/**
+ * The attempts `task_show` lists with the runs of the task's deputy turns among them, where the log shows
+ * them: what the chooser, `←`/`→` and the binding beside each step read.
+ */
+export function withDeputyRuns(show: TaskShow | null | undefined): readonly Usage[] {
+  const usage = show?.provenance.usage ?? [];
+  const runs = show?.deputy_runs ?? [];
+  if (runs.length === 0) return usage;
+  const out: Usage[] = [];
+  let next = 0;
+  for (let i = 0; i <= usage.length; i++) {
+    for (let run = runs[next]; run !== undefined && run.at <= i; run = runs[++next])
+      out.push({
+        attempt_id: run.attempt_id,
+        step: DEPUTY_STEP_TEXT,
+        binding: run.binding,
+        usage: null,
+      });
+    const u = usage[i];
+    if (u !== undefined) out.push(u);
+  }
+  return out;
+}
 
 export type Attempt = {
   readonly id: string;

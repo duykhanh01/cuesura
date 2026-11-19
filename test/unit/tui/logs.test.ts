@@ -23,6 +23,7 @@ import {
   toggleOutput,
   togglePane,
 } from '../../../src/tui/model/logs.ts';
+import { DEPUTY_HOLDS, DEPUTY_WAITS } from '../../../src/domain/deputy.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
 // T047: the rules of the log's state, without a terminal. These only guard against regressions; US2 is judged
@@ -793,5 +794,38 @@ describe('when the log last moved', () => {
     const s = applyLogPage(start(), forward(0), page([{ ...record(9), at: later }], 9), 0);
     const again = applyLogPage(s, { kind: 'older', after: 0 }, page([record(1)], 1), 0);
     expect(again.lastOutputAt).toBe(Date.parse(later));
+  });
+});
+
+describe('a log whose deputy output waits its turn', () => {
+  const waiting = (seq: number, cursor: number): Rec => ({
+    seq,
+    cursor,
+    operation_id: 'op',
+    attempt_id: ATTEMPT,
+    gap: {
+      records: 0,
+      reason: sanitize(`${DEPUTY_WAITS}: earlier worker is not resolved`),
+    },
+  });
+
+  it('says it waits, not that the log is unavailable', () => {
+    const entry = toEntry(waiting(11, 10));
+    expect(entry?.text).toBe(
+      "Waiting for the previous worker's output. Deputy logs will appear here automatically.",
+    );
+    expect(
+      toEntry({ ...waiting(11, 10), gap: { records: 0, reason: sanitize(`${DEPUTY_HOLDS}`) } })
+        ?.text,
+    ).toBe('Waiting for the deputy turn to end. Later output will appear here automatically.');
+  });
+
+  it('is no news while paused, as long as the cursor stays where it was', () => {
+    const paused = pauseLogs(fed(start(), 1, 10), COLS, HEIGHT);
+    expect(applyLogPage(paused, probe(10), page([waiting(11, 10)], 10), 1).newActivity).toBe(false);
+    expect(applyLogPage(paused, forward(10), page([waiting(11, 10)], 10), 1).newActivity).toBe(
+      false,
+    );
+    expect(applyLogPage(paused, probe(10), page([record(11)], 11), 1).newActivity).toBe(true);
   });
 });
