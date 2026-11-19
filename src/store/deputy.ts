@@ -70,6 +70,10 @@ export type DeputyRun = {
   /** Confirmed when the run ended; null while it runs, or for runs recorded before counts were kept. */
   readonly records: number | null;
   readonly digest: string | null;
+  /** The most records `task_logs` handed out positions for while the run was unconfirmed. */
+  readonly published: number | null;
+  /** How the run ran: only a turn's first run may be a native session. Null for backfilled rows. */
+  readonly mode: 'interactive' | 'headless' | null;
 };
 
 type Row = Omit<DeputyTurn, 'handoff'> & { handoff_json: string | null };
@@ -112,7 +116,7 @@ export class DeputyTurns {
     try {
       this.#db.transaction(() => {
         this.#insertTurn(t);
-        this.#recordRun(t.attempt_id, t.turn_id, t.task_id, t.operation_id ?? null);
+        this.#recordRun(t.attempt_id, t.turn_id, t.task_id, t.operation_id ?? null, t.mode);
       })();
     } catch (e) {
       if (isUniqueViolation(e)) return err({ code: 'conflict', reason: 'turn_live' });
@@ -151,49 +155,67 @@ export class DeputyTurns {
     turnId: string,
     taskId: string | null,
     operationId: string | null,
+    mode: DeputyRun['mode'],
   ): void {
     this.#db
       .prepare(
-        `INSERT INTO deputy_turn_runs (attempt_id, turn_id, task_id, operation_id, after_seq)
-         VALUES (?, ?, ?, ?,
+        `INSERT INTO deputy_turn_runs (attempt_id, turn_id, task_id, operation_id, mode, after_seq)
+         VALUES (?, ?, ?, ?, ?,
            COALESCE((SELECT MAX(seq) FROM events WHERE task_id = ? AND stream = 'task'), 0))`,
       )
-      .run(attemptId, turnId, taskId, operationId, taskId);
+      .run(attemptId, turnId, taskId, operationId, mode, taskId);
   }
 
   finishTurn(turnId: string, f: FinishTurn): Result<void, TurnError> {
     return update(this.#db, () => {
-      this.#confirmRun(turnId, f.run);
-      return (
-        this.#db
-          .prepare(
-            `UPDATE deputy_turns SET state = ?, handoff_reason = COALESCE(?, handoff_reason),
-               final_message = COALESCE(?, final_message), session_ref = COALESCE(?, session_ref),
-               retry_at = NULL, ended_at = ?
-             WHERE turn_id = ? AND ${LIVE}`,
-          )
-          .run(
-            f.state,
-            f.handoff_reason ?? null,
-            f.final_message ?? null,
-            f.session_ref ?? null,
-            f.now,
-            turnId,
-          ).changes === 1
-      );
+      const row = this.#db
+        .prepare(
+          `UPDATE deputy_turns SET state = ?, handoff_reason = COALESCE(?, handoff_reason),
+             final_message = COALESCE(?, final_message), session_ref = COALESCE(?, session_ref),
+             retry_at = NULL, ended_at = ?
+           WHERE turn_id = ? AND ${LIVE} RETURNING attempt_id`,
+        )
+        .get(
+          f.state,
+          f.handoff_reason ?? null,
+          f.final_message ?? null,
+          f.session_ref ?? null,
+          f.now,
+          turnId,
+        ) as { attempt_id: string } | undefined;
+      if (row === undefined) return false;
+      this.#confirmRun(turnId, row.attempt_id, f.run);
+      return true;
     });
   }
 
-  /** Keeps the count of the turn's current run, once: a later close of the same run changes nothing. */
-  #confirmRun(turnId: string, run: RunCount | undefined): void {
+  /**
+   * Keeps the count of a run that ended, once: a later close of the same run changes nothing. Never less
+   * than what `task_logs` already published of it, so a spool lost before the end leaves a gap of that size.
+   */
+  #confirmRun(turnId: string, attemptId: string, run: RunCount | undefined): void {
     if (run === undefined) return;
     this.#db
       .prepare(
-        `UPDATE deputy_turn_runs SET records = ?, digest = ?
-         WHERE turn_id = ? AND records IS NULL
-           AND attempt_id = (SELECT attempt_id FROM deputy_turns WHERE turn_id = ? AND ${LIVE})`,
+        `UPDATE deputy_turn_runs
+         SET records = MAX(?, COALESCE(published, 0)),
+             digest = CASE WHEN ? >= COALESCE(published, 0) THEN ? ELSE NULL END
+         WHERE turn_id = ? AND attempt_id = ? AND records IS NULL`,
       )
-      .run(run.records, run.digest, turnId, turnId);
+      .run(run.records, run.records, run.digest, turnId, attemptId);
+  }
+
+  /**
+   * Records that `task_logs` handed out positions for this many records of a running run: what its count
+   * may never fall below, whatever becomes of its spool.
+   */
+  publishRun(turnId: string, attemptId: string, records: number): void {
+    this.#db
+      .prepare(
+        `UPDATE deputy_turn_runs SET published = ?
+         WHERE turn_id = ? AND attempt_id = ? AND records IS NULL AND COALESCE(published, 0) < ?`,
+      )
+      .run(records, turnId, attemptId, records);
   }
 
   /** A rate limit or an infra failure: the turn waits and resumes the same session (FR-011, FR-024). */
@@ -208,16 +230,18 @@ export class DeputyTurns {
     },
   ): Result<void, TurnError> {
     return update(this.#db, () => {
-      this.#confirmRun(turnId, r.run);
-      return (
-        this.#db
-          .prepare(
-            `UPDATE deputy_turns SET state = 'retry_wait', retry_at = ?,
-               infra_failures = infra_failures + ?, session_ref = COALESCE(?, session_ref)
-             WHERE turn_id = ? AND state = 'running'`,
-          )
-          .run(r.retry_at, r.infra ? 1 : 0, r.session_ref, turnId).changes === 1
-      );
+      const row = this.#db
+        .prepare(
+          `UPDATE deputy_turns SET state = 'retry_wait', retry_at = ?,
+             infra_failures = infra_failures + ?, session_ref = COALESCE(?, session_ref)
+           WHERE turn_id = ? AND state = 'running' RETURNING attempt_id`,
+        )
+        .get(r.retry_at, r.infra ? 1 : 0, r.session_ref, turnId) as
+        | { attempt_id: string }
+        | undefined;
+      if (row === undefined) return false;
+      this.#confirmRun(turnId, row.attempt_id, r.run);
+      return true;
     });
   }
 
@@ -231,7 +255,8 @@ export class DeputyTurns {
         )
         .get(attemptId, turnId) as { task_id: string | null } | undefined;
       if (row === undefined) return false;
-      this.#recordRun(attemptId, turnId, row.task_id, operationId ?? null);
+      // Only a turn's first run is native; every resume is headless (contracts/deputy-turn.md).
+      this.#recordRun(attemptId, turnId, row.task_id, operationId ?? null, 'headless');
       return true;
     });
   }
@@ -240,7 +265,8 @@ export class DeputyTurns {
   runsOf(taskId: string): DeputyRun[] {
     const rows = this.#db
       .prepare(
-        `SELECT r.attempt_id, r.turn_id, r.operation_id, r.after_seq, r.records, r.digest,
+        `SELECT r.attempt_id, r.turn_id, r.operation_id, r.mode, r.after_seq, r.records, r.digest,
+                r.published,
                 (t.state = 'running' AND t.attempt_id = r.attempt_id) AS live
          FROM deputy_turn_runs r JOIN deputy_turns t ON t.turn_id = r.turn_id
          WHERE r.task_id = ? ORDER BY r.after_seq, r.rowid`,

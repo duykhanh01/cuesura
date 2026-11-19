@@ -51,7 +51,7 @@ type Page = {
 };
 
 /** Two setup records, then three of the coder attempt; `finish` says whether both operations ended. */
-function scenario(finish: boolean) {
+function scenario(finish: boolean, o: { readonly pausedFirst?: boolean } = {}) {
   const dataDir = tempDir();
   const d = new StoreDriver(openFileStoreForTest(join(dataDir, STORE_FILE)));
   const t = buildTask();
@@ -118,6 +118,13 @@ function scenario(finish: boolean) {
     outcome: 'succeeded',
     data: PREPARE_DATA,
   });
+  const first = d.pendingOne(t.id, 'start_agent').id;
+  const withdrawn = o.pausedFirst === true ? d.task(t.id).effects[first]?.attempt_id : null;
+  if (o.pausedFirst === true) {
+    // Paused before the coder launched: its attempt is withdrawn and a new one runs on resume.
+    d.must(t.id, { kind: 'pause', reason: 'look later', now: true });
+    d.must(t.id, { kind: 'unpause' });
+  }
   run(d.pendingOne(t.id, 'start_agent').id, AGENT, 'agent', 'coder line', 3);
   /** Interrupts the coder with a message: a stop_attempt operation on the coder's attempt. */
   const stopCoder = () => {
@@ -152,10 +159,10 @@ function scenario(finish: boolean) {
     ended(SETUP);
     ended(AGENT);
   }
-  const attempt = Object.values(d.task(t.id).attempts)[0]?.id as string;
+  const attempt = d.task(t.id).operations[AGENT]?.attempt_id as string;
   const deputyRun = (r: { attempt: string; op: string }) =>
     RunDir.open({ dataDir, kind: 'runs', id: r.attempt, redactor, limits: LIMITS });
-  const startTurn = () => {
+  const startTurn = (mode?: 'interactive' | 'headless') => {
     const started = d.store.deputy.startTurn({
       turn_id: TURN,
       goal_id: t.id,
@@ -166,7 +173,7 @@ function scenario(finish: boolean) {
       harness: 'fake',
       attempt_id: RUN_1.attempt,
       operation_id: RUN_1.op,
-      mode: 'headless',
+      mode: mode ?? 'headless',
       context_bytes: 0,
       now: d.now,
     });
@@ -187,7 +194,31 @@ function scenario(finish: boolean) {
     if (c === undefined) throw new Error('spool unreadable');
     return c;
   };
-  return { d, t, attempt, write, deputyRun, startTurn, ended, stopCoder, counted, logs };
+  /** Loses the coder's run directory, spool and all. */
+  const loseCoderSpool = () =>
+    rmSync(
+      RunDir.open({
+        dataDir,
+        ...runLocation(d.task(t.id).operations[AGENT] as OperationMirror),
+        redactor,
+        create: false,
+      }).dir,
+      { recursive: true },
+    );
+  return {
+    d,
+    t,
+    attempt,
+    withdrawn,
+    write,
+    deputyRun,
+    startTurn,
+    ended,
+    stopCoder,
+    counted,
+    loseCoderSpool,
+    logs,
+  };
 }
 
 const said = (p: Page): unknown[] => p.records.map((r) => r.data ?? r.gap?.reason);
@@ -228,7 +259,7 @@ describe('task_logs shows the deputy turns of the task', () => {
   });
 
   it('keeps the run before a retry when the turn resumes under a new attempt', () => {
-    const { d, t, logs, write, deputyRun, startTurn } = scenario(true);
+    const { d, t, attempt, logs, write, deputyRun, startTurn } = scenario(true);
     startTurn();
     write(deputyRun(RUN_1), RUN_1.op, 'first run', 1, 2);
     const retry = d.store.deputy.scheduleRetry(TURN, {
@@ -250,8 +281,8 @@ describe('task_logs shows the deputy turns of the task', () => {
     const shown = taskShow(d.store, OWNER, { kind: 'task_show', task_id: t.id });
     if (!shown.ok) throw new Error(shown.error.code);
     expect((shown.value as { deputy_runs: unknown }).deputy_runs).toEqual([
-      expect.objectContaining({ attempt_id: RUN_1.attempt, at: 1, live: false }),
-      expect.objectContaining({ attempt_id: RUN_2.attempt, at: 1, live: true }),
+      expect.objectContaining({ attempt_id: RUN_1.attempt, after_attempt: attempt, live: false }),
+      expect.objectContaining({ attempt_id: RUN_2.attempt, after_attempt: attempt, live: true }),
     ]);
   });
 
@@ -388,5 +419,86 @@ describe('task_logs shows the deputy turns of the task', () => {
       d.store.deputy.finishTurn(TURN, { state: 'stopped', now: d.now, run: counted() }).ok,
     ).toBe(true);
     expect(logs({ after: 7 }).complete).toBe(true);
+  });
+
+  it('places a run after the attempt that ran before it, not after one withdrawn before launch', () => {
+    const { d, t, attempt, withdrawn, startTurn } = scenario(true, { pausedFirst: true });
+    expect(withdrawn).not.toBeNull();
+    expect(withdrawn).not.toBe(attempt);
+    startTurn();
+    const shown = taskShow(d.store, OWNER, { kind: 'task_show', task_id: t.id });
+    if (!shown.ok) throw new Error(shown.error.code);
+    const show = shown.value as {
+      provenance: { usage: { attempt_id: string }[] };
+      deputy_runs: { after_attempt: string | null }[];
+    };
+    // The withdrawn attempt is still listed, first; the run follows the coder that ran.
+    expect(show.provenance.usage.map((u) => u.attempt_id)).toEqual([withdrawn, attempt]);
+    expect(show.deputy_runs.map((r) => r.after_attempt)).toEqual([attempt]);
+  });
+
+  it('says how each run runs: a native first run, then headless once it resumed', () => {
+    const { d, t, startTurn } = scenario(true);
+    startTurn('interactive');
+    const show = () => {
+      const r = taskShow(d.store, OWNER, { kind: 'task_show', task_id: t.id });
+      if (!r.ok) throw new Error(r.error.code);
+      return r.value as { deputy?: { mode: string }; deputy_runs: { mode: string }[] };
+    };
+    expect(show().deputy?.mode).toBe('interactive');
+    expect(
+      d.store.deputy.scheduleRetry(TURN, { retry_at: d.now, infra: false, session_ref: null }).ok,
+    ).toBe(true);
+    expect(d.store.deputy.resumeTurn(TURN, RUN_2.attempt, RUN_2.op).ok).toBe(true);
+    expect(show().deputy?.mode).toBe('headless');
+    expect(show().deputy_runs.map((r) => r.mode)).toEqual(['interactive', 'headless']);
+  });
+
+  it('keeps the positions handed out for a running run whose spool is lost before it ends', () => {
+    const { d, logs, write, deputyRun, startTurn, counted } = scenario(true);
+    startTurn();
+    write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 1, 2);
+    expect(logs().next_cursor).toBe(7);
+    rmSync(deputyRun(RUN_1).dir, { recursive: true });
+    // While it runs, and once the daemon closed it with what its spool still says (nothing).
+    expect(logs({ after: 7 }).records).toEqual([]);
+    expect(d.store.deputy.finishTurn(TURN, { state: 'done', now: d.now, run: counted() }).ok).toBe(
+      true,
+    );
+    expect(logs({ after: 7 }).records).toEqual([]);
+    const page = logs({ after: 5 });
+    expect(page.records).toHaveLength(1);
+    expect(page.records[0]?.gap?.records).toBe(2);
+    expect(page.next_cursor).toBe(7);
+  });
+
+  it('a retry refused for a turn not running keeps the run unconfirmed', () => {
+    const { d, startTurn } = scenario(true);
+    startTurn();
+    const turns = d.store.deputy;
+    expect(turns.scheduleRetry(TURN, { retry_at: d.now, infra: true, session_ref: null }).ok).toBe(
+      true,
+    );
+    const again = turns.scheduleRetry(TURN, {
+      retry_at: d.now,
+      infra: true,
+      session_ref: null,
+      run: { records: 3, digest: 'x' },
+    });
+    expect(again.ok).toBe(false);
+    const taskId = turns.turn(TURN)?.task_id ?? '';
+    expect(turns.runsOf(taskId)).toEqual([
+      expect.objectContaining({ records: null, digest: null }),
+    ]);
+  });
+
+  it("a worker whose spool is lost holds the deputy's output back with why, not as a wait", () => {
+    const { logs, write, deputyRun, startTurn, loseCoderSpool } = scenario(true);
+    loseCoderSpool();
+    startTurn();
+    write(deputyRun(RUN_1), RUN_1.op, 'deputy line', 1, 1);
+    const reason = logs().records.at(-1)?.gap?.reason ?? '';
+    expect(reason).toContain('spool is unavailable');
+    expect(reason.startsWith(DEPUTY_WAITS)).toBe(false);
   });
 });

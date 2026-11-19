@@ -6,6 +6,7 @@ import { buildTask, uuidOf } from '../../support/builders.ts';
 import { KEY, type PtySession } from '../../support/pty.ts';
 import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
+import type { Store } from '../../../src/store/index.ts';
 import type { StoreDriver } from '../../support/store-driver.ts';
 import { LogFeed, openTask, useTui } from '../../support/tui-fixtures.ts';
 
@@ -41,6 +42,11 @@ type Seed = {
 
 /** A task whose coder wrote one line, then a deputy turn on it. */
 async function deputyTask(o: Seed): Promise<PtySession> {
+  return (await deputyDaemon(o)).s;
+}
+
+/** The same, with the running daemon's store, to change the turn while the log is open. */
+async function deputyDaemon(o: Seed): Promise<{ s: PtySession; store: Store }> {
   const sd = tui.daemon();
   const t = buildTask({ id: uuidOf(1), title: 'Deputy task' });
   const feed = new LogFeed(sd);
@@ -98,12 +104,12 @@ async function deputyTask(o: Seed): Promise<PtySession> {
     });
     if (o.done !== false) ok(turns.finishTurn(TURN, { state: 'done', now: d.now }));
   });
-  await sd.start();
+  const running = await sd.start();
   const s = tui.cusr(sd.dataDir, { cols: 120, rows: 24 });
   await openTask(s, 'Deputy task');
   s.send('l');
   await s.waitForText('Logs:');
-  return s;
+  return { s, store: running.store };
 }
 
 async function quit(s: PtySession): Promise<void> {
@@ -153,6 +159,31 @@ describe('Logs of a task the deputy acted on', () => {
     const s = await deputyTask({ mode: 'interactive', runs: [], done: false });
     await s.waitForText('coder line 1');
     await s.waitForText('The deputy is working in its own terminal window');
+    await quit(s);
+  });
+
+  it('drops the native-terminal note once the turn ends, though the task version stands still', async () => {
+    const { s, store } = await deputyDaemon({ mode: 'interactive', runs: [], done: false });
+    await s.waitForText('The deputy is working in its own terminal window');
+    const version = store.readTask(uuidOf(1))?.version;
+    expect(store.deputy.finishTurn(TURN, { state: 'done', now: Date.now() }).ok).toBe(true);
+    expect(store.readTask(uuidOf(1))?.version).toBe(version);
+    await s.waitFor(() => !s.screenText().includes('its own terminal window'), 5_000);
+    await quit(s);
+  });
+
+  it('after a native run fell back to headless, says the output comes here; the native run says where it went', async () => {
+    const s = await deputyTask({ mode: 'interactive', runs: [[], []], done: false });
+    await s.waitForText('The deputy is working on this task; its output will appear here.');
+    expect(s.screenText()).not.toContain('its own terminal window');
+
+    s.send('t');
+    // The chooser opens with the latest run unfolded: the native run is the one above the last row.
+    await s.waitForText('Deputy #2');
+    s.send('G');
+    s.send(KEY.up);
+    s.send(KEY.enter);
+    await s.waitForText('This deputy run was a native session in its own terminal window');
     await quit(s);
   });
 });

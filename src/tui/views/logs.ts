@@ -163,6 +163,16 @@ function newsLine(s: LogState, t: TuiState): SafeText {
   return deputyNews(s, t) ?? uiText('');
 }
 
+/** What an empty log says: a native deputy run, opened on its own, wrote to its terminal, not here. */
+function emptyText(s: LogState, t: TuiState): SafeText {
+  const run = t.detail?.show.data?.deputy_runs?.find((r) => r.attempt_id === s.attemptFilter);
+  if (run?.mode === 'interactive')
+    return uiText(
+      'This deputy run was a native session in its own terminal window; its output is there, not here.',
+    );
+  return uiText('No log records here yet.');
+}
+
 /**
  * A deputy turn at work that has written nothing here yet: without this the log shows only the worker's
  * output, as if the task were waiting on it. A native session writes to its own terminal, not to the log.
@@ -547,7 +557,7 @@ export const logsBody =
       return;
     }
     if (logs.buffer.length === 0 && !logs.filling && logs.lastReadAt !== null) {
-      frame.put(x + 1, listTop, uiText('No log records here yet.'), DIM);
+      frame.put(x + 1, listTop, emptyText(logs, s), DIM);
       return;
     }
     // Scrolling counts rows wrapped at this same width (`logColumns`), so the place kept is the place shown.

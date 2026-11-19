@@ -71,6 +71,8 @@ function scenario() {
     after_seq: seq,
     live: false,
     records: 1,
+    published: null,
+    mode: 'headless',
     digest: hashCanonical(
       readAllRecords(RunDir.open({ dataDir, kind: 'runs', id: RUN, redactor })),
     ),

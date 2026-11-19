@@ -640,50 +640,46 @@ function loopView(
   };
 }
 
-/** The deputy turn working on the task now, if any (007, FR-026). */
+/** The deputy turn working on the task now, if any (007, FR-026), with how its current run runs. */
 function liveTurn(store: Store, taskId: string): { deputy?: Record<string, unknown> } {
   const t = store.deputy.runningTurn(taskId);
-  return t === null
-    ? {}
-    : {
-        deputy: {
-          turn_id: t.turn_id,
-          kind: t.kind,
-          incident: t.incident,
-          state: t.state,
-          mode: t.mode,
-          attempt_id: t.attempt_id,
-          started_at: t.started_at,
-          retry_at: t.retry_at,
-        },
-      };
+  if (t === null) return {};
+  const run = store.deputy.runsOf(taskId).find((r) => r.attempt_id === t.attempt_id);
+  return {
+    deputy: {
+      turn_id: t.turn_id,
+      kind: t.kind,
+      incident: t.incident,
+      state: t.state,
+      mode: run?.mode ?? t.mode,
+      attempt_id: t.attempt_id,
+      started_at: t.started_at,
+      retry_at: t.retry_at,
+    },
+  };
 }
 
 /**
- * The runs of the task's deputy turns, in the order its log shows them, each with `at`: how many attempts of
- * `provenance.usage` come before it. A run follows the attempts whose first operation was registered by
- * the time it was recorded, as `task_logs` places it.
+ * The runs of the task's deputy turns, in the order its log shows them. `after_attempt` is the attempt a run
+ * follows in that log: of the attempts launched by the time it was recorded, the last launched, or null
+ * when none was. An attempt never launched has no output and no place there.
  */
 function deputyRuns(store: Store, s: TaskState): Record<string, unknown>[] {
   const runs = store.deputy.runsOf(s.id);
   if (runs.length === 0) return [];
-  const registered = new Map<string, number>();
+  const launched: { readonly attempt: string; readonly seq: number }[] = [];
   for (const e of store.readEvents(s.id as Uuid))
     if (e.type === 'OperationRegistered' && e.payload.attempt_id !== null)
-      if (!registered.has(e.payload.attempt_id)) registered.set(e.payload.attempt_id, e.seq);
-  const attempts = Object.keys(s.attempts);
-  return runs.map((r) => {
-    const turn = store.deputy.turn(r.turn_id);
-    return {
-      attempt_id: r.attempt_id,
-      turn_id: r.turn_id,
-      binding: turn?.harness ?? 'deputy',
-      mode: turn?.mode ?? null,
-      live: r.live,
-      at: attempts.filter((id) => (registered.get(id) ?? Number.POSITIVE_INFINITY) <= r.after_seq)
-        .length,
-    };
-  });
+      if (!launched.some((l) => l.attempt === e.payload.attempt_id))
+        launched.push({ attempt: e.payload.attempt_id, seq: e.seq });
+  return runs.map((r) => ({
+    attempt_id: r.attempt_id,
+    turn_id: r.turn_id,
+    binding: store.deputy.turn(r.turn_id)?.harness ?? 'deputy',
+    mode: r.mode,
+    live: r.live,
+    after_attempt: launched.findLast((l) => l.seq <= r.after_seq)?.attempt ?? null,
+  }));
 }
 
 /**

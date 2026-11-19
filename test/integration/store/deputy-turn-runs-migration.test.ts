@@ -80,6 +80,8 @@ describe('migration 009: the runs of deputy turns recorded before it', () => {
         attempt_id: SECOND,
         turn_id: TASK_TURN,
         operation_id: null,
+        mode: null,
+        published: null,
         after_seq: lastSeq,
         live: false,
         records: null,

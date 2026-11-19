@@ -828,4 +828,17 @@ describe('a log whose deputy output waits its turn', () => {
     );
     expect(applyLogPage(paused, probe(10), page([record(11)], 11), 1).newActivity).toBe(true);
   });
+
+  it('a worker spool that is lost is told as a failed read with its reason, not as a wait', () => {
+    const entry = toEntry({
+      ...waiting(11, 10),
+      gap: {
+        records: 0,
+        reason: sanitize('deputy output is held back: earlier spool is unavailable'),
+      },
+    });
+    expect(entry?.text).toBe(
+      'Log temporarily unavailable — deputy output is held back: earlier spool is unavailable',
+    );
+  });
 });

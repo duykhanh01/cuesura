@@ -228,6 +228,8 @@ export const TaskLogsSchema = z.looseObject({
   after: z.number().int().optional(),
   /** Records after `next_cursor` that did not fit in this page. */
   more: z.boolean().optional(),
+  /** Changes when the task's deputy runs or live turn change, which its version does not show. */
+  deputy_stamp: z.string().optional(),
 });
 export type TaskLogs = z.infer<typeof TaskLogsSchema>;
 
@@ -309,9 +311,16 @@ export const TaskShowSchema = z.looseObject({
       attempt_id: z.string().optional(),
     })
     .optional(),
-  /** The runs of the task's deputy turns; `at`: how many attempts of `provenance.usage` come before each. */
+  /** The runs of the task's deputy turns, each after the attempt it follows in the log. */
   deputy_runs: z
-    .array(z.looseObject({ attempt_id: z.string(), binding: safe, at: z.number().int() }))
+    .array(
+      z.looseObject({
+        attempt_id: z.string(),
+        binding: safe,
+        after_attempt: z.string().nullable(),
+        mode: z.enum(['interactive', 'headless']).nullable().optional(),
+      }),
+    )
     .optional(),
 });
 export type TaskShow = z.infer<typeof TaskShowSchema>;

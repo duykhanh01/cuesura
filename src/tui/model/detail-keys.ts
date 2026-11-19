@@ -416,10 +416,15 @@ export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {
     logs.generation !== m.generation
   )
     return state;
+  if (!m.result.ok) return { ...state, logs: failLogRead(logs, m.result.error.message, m.at) };
+  const read = applyLogPage(logs, m.request, m.result.value, m.at);
+  const stamp = m.result.value.deputy_stamp ?? null;
+  if (stamp === logs.deputyStamp) return { ...state, logs: read };
+  // A deputy run started or ended, or its turn changed state: none of it moves the task's version, so the
+  // runs and the turn shown beside the log are read again now.
   return {
     ...state,
-    logs: m.result.ok
-      ? applyLogPage(logs, m.request, m.result.value, m.at)
-      : failLogRead(logs, m.result.error.message, m.at),
+    logs: { ...read, deputyStamp: stamp },
+    ...(state.detail === null ? {} : { detail: { ...state.detail, showWanted: true } }),
   };
 }

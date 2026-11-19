@@ -550,8 +550,8 @@ describe('the runs of deputy turns among the attempts', () => {
       status: 'DONE',
       provenance: { usage: usage(['code', 'review']) },
       deputy_runs: [
-        { attempt_id: 'deputy-0', binding: sanitize('claude'), at: 1 },
-        { attempt_id: 'deputy-1', binding: sanitize('claude'), at: 1 },
+        { attempt_id: 'deputy-0', binding: sanitize('claude'), after_attempt: 'attempt-0' },
+        { attempt_id: 'deputy-1', binding: sanitize('claude'), after_attempt: 'attempt-0' },
       ],
     } as unknown as TaskShow;
     return {
@@ -587,5 +587,30 @@ describe('the runs of deputy turns among the attempts', () => {
       'deputy-1',
       'group',
     ]);
+  });
+
+  it('follows the attempt that ran before it, past one withdrawn before it launched', () => {
+    const title = uiText('A task');
+    const detail = initialDetail('t1', title, 1);
+    // attempt-0 was withdrawn by a pause before it launched; attempt-1 ran, then the deputy.
+    const show = {
+      status: 'WAITING',
+      provenance: { usage: usage(['code', 'code']) },
+      deputy_runs: [
+        { attempt_id: 'deputy-0', binding: sanitize('claude'), after_attempt: 'attempt-1' },
+      ],
+    } as unknown as TaskShow;
+    expect(withDeputyRuns(show).map((u) => u.attempt_id)).toEqual([
+      'attempt-0',
+      'attempt-1',
+      'deputy-0',
+    ]);
+    const s: TuiState = {
+      ...initialState({ cols: 120, rows: 40 }),
+      screens: ['home', 'logs'],
+      detail: { ...detail, show: { ...detail.show, data: show } },
+      logs: filterAttempt(initialLogs('t1', title, 2), 'deputy-0'),
+    };
+    expect(onLogsCommand(s, 'previous_step')?.state.logs?.attemptFilter).toBe('attempt-1');
   });
 });

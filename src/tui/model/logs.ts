@@ -101,6 +101,8 @@ export type LogState = {
   /** While an attempt is being read: where following the latest step goes on from. */
   readonly resumeCursor: number | null;
   readonly newActivity: boolean;
+  /** The daemon's `deputy_stamp` last read: a change means the deputy runs beside the log moved on. */
+  readonly deputyStamp: string | null;
   /** The first row on screen while paused; `null` is the top of the buffer, `end` its last screen. */
   readonly anchor: { readonly seq: number; readonly row: number } | 'end' | null;
   /** Nothing read yet: the first read is the last page, so the screen opens at the end, as a chat does. */
@@ -154,6 +156,7 @@ export function initialLogs(taskId: string, title: SafeText, session: number): L
     nextCursor: 0,
     resumeCursor: null,
     newActivity: false,
+    deputyStamp: null,
     anchor: null,
     tailing: true,
     behind: false,

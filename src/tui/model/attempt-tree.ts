@@ -14,26 +14,28 @@ type Usage = TaskShow['provenance']['usage'][number];
 const DEPUTY_STEP_TEXT = sanitize(DEPUTY_STEP);
 
 /**
- * The attempts `task_show` lists with the runs of the task's deputy turns among them, where the log shows
- * them: what the chooser, `←`/`→` and the binding beside each step read.
+ * The attempts `task_show` lists with the runs of the task's deputy turns among them, each after the attempt
+ * it follows in the log: what the chooser, `←`/`→` and the binding beside each step read.
  */
 export function withDeputyRuns(show: TaskShow | null | undefined): readonly Usage[] {
   const usage = show?.provenance.usage ?? [];
   const runs = show?.deputy_runs ?? [];
   if (runs.length === 0) return usage;
-  const out: Usage[] = [];
-  let next = 0;
-  for (let i = 0; i <= usage.length; i++) {
-    for (let run = runs[next]; run !== undefined && run.at <= i; run = runs[++next])
-      out.push({
-        attempt_id: run.attempt_id,
-        step: DEPUTY_STEP_TEXT,
-        binding: run.binding,
-        usage: null,
-      });
-    const u = usage[i];
-    if (u !== undefined) out.push(u);
+  const after = new Map<string | null, Usage[]>();
+  for (const run of runs) {
+    const entry: Usage = {
+      attempt_id: run.attempt_id,
+      step: DEPUTY_STEP_TEXT,
+      binding: run.binding,
+      usage: null,
+    };
+    after.set(run.after_attempt, [...(after.get(run.after_attempt) ?? []), entry]);
   }
+  const out: Usage[] = [...(after.get(null) ?? [])];
+  for (const u of usage) out.push(u, ...(after.get(u.attempt_id) ?? []));
+  // An attempt this list does not name yet: its runs go last, where the log has them.
+  const listed = new Set(usage.map((u) => u.attempt_id));
+  for (const [id, entries] of after) if (id !== null && !listed.has(id)) out.push(...entries);
   return out;
 }
 

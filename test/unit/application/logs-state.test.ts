@@ -23,7 +23,7 @@ const task = {
 const store = {
   readTask: () => task,
   readEvents: () => [],
-  deputy: { runsOf: () => [] },
+  deputy: { runsOf: () => [], runningTurn: () => null },
 } as unknown as Store;
 
 const stateAt = (now: number) => {

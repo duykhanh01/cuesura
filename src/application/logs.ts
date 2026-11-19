@@ -245,6 +245,12 @@ function operationBatch(s: TaskState, id: string, records: number, digest: strin
 }
 
 /**
+ * Why an operation may still add committed records: `waiting` while its ingestion is only to come, not when
+ * its spool cannot be read, which no wait mends.
+ */
+type Unsettled = { readonly reason: string; readonly waiting: boolean };
+
+/**
  * Why an operation may still add committed records, or null when it never will. One that ended before it
  * wrote anything (e.g. blocked before invoking the model) has no run directory and nothing left to append.
  */
@@ -252,10 +258,12 @@ function unsettled(
   deps: LogsDeps,
   op: TaskState['operations'][string],
   committed: boolean,
-): string | null {
+): Unsettled | null {
+  const waits = (reason: string): Unsettled => ({ reason, waiting: true });
+  const broken = (reason: string): Unsettled => ({ reason, waiting: false });
   if (op.status === 'not_launched') return null;
   if (!['finished', 'lost'].includes(op.status))
-    return 'earlier worker is not resolved; live output waits for its ingestion';
+    return waits('earlier worker is not resolved; live output waits for its ingestion');
   try {
     const run = RunDir.open({
       dataDir: deps.dataDir,
@@ -273,14 +281,14 @@ function unsettled(
       op.cursor === null ? null : { operation_id: op.id, ...op.cursor },
       { maxRecords: 1, final: true },
     );
-    if (!tail.ok) return `earlier spool is unreadable: ${JSON.stringify(tail.error)}`;
+    if (!tail.ok) return broken(`earlier spool is unreadable: ${JSON.stringify(tail.error)}`);
     return tail.value.records.length > 0
-      ? 'earlier worker has uncommitted output; later live output waits'
+      ? waits('earlier worker has uncommitted output; later live output waits')
       : null;
   } catch (e) {
     if (e instanceof RunnerFileError && e.code === 'not_found' && op.cursor === null && !committed)
       return null;
-    return `earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`;
+    return broken(`earlier spool is unavailable: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
 
@@ -419,9 +427,9 @@ export function taskLogs(
     // Do not expose B's uncommitted tail while A can still append records to the committed prefix.
     // Otherwise a later successful ingest of A would change the cursors already handed out for B.
     for (const previous of workers.slice(0, -1)) {
-      const reason = unsettled(deps, previous, hasCommitted(previous.id));
-      if (reason !== null) {
-        diagnostic = at(previous, reason);
+      const held = unsettled(deps, previous, hasCommitted(previous.id));
+      if (held !== null) {
+        diagnostic = at(previous, held.reason);
         break;
       }
     }
@@ -470,14 +478,14 @@ export function taskLogs(
     const g = runs.findIndex((r) => reg <= r.after_seq);
     (groups[g < 0 ? runs.length : g] as Batch[]).push(item.batch);
   }
-  const settled = new Map<string, string | null>();
-  const unsettledOf = (op: TaskState['operations'][string]): string | null => {
-    let reason = settled.get(op.id);
-    if (reason === undefined) {
-      reason = unsettled(deps, op, hasCommitted(op.id));
-      settled.set(op.id, reason);
+  const settled = new Map<string, Unsettled | null>();
+  const unsettledOf = (op: TaskState['operations'][string]): Unsettled | null => {
+    let held = settled.get(op.id);
+    if (held === undefined) {
+      held = unsettled(deps, op, hasCommitted(op.id));
+      settled.set(op.id, held);
     }
-    return reason;
+    return held;
   };
   const batches: Batch[] = [];
   for (const [g, group] of groups.entries()) {
@@ -485,26 +493,34 @@ export function taskLogs(
     const run = runs[g];
     if (run === undefined) break;
     const where = { operation_id: run.operation_id ?? run.attempt_id, attempt_id: run.attempt_id };
-    let waits: string | null = null;
+    let held: Unsettled | null = null;
     for (const op of Object.values(s.operations)) {
       if (regOf(op.id) > run.after_seq) continue;
-      waits = unsettledOf(op);
-      if (waits !== null) break;
+      held = unsettledOf(op);
+      if (held !== null) break;
     }
-    if (waits !== null) {
-      diagnostic ??= { ...where, reason: `${DEPUTY_WAITS}: ${waits}` };
+    if (held !== null) {
+      diagnostic ??= {
+        ...where,
+        reason: held.waiting
+          ? `${DEPUTY_WAITS}: ${held.reason}`
+          : `deputy output is held back: ${held.reason}`,
+      };
       break;
     }
     let records = run.records;
     if (records === null) {
-      // Not confirmed when it ended (still running, or recorded before counts were kept): its spool says.
+      // Not confirmed when it ended (still running, or recorded before counts were kept): its spool says,
+      // never less than the positions already handed out for it.
       const loaded = deputyRecords(deps, run.attempt_id);
       if (typeof loaded === 'string') {
         diagnostic ??= { ...where, reason: `deputy spool is unreadable: ${loaded}` };
         break;
       }
       if (loaded !== null) cache.set(run.attempt_id, loaded);
-      records = loaded?.length ?? 0;
+      records = Math.max(loaded?.length ?? 0, run.published ?? 0);
+      if (records > (run.published ?? 0))
+        deps.store.deputy.publishRun(run.turn_id, run.attempt_id, records);
     }
     if (records > 0)
       batches.push({
@@ -568,7 +584,11 @@ export function taskLogs(
     }
     const loaded = load(key);
     const batch = typeof loaded === 'string' ? null : loaded.slice(from, from + count);
-    if (batch === null || (digest !== null && hashCanonical(batch) !== digest)) {
+    if (
+      batch === null ||
+      batch.length < count ||
+      (digest !== null && hashCanonical(batch) !== digest)
+    ) {
       // Taken whole: a gap has no records to page through, and the cursor must still move past it.
       out.push({
         seq: position,
@@ -580,7 +600,9 @@ export function taskLogs(
           reason:
             typeof loaded === 'string'
               ? `records unavailable: ${loaded}`
-              : 'records no longer match the committed digest',
+              : batch !== null && batch.length < count
+                ? 'records are no longer in the spool'
+                : 'records no longer match the committed digest',
         },
       });
       cursor = position;
@@ -621,17 +643,20 @@ export function taskLogs(
       gap: { records: 0, reason: diagnostic.reason },
     });
   }
+  const turn = deps.store.deputy.runningTurn(s.id);
   return ok({
     task_id: s.id,
     records: out,
     next_cursor: cursor,
     // A finished task whose committed records were all read, and no deputy turn of it that may still
     // write (running, or waiting to run again): a follower may stop here.
-    complete:
-      diagnostic === null &&
-      s.terminal !== null &&
-      cursor >= total &&
-      deps.store.deputy.runningTurn(s.id) === null,
+    complete: diagnostic === null && s.terminal !== null && cursor >= total && turn === null,
+    // Changes when a deputy run starts or ends, or the live turn changes state. None of that moves the
+    // task's version, so a reader that keeps the turn's state beside the log reads it again on this.
+    deputy_stamp: hashCanonical({
+      runs: runs.map((r) => [r.attempt_id, r.live, r.mode]),
+      turn: turn === null ? null : [turn.turn_id, turn.state, turn.attempt_id],
+    }),
     // Committed or live records past this page: a follower that is behind reads on at once.
     more: cursor < total,
     state: taskStateOf(deps, s),
