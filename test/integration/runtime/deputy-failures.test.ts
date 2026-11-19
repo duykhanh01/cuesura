@@ -31,7 +31,12 @@ function spendBackoff(d: StoreDriver, t: ReturnType<typeof buildTask>): void {
   }
 }
 
-function setup(steps: FakeStep[], setting: DeputySetting = FAKE_DEPUTY, tasks = 1) {
+function setup(
+  steps: FakeStep[],
+  setting: DeputySetting = FAKE_DEPUTY,
+  tasks = 1,
+  harness_problems?: Record<string, string>,
+) {
   const dir = tempDir();
   const d = new StoreDriver(openFileStoreForTest(dbPath(dir)));
   const t = buildTask({ id: uuidOf(96_001) });
@@ -44,6 +49,7 @@ function setup(steps: FakeStep[], setting: DeputySetting = FAKE_DEPUTY, tasks = 
     clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
     newId,
     harnesses: { fake: harness },
+    ...(harness_problems === undefined ? {} : { harness_problems }),
     setting: () => Promise.resolve(setting),
     autonomous: () => Promise.resolve(false),
     cwd: '/cusr-data',
@@ -134,6 +140,20 @@ describe('failures of a deputy turn (FR-024)', () => {
     });
     expect(deputy.holds(d.task(t.id))).toBe(false);
     expect(deputy.handedOff(d.task(t.id))).toMatchObject({ handoff_reason: reason });
+  });
+
+  it('hands over a harness whose records did not load with the load error', async () => {
+    const { d, t, deputy } = setup([], { ...FAKE_DEPUTY, harness: 'claude' }, 1, {
+      claude: '/data/harnesses/claude/pin.json does not exist',
+    });
+    await deputy.round();
+    await deputy.idle();
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'no_harness',
+      final_message:
+        'no harness claude: /data/harnesses/claude/pin.json does not exist; fix it with cusr-runner setup-harness, then restart cusrd',
+    });
   });
 
   it('hands the incident over when the binding names no harness', async () => {

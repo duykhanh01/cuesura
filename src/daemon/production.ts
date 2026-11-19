@@ -384,6 +384,7 @@ export async function productionControl(opts: {
       git: ports.git,
       github: newGitHub,
       harnesses,
+      harness_problems: loadProblems,
       // Without a runtime config the daemon refuses to start; no effect runs on this path.
       sandbox: boundary ?? {
         provider: 'host',
@@ -442,6 +443,7 @@ export async function productionControl(opts: {
       clock: opts.clock,
       newId: opts.newId,
       harnesses,
+      harness_problems: loadProblems,
       cwd: opts.dataDir,
       worktreePath: (taskId) => join(deps.paths.worktrees, taskId),
       worktree: deputyWorktree(deps),

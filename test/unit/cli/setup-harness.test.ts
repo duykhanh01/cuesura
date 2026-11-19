@@ -8,6 +8,8 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(),
   write: vi.fn(),
   record: vi.fn(),
+  commitPin: vi.fn(),
+  commitManifest: vi.fn(),
 }));
 vi.mock('../../../src/cli/program.ts', async (original) => ({
   ...(await original<typeof import('../../../src/cli/program.ts')>()),
@@ -23,6 +25,8 @@ vi.mock('../../../src/runner/harness-records.ts', async (original) => ({
   ...(await original<typeof import('../../../src/runner/harness-records.ts')>()),
   writePin: mocks.write,
   recordManifest: mocks.record,
+  commitPin: mocks.commitPin,
+  commitManifest: mocks.commitManifest,
 }));
 await import('../../../src/cli/cusr-runner.ts');
 const command = mocks.commands.find((c) => c.name === 'setup-harness');
@@ -48,45 +52,58 @@ async function run(extra: Record<string, string | undefined> = {}) {
   return { code, body: JSON.parse(stdout) as Envelope };
 }
 
+const candidate = { binary: { version: '1', sha256: 'abc' } };
+
 beforeEach(() => {
   vi.resetAllMocks();
   mocks.load.mockResolvedValue({ ok: true, value: { dataDir: '/data', runtime: {} } });
-  mocks.write.mockReturnValue({ ok: true, value: { binary: { version: '1', sha256: 'abc' } } });
-  mocks.record.mockReturnValue({ ok: true, value: { manifest_hash: 'manifest' } });
+  mocks.write.mockReturnValue({ ok: true, value: candidate });
+  mocks.record.mockReturnValue({
+    ok: true,
+    value: { manifest_hash: 'manifest', native_result: 'not_tried' },
+  });
+  mocks.commitPin.mockReturnValue({ ok: true, value: candidate });
 });
 
 describe('setup-harness composition', () => {
-  it('writes the pin, then records the manifest from it without evidence or a model', async () => {
+  it('builds the manifest of the candidate pin before replacing either record', async () => {
     expect(
       await run({ force: 'true', permissionMode: 'full-access', sandbox: 'off' }),
     ).toMatchObject({
       code: ExitCode.ok,
       body: { ok: true, data: { harness: 'claude', manifest_hash: 'manifest' } },
     });
-    expect(mocks.write.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.record.mock.invocationCallOrder[0]!,
-    );
     expect(mocks.write).toHaveBeenCalledWith(
       expect.objectContaining({
-        force: true,
         permission_mode: 'full-access',
         sandbox: false,
-        dryRun: false,
+        dryRun: true,
       }),
+    );
+    expect(mocks.record).toHaveBeenCalledWith(
+      expect.objectContaining({ pin: candidate, dryRun: true }),
     );
     expect(mocks.record).toHaveBeenCalledWith(
       expect.not.objectContaining({ evidenceFile: expect.anything() as unknown }),
     );
+    expect(mocks.record.mock.invocationCallOrder[0]).toBeLessThan(
+      mocks.commitPin.mock.invocationCallOrder[0]!,
+    );
+    expect(mocks.commitPin).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
+      candidate,
+    );
+    expect(mocks.commitManifest).toHaveBeenCalledOnce();
   });
 
   it('stops at a pin refusal and names the step', async () => {
-    mocks.write.mockReturnValue({ ok: false, error: 'pin exists; pass --force' });
+    mocks.write.mockReturnValue({ ok: false, error: 'cannot run /bin/claude --version' });
     expect(await run()).toMatchObject({
       code: ExitCode.failure,
       body: {
         error: {
           code: 'pin_refused',
-          message: 'write-pin: pin exists; pass --force',
+          message: 'write-pin: cannot run /bin/claude --version',
           details: { step: 'write-pin' },
         },
       },
@@ -94,33 +111,39 @@ describe('setup-harness composition', () => {
     expect(mocks.record).not.toHaveBeenCalled();
   });
 
-  it('names the manifest step when the record is refused', async () => {
-    mocks.record.mockReturnValue({ ok: false, error: 'binary /bin/claude not found' });
-    expect(await run()).toMatchObject({
+  it('replaces nothing when the manifest is refused', async () => {
+    mocks.record.mockReturnValue({ ok: false, error: 'native sandbox failed' });
+    expect(await run({ force: 'true' })).toMatchObject({
       code: ExitCode.failure,
       body: {
         error: {
           code: 'manifest_refused',
-          message: 'record-manifest: binary /bin/claude not found',
+          message: 'record-manifest: native sandbox failed',
           details: { step: 'record-manifest' },
         },
       },
     });
+    expect(mocks.commitPin).not.toHaveBeenCalled();
+    expect(mocks.commitManifest).not.toHaveBeenCalled();
   });
 
-  it('checks only the pin on a dry run', async () => {
+  it('writes nothing on a dry run', async () => {
     expect(await run({ dryRun: 'true' })).toMatchObject({
       code: ExitCode.ok,
       body: { ok: true, data: { pin_exists: false } },
     });
-    expect(mocks.write).toHaveBeenCalledWith(expect.objectContaining({ dryRun: true }));
-    expect(mocks.record).not.toHaveBeenCalled();
+    expect(mocks.commitPin).not.toHaveBeenCalled();
+    expect(mocks.commitManifest).not.toHaveBeenCalled();
   });
 
   it('keeps the recorded pin with --from record-manifest', async () => {
     expect((await run({ from: 'record-manifest' })).code).toBe(ExitCode.ok);
     expect(mocks.write).not.toHaveBeenCalled();
-    expect(mocks.record).toHaveBeenCalledOnce();
+    expect(mocks.record).toHaveBeenCalledWith(
+      expect.not.objectContaining({ pin: expect.anything() as unknown }),
+    );
+    expect(mocks.commitPin).not.toHaveBeenCalled();
+    expect(mocks.commitManifest).toHaveBeenCalledOnce();
   });
 
   it('refuses the removed proof step', async () => {

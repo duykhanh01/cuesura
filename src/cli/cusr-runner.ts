@@ -2,20 +2,14 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { RuntimeConfig } from '../config/normalize.ts';
+import type { VendorPin } from '../adapters/harness/vendor.ts';
 import { ok } from '../shared/result.ts';
 import { RUN_DIR_KINDS, RunDir, type RunDirKind } from '../runner/files.ts';
 import { execOperation } from '../runner/lifecycle.ts';
 import { homeSecretValues, readInstalledAuth } from '../runner/private-home.ts';
 import { Redactor } from '../runner/redact.ts';
 import { formatRecord, openStdoutEcho, terminalStop } from '../runner/terminal-echo.ts';
-import {
-  errorEnvelope,
-  ExitCode,
-  okEnvelope,
-  renderEnvelope,
-  isEnvelope,
-  type Envelope,
-} from './output.ts';
+import { errorEnvelope, ExitCode, okEnvelope, renderEnvelope, isEnvelope } from './output.ts';
 import {
   buildInfo,
   packageVersion,
@@ -47,6 +41,7 @@ type OwnerConfig = {
 type OwnerCommandContext = {
   readonly config?: OwnerConfig;
   readonly dryRun?: boolean;
+  readonly onPin?: (pin: VendorPin) => void;
 };
 
 const exec: CliCommand = {
@@ -313,6 +308,7 @@ const writePin = {
     if (!r.ok) {
       return refuse('pin_refused', r.error, ExitCode.failure);
     }
+    context.onPin?.(r.value);
     const { version, sha256 } = r.value.binary;
     io.stdout(
       json
@@ -323,13 +319,16 @@ const writePin = {
   },
 } satisfies CliCommand;
 
-/** Compose the owner commands; no model is invoked, so a harness that cannot run fails its first attempt. */
+/**
+ * Compose the owner commands; no model is invoked. The candidate pin's manifest is built and checked before
+ * either record is replaced, so a refused setup leaves the previous pair as it was.
+ */
 const setupHarness: CliCommand = {
   name: 'setup-harness',
   description: 'Write a pin and record its capability manifest, without invoking a model',
   options: [
     ...(writePin.options ?? []),
-    { flags: '--dry-run', description: 'Check the pin without writing pin or manifest' },
+    { flags: '--dry-run', description: 'Check pin and manifest without writing either' },
     {
       flags: '--from <step>',
       description: 'Start at write-pin (default) or record-manifest',
@@ -363,68 +362,68 @@ const setupHarness: CliCommand = {
       const { loadDaemonConfig } = await import('../daemon/main.ts');
       const cfg = await loadDaemonConfig({ config, dataDir });
       if (!cfg.ok) return reject('config_invalid', cfg.error, ExitCode.usage);
-      const { recordDir } = await import('../runner/harness-records.ts');
-      const pinExists = existsSync(join(recordDir(cfg.value.dataDir, harness), 'pin.json'));
-      const context = { config: cfg.value };
-      let result: Envelope = okEnvelope({});
-      const runStep = async (
-        command: typeof writePin | typeof recordManifest,
-        input: Values,
-      ): Promise<number> => {
-        step = command.name;
+      const records = await import('../runner/harness-records.ts');
+      const target = { dataDir: cfg.value.dataDir, harness };
+      const pinExists = existsSync(join(records.recordDir(target.dataDir, harness), 'pin.json'));
+      let candidate: VendorPin | undefined;
+      if (from === 'write-pin') {
+        step = 'write-pin';
         let output = '';
-        let diagnostic = '';
-        // The exit code is independent of whether the command emitted valid JSON.
-        let code: number = ExitCode.failure;
-        try {
-          code = await command.run(
-            input,
-            true,
-            {
-              stdout: (text) => {
-                output += text;
-              },
-              stderr: (text) => {
-                diagnostic += text;
-              },
+        const code = await writePin.run(
+          values,
+          true,
+          {
+            stdout: (text) => {
+              output += text;
             },
-            { ...context, dryRun },
-          );
+            stderr: () => {},
+          },
+          {
+            config: cfg.value,
+            dryRun: true,
+            onPin: (pin) => {
+              candidate = pin;
+            },
+          },
+        );
+        if (code !== ExitCode.ok || candidate === undefined) {
           const parsed: unknown = JSON.parse(output);
-          if (!isEnvelope(parsed)) throw new Error('Invalid command result');
-          if (!parsed.ok)
+          if (isEnvelope(parsed) && !parsed.ok)
             return refuse(parsed.error.code, `${step}: ${parsed.error.message}`, code, {
               ...parsed.error.details,
               step,
             });
-          if (code !== ExitCode.ok)
-            return reject('setup_failed', `step returned exit ${code}`, code);
-          result = parsed;
-          return ExitCode.ok;
-        } catch (error) {
-          return reject(
-            'setup_failed',
-            diagnostic || output || String(error),
-            code === ExitCode.ok ? ExitCode.failure : code,
-          );
+          return reject('setup_failed', output, ExitCode.failure);
         }
+      }
+      step = 'record-manifest';
+      const manifest = records.recordManifest({
+        ...target,
+        ...(candidate === undefined ? {} : { pin: candidate }),
+        configPath: config,
+        runtime: cfg.value.runtime,
+        now: Date.now(),
+        dryRun: true,
+      });
+      if (!manifest.ok) return reject('manifest_refused', manifest.error, ExitCode.failure);
+      if (!dryRun) {
+        if (candidate !== undefined) {
+          step = 'write-pin';
+          const committed = records.commitPin(
+            { ...target, force: values['force'] !== undefined },
+            candidate,
+          );
+          if (!committed.ok) return reject('pin_refused', committed.error, ExitCode.failure);
+        }
+        records.commitManifest(target, manifest.value);
+      }
+      const data = {
+        harness,
+        manifest_hash: manifest.value.manifest_hash,
+        native_result: manifest.value.native_result,
+        ...(dryRun ? { pin_exists: pinExists } : {}),
       };
-
-      if (from === 'write-pin') {
-        const code = await runStep(writePin, values);
-        if (code !== ExitCode.ok) return code;
-      }
-      // A dry run wrote no pin, so a manifest could only be checked against the one already on disk.
-      if (!dryRun || from === 'record-manifest') {
-        const code = await runStep(recordManifest, values);
-        if (code !== ExitCode.ok) return code;
-      }
-      if (dryRun && result.ok)
-        result = okEnvelope({
-          ...(result.data as Record<string, unknown>),
-          pin_exists: pinExists,
-        });
-      io.stdout(json ? renderEnvelope(result) : `${JSON.stringify(result.data)}\n`);
+      io.stdout(json ? renderEnvelope(okEnvelope(data)) : `${JSON.stringify(data)}\n`);
       return ExitCode.ok;
     } catch (error) {
       return reject('setup_failed', String(error), ExitCode.failure);

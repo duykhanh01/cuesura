@@ -40,7 +40,28 @@ export type ExitFacts = {
   /** False only when the command provably never started. */
   readonly spawned: boolean;
   readonly started_at: EpochMs;
+  /** The runner's reason, when it has one (the spawn error, say). */
+  readonly error?: string | null;
 };
+
+/**
+ * A launch that never started, with the runner's reason. A binary the OS cannot find or run is the owner's
+ * fix: every retry would fail the same way.
+ */
+export function notStarted(exit: Pick<ExitFacts, 'outcome' | 'error'>): {
+  readonly failure: HarnessFailure;
+  readonly detail: string;
+} {
+  const why = exit.error ?? null;
+  return {
+    failure: /\b(?:ENOENT|EACCES|ENOEXEC)\b/.test(why ?? '')
+      ? 'capability_missing'
+      : exit.outcome === 'timeout'
+        ? 'timeout'
+        : 'process_failed',
+    detail: `harness did not start (${exit.outcome}${why === null ? '' : `: ${why}`})`,
+  };
+}
 
 /** What the orchestrator launched; compared against, never read from the model. */
 export type Expected = {
@@ -217,12 +238,10 @@ export function validateResult(input: {
     record: null,
   });
 
-  if (exit.outcome === 'spawn_failed' || !exit.spawned)
-    return failure(
-      exit.outcome === 'timeout' ? 'timeout' : 'process_failed',
-      `harness did not start (${exit.outcome})`,
-      false,
-    );
+  if (exit.outcome === 'spawn_failed' || !exit.spawned) {
+    const n = notStarted(exit);
+    return failure(n.failure, n.detail, false);
+  }
   if (facts.failure !== null) {
     const f = facts.failure;
     // Vendor failure kinds are a subset of the harness failures, by the same names.

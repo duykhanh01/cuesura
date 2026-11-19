@@ -61,14 +61,16 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
    ```
 
    Thay `claude-0` bằng tên credential đã khai trong config và dùng đường dẫn toolchain canonical trên host.
-   Thêm `--dry-run` để chỉ kiểm pin dự kiến, không ghi gì; kết quả báo `pin_exists`. Pin đã có cần `--force`
+   Thêm `--dry-run` để kiểm như thật mà không ghi gì; kết quả báo `native_result` và `pin_exists`. Pin đã có cần `--force`
    để thay. Binary chưa cài thì lệnh báo lỗi ở bước `write-pin`. Bước nào lỗi thì dừng ngay và nêu tên bước.
    Dùng `--from record-manifest` để ghi lại manifest với pin đã ghi, ví dụ sau khi thêm role `deputy`.
 
    Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"` và auth/rules Codex
-   tương ứng; bỏ các cờ riêng Claude (`--settings`, `--sandbox`). Manifest gắn với binary và pin, không gắn với
-   model. Harness không gọi được (chưa đăng nhập, hết phiên, binary bị gỡ) lộ ra ở lượt agent đầu tiên: task
-   chờ `harness_auth` hoặc `auth_config` kèm lỗi và assistant đã đăng ký được báo ([Vòng làm một việc](#vòng-làm-một-việc)).
+   tương ứng; bỏ các cờ riêng Claude (`--settings`, `--sandbox`). Setup Codex chạy `codex sandbox` (không gọi
+   model) để kiểm sandbox thật. Manifest không gắn với version CLI hay model: nâng cấp CLI tại chỗ không cần setup
+   lại. Harness không gọi được (chưa đăng nhập, hết phiên, binary bị gỡ) lộ ra ở lượt agent: task chờ
+   `harness_auth` hoặc `auth_config` kèm lỗi và assistant đã đăng ký được báo
+   ([runbook](../deploy/README.md#harness-thật-pin-và-manifest)).
 
    Hai lệnh `write-pin`, `record-manifest` vẫn dùng được riêng; xem
    [runbook](../deploy/README.md#harness-thật-pin-và-manifest).
@@ -246,12 +248,12 @@ Script xây release mới, đổi `current` một lần và chép skill; process
 Trước khi đổi `current`, script chạy `cusr-runner check-records` của release mới. Release mới từ chối config hoặc
 harness record thì script dừng, `current` giữ nguyên và in lệnh ghi lại manifest: sửa config, hoặc chạy
 `setup-harness` bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. Release mới chỉ đổi cách
-dựng layout chạy của role (pin, binary và settings không đổi) thì không cần ghi lại: layout không còn là
-điều kiện của record. Binary hoặc pin đổi mà tham số pin giữ nguyên thì dùng `--from record-manifest`; đổi tham số
+dựng layout chạy của role (pin và settings không đổi) thì không cần ghi lại: layout không còn là
+điều kiện của record. Pin đổi mà tham số pin giữ nguyên thì dùng `--from record-manifest`; đổi tham số
 pin thì chạy đủ tham số như khi cài đặt, thêm `--force`. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
 Script lấy code từ `repo/`, không từ repo phát triển.
 
-`doctor` và `check-records` báo `manifest:*` khi pin, binary hoặc settings của release đang chạy khác lúc ghi manifest: ghi lại manifest trước khi chạy task. Không sửa tay
+`doctor` và `check-records` báo `manifest:*` khi pin hoặc settings của release đang chạy khác lúc ghi manifest, hoặc lệnh của pin không chạy được: ghi lại manifest (hoặc cài lại lệnh) trước khi chạy task. Nâng cấp CLI tại chỗ không cần. Không sửa tay
 `manifest.json`.
 
 Mỗi lần ghi lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.

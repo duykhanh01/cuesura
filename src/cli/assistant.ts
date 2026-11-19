@@ -324,6 +324,16 @@ function writeHookState(file: string, state: HookState): void {
 /** Item codes of a task that ended (`ENDED_CODES` in the daemon); kept here so the hook loads no daemon code. */
 const ENDED = new Set(['done', 'failed', 'cancelled']);
 
+/** Fixed text for a harness that could not run, so the note itself says what failed and how it is fixed. */
+const LAUNCH_HINTS: Readonly<Record<string, (id: string) => string>> = {
+  harness_auth: (id) =>
+    `the harness login expired or was refused; the user signs in again on the daemon host, then cusr task recheck ${id}`,
+  auth_config: (id) =>
+    `a credential or setup problem stopped a step (a harness not installed, not executable or not set up, say); cusr task explain ${id} names the cause and the fix`,
+  capability_missing: (id) =>
+    `a harness this task needs cannot run here; cusr task explain ${id} names the cause and the fix`,
+};
+
 /** IDs and fixed codes only: a title or question is worker text, and this reaches the model unasked. */
 export function wakeNote(items: readonly AttentionItem[], truncated: boolean): string {
   const list = (xs: readonly AttentionItem[]) =>
@@ -331,10 +341,15 @@ export function wakeNote(items: readonly AttentionItem[], truncated: boolean): s
   const waits = items.filter((i) => !ENDED.has(i.code));
   const ended = items.filter((i) => ENDED.has(i.code));
   const more = truncated ? ', and more' : '';
+  const launch = waits.flatMap((i) => {
+    const hint = LAUNCH_HINTS[i.code];
+    return hint === undefined ? [] : [`${i.task_id}: ${hint(i.task_id)}.`];
+  });
   const parts = [
     ...(waits.length > 0
       ? [
           `cusr: tasks need the user: ${list(waits)}${more}. Read them with cusr inbox and cusr task explain, then relay them to the user.`,
+          ...launch,
         ]
       : []),
     ...(ended.length > 0

@@ -24,6 +24,7 @@ import { hashCanonical } from '../../shared/hash.ts';
 import type { Usage } from '../../domain/trigger.ts';
 import type { PermissionDenial } from '../ports.ts';
 import {
+  binaryPath,
   bypassToken,
   classifyFailure,
   DETAIL_MAX,
@@ -84,7 +85,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   const auto =
     input.host_execution && pin.permission_mode !== 'full-access' && input.role !== 'reviewer';
   const argv = [
-    pin.binary.realpath,
+    binaryPath(pin),
     'exec',
     '-c',
     auto ? 'approval_policy="on-request"' : 'approval_policy="never"',
@@ -182,7 +183,7 @@ function interactive(
   const auto =
     input.host_execution && pin.permission_mode !== 'full-access' && input.role !== 'reviewer';
   const argv = [
-    pin.binary.realpath,
+    binaryPath(pin),
     ...(input.session === null ? [] : ['resume']),
     '-c',
     auto ? 'approval_policy="on-request"' : 'approval_policy="never"',

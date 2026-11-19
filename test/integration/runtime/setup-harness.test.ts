@@ -18,6 +18,18 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
+
+/** `codex sandbox` stand-in: `refuse` makes the OS deny the outside write, otherwise the write goes through. */
+const vendor = (modelCalled: string, sandbox: 'refuse' | 'allow') => `#!/bin/sh
+if [ "$1" = "--version" ]; then echo vendor-1; exit 0; fi
+if [ "$1" = "sandbox" ]; then
+  while [ "$1" != "--" ]; do shift; done; shift
+  if [ "$1" = "/usr/bin/true" ]; then exit 0; fi
+  ${sandbox === 'refuse' ? `echo "touch: cannot touch '$2': Permission denied" >&2; exit 1` : `"$@"; exit $?`}
+fi
+touch '${modelCalled}'; exit 1
+`;
+
 function setup() {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cusr-setup-')));
   dirs.push(dir);
@@ -28,13 +40,12 @@ function setup() {
     config,
     `version: 1\nharnesses:\n  codex: { cmd: codex, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${data}\n`,
   );
-  const binary = join(dir, 'vendor');
   const modelCalled = join(dir, 'model-called');
-  writeFileSync(
-    binary,
-    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo vendor-1; else touch '${modelCalled}'; exit 1; fi\n`,
-    { mode: 0o755 },
-  );
+  const binary = (name: string, sandbox: 'refuse' | 'allow') => {
+    const path = join(dir, name);
+    writeFileSync(path, vendor(modelCalled, sandbox), { mode: 0o755 });
+    return path;
+  };
   const records = join(data, 'harnesses', 'codex');
   const run = (...args: string[]) => {
     const r = spawnSync(
@@ -53,23 +64,28 @@ function setup() {
     );
     return { code: r.status, body: JSON.parse(r.stdout) as Envelope };
   };
-  return { records, modelCalled, binary, run };
+  const read = (file: string) => readFileSync(join(records, file), 'utf8');
+  return { records, modelCalled, binary, run, read };
 }
 
 describe('setup-harness CLI without model calls', () => {
-  it('records pin and manifest from the pin and never runs the model', () => {
+  it('records the pin with every capability unknown and the sandbox it really ran', () => {
     const h = setup();
-    expect(h.run('--vendor', 'codex', '--binary', h.binary, '--dry-run')).toMatchObject({
+    const bin = h.binary('codex', 'refuse');
+    expect(h.run('--vendor', 'codex', '--binary', bin, '--dry-run')).toMatchObject({
       code: 0,
-      body: { ok: true, data: { version: 'vendor-1', pin_exists: false } },
+      body: { ok: true, data: { native_result: 'passed', pin_exists: false } },
     });
-    expect(existsSync(h.records)).toBe(false);
+    expect(existsSync(join(h.records, 'pin.json'))).toBe(false);
 
-    const first = h.run('--vendor', 'codex', '--binary', h.binary);
-    expect(first).toMatchObject({ code: 0, body: { ok: true, data: { harness: 'codex' } } });
-    const manifest = JSON.parse(readFileSync(join(h.records, 'manifest.json'), 'utf8')) as {
+    expect(h.run('--vendor', 'codex', '--binary', bin)).toMatchObject({
+      code: 0,
+      body: { ok: true, data: { harness: 'codex', native_result: 'passed' } },
+    });
+    const manifest = JSON.parse(h.read('manifest.json')) as {
       fixture_refs: string[];
       role_schemas: Record<string, string>;
+      capabilities: Record<string, string>;
     };
     expect(manifest.fixture_refs).toEqual(['declared']);
     expect(Object.keys(manifest.role_schemas).sort()).toEqual([
@@ -79,8 +95,54 @@ describe('setup-harness CLI without model calls', () => {
       'fixer',
       'reviewer',
     ]);
+    // Nothing a model would have had to show is claimed.
+    expect(manifest.capabilities).toEqual({
+      structured_output: 'unknown',
+      permission_enforced: 'unknown',
+      private_home_auth: 'unknown',
+      cost_reporting: 'unknown',
+      resume: 'unknown',
+    });
+    expect((JSON.parse(h.read('pin.json')) as { binary: { path: string } }).binary.path).toBe(bin);
     expect(h.run('--from', 'record-manifest')).toMatchObject({ code: 0 });
     expect(existsSync(h.modelCalled)).toBe(false);
+  });
+
+  it('refuses a sandbox that lets the write through and keeps the working pair', () => {
+    const h = setup();
+    expect(h.run('--vendor', 'codex', '--binary', h.binary('codex', 'refuse'))).toMatchObject({
+      code: 0,
+    });
+    const pin = h.read('pin.json');
+    const manifest = h.read('manifest.json');
+    expect(
+      h.run('--vendor', 'codex', '--binary', h.binary('leaky', 'allow'), '--force'),
+    ).toMatchObject({
+      code: 1,
+      body: {
+        ok: false,
+        error: {
+          code: 'manifest_refused',
+          message: expect.stringContaining('native sandbox failed') as string,
+          details: { step: 'record-manifest' },
+        },
+      },
+    });
+    expect(h.read('pin.json')).toBe(pin);
+    expect(h.read('manifest.json')).toBe(manifest);
+    expect(existsSync(h.modelCalled)).toBe(false);
+  });
+
+  it('refuses to replace a pin without --force before writing anything', () => {
+    const h = setup();
+    const bin = h.binary('codex', 'refuse');
+    expect(h.run('--vendor', 'codex', '--binary', bin)).toMatchObject({ code: 0 });
+    const manifest = h.read('manifest.json');
+    expect(h.run('--vendor', 'codex', '--binary', bin)).toMatchObject({
+      code: 1,
+      body: { ok: false, error: { code: 'pin_refused', details: { step: 'write-pin' } } },
+    });
+    expect(h.read('manifest.json')).toBe(manifest);
   });
 
   it('returns the error of a binary that is not installed', () => {

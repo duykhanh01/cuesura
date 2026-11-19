@@ -37,7 +37,13 @@ import {
 import { dirname, join } from 'node:path';
 import { z } from 'zod';
 import { UsageSchema } from '../domain/trigger.ts';
-import { hostInnerMode, boundaryRole, nativeSandboxEnabled } from '../adapters/harness/vendor.ts';
+import {
+  boundaryRole,
+  classifyFailure,
+  DETAIL_MAX,
+  hostInnerMode,
+  nativeSandboxEnabled,
+} from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
 import {
@@ -51,6 +57,7 @@ import type {
   HarnessInnerModePolicy,
 } from '../domain/runtime.ts';
 import {
+  notStarted,
   readFreshFile,
   validateResult,
   type FileRead,
@@ -67,6 +74,7 @@ import type {
   VendorAdapter,
   VendorPin,
   VendorPlan,
+  VendorFacts,
   VendorPlanInput,
 } from '../adapters/harness/vendor.ts';
 import {
@@ -346,7 +354,7 @@ export class RunnerHarness implements HarnessPort {
           ? (attemptId: string) => join(o.data_dir, 'runs', attemptId, 'scratch')
           : IN_SANDBOX.scratch,
     };
-    // The handler resumes only on `resume: proven`; an adapter without a pinned resume form makes
+    // The handler resumes unless `resume: unsupported`; an adapter without a pinned resume form makes
     // every worker repair a new session with the reason `resume_unsupported`.
     this.manifest = o.adapter.resume_supported
       ? o.manifest
@@ -781,11 +789,16 @@ export class RunnerHarness implements HarnessPort {
     });
     if (!records.ok) throw new InvocationUnknown(`event log unreadable: ${records.error.code}`);
     const stdout = records.value.records.filter((r) => r.kind === 'stdout').map((r) => r.data);
-    const facts = o.adapter.read({
+    const stderr = readStderr(run);
+    const read = o.adapter.read({
       stdout,
       truncated_records: exit.artifacts.truncated_records + records.value.torn.length,
-      stderr: readStderr(run),
+      stderr,
     });
+    const facts =
+      read.failure === null && exit.spawned && exit.exit_code !== null && exit.exit_code !== 0
+        ? { ...read, failure: stderrFailure(stderr) }
+        : read;
     const file: FileRead | null =
       st.result_source.kind === 'file'
         ? readFreshFile(st.scratch, st.result_source.scratch_name, {
@@ -813,6 +826,7 @@ export class RunnerHarness implements HarnessPort {
         exit_code: exit.exit_code,
         spawned: exit.spawned,
         started_at: exit.started_at as EpochMs,
+        error: exit.error,
       },
       facts,
       source: st.result_source,
@@ -920,13 +934,14 @@ export class RunnerHarness implements HarnessPort {
       reset_at: null,
       invoked,
     });
+    const notRun = notStarted(exit);
     const outcome: HarnessOutcome =
       violations.length > 0
         ? failure('boundary_violation', violations.join('; '))
         : ended !== null
           ? { ...facts, kind: 'turn_ended', final_message: ended.final_message }
           : exit.outcome === 'spawn_failed' || !exit.spawned
-            ? failure('process_failed', `harness did not start (${exit.outcome})`, false)
+            ? failure(notRun.failure, notRun.detail, false)
             : exit.outcome === 'stalled'
               ? failure('timeout', INTERACTIVE_STALLED)
               : exit.outcome === 'timeout' || exit.outcome === 'cancelled'
@@ -1305,6 +1320,16 @@ function collectFiles(
       // An existing target is never overwritten.
     }
   }
+}
+
+/**
+ * A failed exit the vendor's records do not explain: its stderr may still name a login or rate limit (a CLI
+ * that cannot sign in can exit before its first event). Anything else stays the generic exit failure.
+ */
+function stderrFailure(stderr: string): VendorFacts['failure'] {
+  const tail = stderr.trim().split('\n').slice(-5).join('\n').slice(-DETAIL_MAX);
+  const kind = classifyFailure(tail, null);
+  return kind === 'vendor_error' ? null : { kind, detail: tail, reset_at: null };
 }
 
 /** The redacted stderr tail; a missing or non-regular file reads as empty. */

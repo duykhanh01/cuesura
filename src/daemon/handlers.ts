@@ -159,6 +159,8 @@ export type HandlerDeps = {
   /** A fresh GitHub port per effect: call caps and the round window count per round. */
   readonly github: () => GitHubPort;
   readonly harnesses: Readonly<Record<string, HarnessPort>>;
+  /** Why a configured harness has no port: its records did not load at start. */
+  readonly harness_problems?: Readonly<Record<string, string>>;
   readonly sandbox: SandboxProvider;
   readonly executor: CommandExecutor;
   /** Read-only directories gates see besides `/usr` (the node of the daemon, say); none by default. */
@@ -762,6 +764,14 @@ function harnessRoles(policy: FrozenPolicy, harness: string): Role[] {
   return [...new Set(roles)].sort();
 }
 
+/** A harness the daemon has no port for, with the load error when it is known. */
+export function noHarness(h: string, problems: Readonly<Record<string, string>> = {}): string {
+  const why = problems[h];
+  return why === undefined
+    ? `no harness ${h}`
+    : `no harness ${h}: ${why}; fix it with cusr-runner setup-harness, then restart cusrd`;
+}
+
 const HARNESS_FAILURE_CLASS: Record<HarnessFailure, FailureClass> = {
   rate_limited: 'rate_limit',
   // An overloaded provider clears in minutes, not seconds: the rate-limit backoff fits, the infra one
@@ -1121,7 +1131,8 @@ async function startAgent(
   )
     return failed('auth_config', `role ${String(role)} is not run by cusrd`);
   const harness = deps.harnesses[binding.harness];
-  if (harness === undefined) return failed('auth_config', `no harness ${binding.harness}`);
+  if (harness === undefined)
+    return failed('auth_config', noHarness(binding.harness, deps.harness_problems));
   // The manifest confirmed with the task must still be the one in force; a re-proved or changed
   // binary is never a silent switch between attempts (T070/T071). Nothing is invoked: the engine records
   // the new manifest in `run.manifest_refs` and runs the step again when it still meets what the task
@@ -1471,7 +1482,7 @@ type ResumeChoice = {
 };
 
 /**
- * Resumes the engine's chosen worker session only when the harness proved resume works; otherwise a new
+ * Resumes the engine's chosen worker session unless the harness cannot resume; otherwise a new
  * session with the reason recorded. The context is the full repair packet in both cases (M04).
  */
 export function sessionFor(request: Record<string, unknown>, harness: HarnessPort): ResumeChoice {
@@ -1482,7 +1493,7 @@ export function sessionFor(request: Record<string, unknown>, harness: HarnessPor
   const reason = typeof request['resume_reason'] === 'string' ? request['resume_reason'] : null;
   if (plan === undefined || plan === null || typeof plan.session_ref !== 'string')
     return { session: null, fallback: reason, asked: false };
-  if (harness.manifest.capabilities.resume !== 'proven')
+  if (harness.manifest.capabilities.resume === 'unsupported')
     return {
       session: null,
       fallback: `resume_${harness.manifest.capabilities.resume}`,

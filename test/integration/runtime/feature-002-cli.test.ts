@@ -1615,7 +1615,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
         status: string;
         detail?: string;
       }[];
-      digest?: (path: string) => string;
+      manifestProblems?: Record<string, string>;
       probeBudgetMs?: number;
       harnessTools?: Record<string, { dirs: string[]; requires: string[] }>;
       runtime?: string;
@@ -1640,16 +1640,11 @@ describe('doctor (T112, FR-027.02/033)', () => {
             }),
             packs: PACKS,
             manifests: (o.manifests ?? PROVEN) as typeof MANIFESTS,
+            ...(o.manifestProblems === undefined ? {} : { manifest_problems: o.manifestProblems }),
           }),
         health: () => (o.health === undefined ? rt.health() : o.health),
         ...(o.recoveryClaims === undefined ? {} : { recoveryClaims: o.recoveryClaims }),
         ...(o.spoolProblems === undefined ? {} : { spoolProblems: o.spoolProblems }),
-        // The fixture's binaries are not on disk: unless told otherwise each is what its manifest says.
-        digest:
-          o.digest ??
-          ((path) =>
-            Object.values(MANIFESTS).find((m) => m.binary.realpath === path)?.binary.digest ??
-            'unknown'),
         now: () => sd.now,
         ...(o.probeBudgetMs === undefined ? {} : { probeBudgetMs: o.probeBudgetMs }),
         ...(o.harnessTools === undefined ? {} : { harnessTools: () => o.harnessTools ?? {} }),
@@ -1901,11 +1896,28 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(units()).toBe(3);
   });
 
-  it('a recorded manifest that does not prove what an attempt requires fails', async () => {
-    const { sd } = doctored({ manifests: MANIFESTS });
+  it('a capability not shown passes; one shown unsupported fails', async () => {
+    const shown = doctored({ manifests: MANIFESTS });
+    await shown.sd.start();
+    expect(
+      Object.entries(names(await cli(shown.sd, ['doctor']))).filter(([k]) =>
+        k.startsWith('manifest:'),
+      ),
+    ).toEqual(Object.keys(MANIFESTS).map((h) => [`manifest:${h}`, 'ok']));
+    const { sd } = doctored({
+      manifests: Object.fromEntries(
+        Object.entries(MANIFESTS).map(([k, m]) => {
+          const body = {
+            ...m,
+            capabilities: { ...m.capabilities, structured_output: 'unsupported' },
+          };
+          return [k, { ...body, manifest_hash: manifestHash(body as never) }];
+        }),
+      ),
+    });
     await sd.start();
     expect(JSON.stringify((await cli(sd, ['doctor'])).envelope.error.details)).toContain(
-      'not proven: structured_output',
+      'unsupported: structured_output',
     );
   });
 
@@ -1948,24 +1960,15 @@ describe('doctor (T112, FR-027.02/033)', () => {
     });
   });
 
-  it('a manifest fails when its binary changed or can no longer be read, or the record was altered', async () => {
-    const changed = doctored({ digest: () => 'sha256:other' });
-    await changed.sd.start();
-    const r1 = await cli(changed.sd, ['doctor']);
-    expect(r1.code).toBe(ExitCode.failure);
-    expect(JSON.stringify(r1.envelope.error.details)).toContain(
-      'changed since the manifest was recorded',
-    );
-
+  it('a harness whose binary cannot run fails with the observed cause, as does an altered record', async () => {
     const gone = doctored({
-      digest: () => {
-        throw Object.assign(new Error('gone'), { code: 'ENOENT' });
-      },
+      manifests: { ...PROVEN, claude: null },
+      manifestProblems: { claude: 'binary /opt/claude not found' },
     });
     await gone.sd.start();
-    expect(JSON.stringify((await cli(gone.sd, ['doctor'])).envelope.error.details)).toContain(
-      'ENOENT',
-    );
+    const r1 = await cli(gone.sd, ['doctor']);
+    expect(r1.code).toBe(ExitCode.failure);
+    expect(JSON.stringify(r1.envelope.error.details)).toContain('binary /opt/claude not found');
 
     const altered = doctored({
       manifests: Object.fromEntries(

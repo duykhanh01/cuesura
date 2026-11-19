@@ -34,6 +34,9 @@ export const VendorPinSchema = z
     binary: z
       .object({
         realpath: AbsPath,
+        /** The command as the owner gave it, resolved at each launch; absent in pins written before it. */
+        path: AbsPath.optional(),
+        /** Observed when the pin was written, for diagnostics; no launch depends on them. */
         version: z.string().min(1),
         sha256: z.string().regex(/^[0-9a-f]{64}$/),
       })
@@ -76,6 +79,9 @@ export type VendorPin = z.infer<typeof VendorPinSchema>;
  * the worktree, so it alone keeps the read-only boundary, still named `reviewer` so proven settings
  * hashes and layout shapes stay valid.
  */
+/** What a launch runs: an upgrade in place of the command needs no new pin. */
+export const binaryPath = (pin: VendorPin): string => pin.binary.path ?? pin.binary.realpath;
+
 export function boundaryRole(role: Role): Exclude<Role, 'decider' | 'deputy'> {
   if (role === 'decider') return 'reviewer';
   // The deputy has the harness's full tools; the daemon puts its worktree back after the turn (FR-017).
@@ -125,7 +131,7 @@ export type VendorPlanInput = {
   readonly inner_mode: SelectedInnerMode;
   /** Direct host execution: the harness owns permissions and its native sandbox. */
   readonly host_execution?: boolean;
-  /** Only passed when the manifest proved resume for this binary; see `resume_supported`. */
+  /** Not passed when the manifest marks resume unsupported; see `resume_supported`. */
   readonly session: { readonly ref: string } | null;
   readonly max_turns?: number | null;
   /** Directories the harness's file tools must not edit, where the harness has path rules (FR-053). */

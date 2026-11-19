@@ -1,17 +1,17 @@
 /**
  * Owner records of a harness (T140): `<DATA_DIR>/harnesses/<name>/pin.json` says which binary runs and how,
- * `manifest.json` says what was proven about it. They live outside every repo, no sandbox mounts them and
+ * `manifest.json` says what is known of it. They live outside every repo, no sandbox mounts them and
  * neither holds a secret. A record that is missing, writable by others, or no longer describes the host
  * leaves its harness `capability_missing`; nothing falls back to a default binary or to help output.
  *
- * `recordManifest` is the only writer of `manifest.json`. Without an evidence file it records the pin as
- * declared: no model is invoked to prove it, and a harness that cannot run (not installed, login expired)
- * fails its first attempt with that error instead. With one, it takes capabilities only from evidence that
- * names what it showed: the binary and, under `attested`, the settings, environment, host policy and
- * layouts of the run; anything else differing is refused. It never invokes the harness.
+ * `recordManifest` is the only writer of `manifest.json`. Without an evidence file it records the pin with
+ * every capability `unknown` and runs no model; only the native sandbox is checked, where the vendor can run
+ * it without a model. A harness that cannot run (not installed, login expired) fails its first attempt with
+ * that error. With an evidence file, it takes capabilities only from evidence that names what it showed: the
+ * binary and, under `attested`, the settings, environment, host policy and layouts of the run.
  */
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   accessSync,
   constants,
@@ -21,16 +21,18 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
-import { isAbsolute, join } from 'node:path';
+import { isAbsolute, join, resolve } from 'node:path';
 import { z } from 'zod';
 import { claudeAdapter } from '../adapters/harness/claude.ts';
 import { codexAdapter } from '../adapters/harness/codex.ts';
 import { ROLE_SCHEMA_DIGESTS, wireRoleSchema } from '../adapters/harness/result-schema.ts';
 import {
   VendorPinSchema,
+  binaryPath,
   isRec,
   hostInnerMode,
   nativeSandboxEnabled,
@@ -192,8 +194,13 @@ export function harnessRecordProblem(
   const expected = hostInnerMode(record.pin);
   if (record.manifest.selected_inner_mode !== expected)
     return 'manifest permission mode differs from the pin';
-  if (record.manifest.native_result !== (nativeSandboxEnabled(record.pin) ? 'passed' : 'not_tried'))
-    return 'native sandbox proof differs from the pin sandbox setting';
+  const sandbox = nativeSandboxEnabled(record.pin);
+  if (record.manifest.native_result !== (sandbox ? 'passed' : 'not_tried'))
+    return !sandbox
+      ? 'native sandbox result differs from the pin sandbox setting'
+      : record.pin.vendor === 'claude'
+        ? `native sandbox ${record.manifest.native_result}: a Claude sandbox is shown only by a model run, which setup does not do; pin --sandbox off, or record matching evidence with cusr-runner record-manifest --evidence <file>`
+        : `native sandbox ${record.manifest.native_result}: codex sandbox did not start, or did not refuse a write outside the worktree`;
   const settings = pinSettingsHash(record.pin);
   if (!settings.ok) return settings.error;
   const observed = observeHarness(
@@ -315,10 +322,54 @@ function evidenceEntry(
   return mismatch === null ? ok(entry as unknown as EvidenceEntry) : err(mismatch);
 }
 
-/** What the pin itself says it runs with, taken as is: the harness is never invoked to show it. */
-function declaredEntry(pin: VendorPin, identity: HarnessIdentity): EvidenceEntry {
+/**
+ * The vendor's native sandbox run directly on this host, with no model: a harmless command must pass and a
+ * write outside the worktree must be refused by the OS. Only Codex has such a command; a Claude sandbox is
+ * shown only by a model run, so it stays `not_tried` and its manifest is refused.
+ */
+function nativeSandboxResult(pin: VendorPin, dataDir: string): EvidenceEntry['native_result'] {
+  if (!nativeSandboxEnabled(pin) || pin.vendor !== 'codex') return 'not_tried';
+  // Under the data dir, not /tmp: a workspace sandbox may leave the system temp directory writable.
+  const dir = join(dataDir, 'worktrees', `sandbox-check-${randomUUID()}`);
+  const worktree = join(dir, 'worktree');
+  const home = join(dir, 'home');
+  const marker = join(dir, 'native-write-probe');
+  try {
+    mkdirSync(worktree, { recursive: true, mode: 0o700 });
+    mkdirSync(home, { mode: 0o700 });
+    // Positive control: this UID can write there outside the sandbox.
+    writeFileSync(marker, '');
+    rmSync(marker);
+    const denied = adapterFor(pin.vendor).nativeWriteDenied({
+      role: 'coder',
+      worktree,
+      marker,
+      stdout: [],
+      runPinned: (argv) => {
+        const r = spawnSync(binaryPath(pin), argv, {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+          timeout: 30_000,
+          env: {
+            ...pin.env,
+            PATH: hostExecutionPath(pin.toolchain).join(':'),
+            HOME: home,
+            CODEX_HOME: home,
+          },
+        });
+        return { status: r.status, output: `${r.stdout}${r.stderr}` };
+      },
+    });
+    return denied ? 'passed' : 'failed';
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** The pin's configuration, with nothing claimed that was not observed: no model runs. */
+function declaredEntry(pin: VendorPin, identity: HarnessIdentity, dataDir: string): EvidenceEntry {
   const inner = hostInnerMode(pin);
-  const declared = { status: 'proven', evidence: 'declared by the pin; no model run' };
+  const unknown = { status: 'unknown', evidence: 'not checked: setup runs no model' };
   return {
     vendor: pin.vendor,
     isolation_mode: 'native',
@@ -326,7 +377,7 @@ function declaredEntry(pin: VendorPin, identity: HarnessIdentity): EvidenceEntry
       Object.entries(ROLE_SCHEMA_DIGESTS).map(([role, digest]) => [role, { digest }]),
     ),
     selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
-    native_result: nativeSandboxEnabled(pin) ? 'passed' : 'not_tried',
+    native_result: nativeSandboxResult(pin, dataDir),
     outer_proof_hash: null,
     permission_policy_hash: hashCanonical({
       settings_hash: identity.settings_hash,
@@ -334,13 +385,11 @@ function declaredEntry(pin: VendorPin, identity: HarnessIdentity): EvidenceEntry
       vendor: pin.vendor,
     }),
     capabilities: {
-      structured_output: declared,
-      permission_denial_kept: declared,
-      private_home_auth: declared,
-      usage_report: declared,
-      ...Object.fromEntries(
-        Object.keys(ROLE_SCHEMA_DIGESTS).map((role) => [`schema_acceptance_${role}`, declared]),
-      ),
+      structured_output: unknown,
+      permission_denial_kept: unknown,
+      private_home_auth: unknown,
+      usage_report: unknown,
+      session_resume: unknown,
     },
   };
 }
@@ -351,6 +400,8 @@ function declaredEntry(pin: VendorPin, identity: HarnessIdentity): EvidenceEntry
  */
 export function recordManifest(o: {
   readonly dataDir: string;
+  /** A candidate not yet written; the pin on disk otherwise. */
+  readonly pin?: VendorPin;
   readonly harness: string;
   readonly configPath: string;
   readonly runtime: RuntimeConfig;
@@ -359,13 +410,13 @@ export function recordManifest(o: {
   readonly now: number;
   readonly dryRun?: boolean;
 }): Result<CapabilityManifest, string> {
-  const pin = readPin(o.dataDir, o.harness);
+  const pin = o.pin === undefined ? readPin(o.dataDir, o.harness) : ok(o.pin);
   if (!pin.ok) return pin;
   const identity = harnessIdentity({ ...o, pin: pin.value });
   if (!identity.ok) return identity;
   const evidence =
     o.evidenceFile === undefined
-      ? ok(declaredEntry(pin.value, identity.value))
+      ? ok(declaredEntry(pin.value, identity.value, o.dataDir))
       : evidenceEntry(o.evidenceFile, pin.value, identity.value);
   if (!evidence.ok) return evidence;
   const source = o.fixtureRef ?? o.evidenceFile ?? 'declared';
@@ -393,13 +444,19 @@ export function recordManifest(o: {
     },
   );
   if (problem !== null) return err(`${source} does not make a usable manifest: ${problem}`);
-  if (o.dryRun) return ok(manifest);
+  if (!o.dryRun) commitManifest(o, manifest);
+  return ok(manifest);
+}
+
+export function commitManifest(
+  o: { readonly dataDir: string; readonly harness: string },
+  manifest: CapabilityManifest,
+): void {
   const dir = recordDir(o.dataDir, o.harness);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const tmp = join(dir, `${MANIFEST_FILE}.${process.pid}.tmp`);
   writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
   renameSync(tmp, join(dir, MANIFEST_FILE));
-  return ok(manifest);
 }
 
 export type WritePinInput = {
@@ -500,7 +557,7 @@ export function writePin(o: WritePinInput): Result<VendorPin, string> {
   const parsed = VendorPinSchema.safeParse({
     schema_version: 1,
     vendor: o.vendor,
-    binary: { realpath: real, version, sha256: sha256File(real) },
+    binary: { realpath: real, path: resolve(o.binary), version, sha256: sha256File(real) },
     toolchain: [...o.toolchain],
     env: {},
     home_files,

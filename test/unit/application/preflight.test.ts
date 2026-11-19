@@ -34,6 +34,7 @@ async function runPreflight(
     git?: GitOpts;
     github?: Parameters<typeof fakeGitHub>[0];
     manifests?: Record<string, CapabilityManifest | null>;
+    manifest_problems?: Record<string, string>;
     task?: Parameters<typeof buildTask>[0];
     mode?: ExecutionMode | null;
     harness_tools?: Record<string, SandboxTools>;
@@ -50,6 +51,7 @@ async function runPreflight(
     user: o.user ?? userConfig(),
     packs: PACKS,
     manifests: o.manifests ?? MANIFESTS,
+    ...(o.manifest_problems === undefined ? {} : { manifest_problems: o.manifest_problems }),
     mode: o.mode === undefined ? 'full-review' : o.mode,
     ...(o.harness_tools === undefined ? {} : { harness_tools: o.harness_tools }),
     ...(o.gate_path === undefined ? {} : { gate_path: o.gate_path }),
@@ -397,6 +399,20 @@ describe('preflight (T030, FR-002)', () => {
         user: userConfig({ extra: 'yolo: true\n' }),
       });
       expect(result.ok).toBe(true);
+    });
+
+    it('names why a harness cannot run, as the daemon observed it', async () => {
+      const r = failure(
+        (
+          await runPreflight({
+            manifests: { claude: MANIFESTS.claude, codex: null },
+            manifest_problems: { codex: 'binary /opt/codex not found' },
+          })
+        ).result,
+      );
+      expect(JSON.stringify(r)).toContain(
+        "harness 'codex' cannot run: binary /opt/codex not found; run cusr doctor for the fix",
+      );
     });
 
     it('requires a usable manifest for every harness a used role can reach', async () => {

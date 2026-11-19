@@ -22,7 +22,7 @@ import type { Store } from '../store/index.ts';
 import { snapshotDrift } from '../store/verify.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
-import { binaryDigest, manifestHash } from './capabilities.ts';
+import { manifestHash } from './capabilities.ts';
 import { checkHost, missingTools, readLocalBaseConfig, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 import type { AttachedTerminal } from '../config/schema-user.ts';
@@ -62,8 +62,6 @@ export type DoctorDeps = {
     readonly detail?: string;
   }[];
   readonly now: () => number;
-  /** Digest of a harness binary; reads the file by default. */
-  readonly digest?: (path: string) => string;
   readonly probeBudgetMs?: number;
   readonly probeCache?: DoctorProbeCache;
   /** What each recorded harness's sandbox can run, so a binary that cannot start shows before a task. */
@@ -463,38 +461,15 @@ async function unitProbe(host: HostProbePort, systemdRun: string | null): Promis
  * still describes the binary on disk. Settings, environment and host policy need the pin and are checked
  * by preflight and before each attempt.
  */
-function manifestCheck(
-  name: string,
-  m: CapabilityManifest,
-  digest: (path: string) => string,
-): DoctorCheck {
+function manifestCheck(name: string, m: CapabilityManifest): DoctorCheck {
   const fix = 'record a new manifest with cusr-runner setup-harness --from record-manifest';
   if (!CapabilityManifestSchema.safeParse(m).success || manifestHash(m) !== m.manifest_hash)
     return fail(name, 'manifest fails its schema or its hash', fix);
-  const missing = (
+  const unsupported = (
     ['structured_output', 'permission_enforced', 'private_home_auth'] as const
-  ).filter(
-    (k) =>
-      !(
-        k === 'permission_enforced' &&
-        m.provider === 'host' &&
-        m.selected_inner_mode === 'full_access'
-      ) && m.capabilities[k] !== 'proven',
-  );
-  if (missing.length > 0) return fail(name, `not proven: ${missing.join(', ')}`, fix);
-  let now: string;
-  try {
-    now = digest(m.binary.realpath);
-  } catch (e) {
-    return fail(
-      name,
-      `cannot read ${m.binary.realpath}: ${(e as NodeJS.ErrnoException).code ?? String(e)}`,
-      fix,
-    );
-  }
-  return now === m.binary.digest
-    ? ok_(name, `manifest ${m.manifest_hash}, binary ${m.binary.digest}`)
-    : fail(name, `binary ${m.binary.realpath} changed since the manifest was recorded`, fix);
+  ).filter((k) => m.capabilities[k] === 'unsupported');
+  if (unsupported.length > 0) return fail(name, `unsupported: ${unsupported.join(', ')}`, fix);
+  return ok_(name, `manifest ${m.manifest_hash}, recorded with binary ${m.binary.digest}`);
 }
 
 async function cachedProbe(
@@ -707,7 +682,7 @@ export async function runDoctor(
                   `${inputs.manifest_problems?.[h] ?? 'no capability manifest recorded'}; bindings of this harness stay capability_missing`,
                   'run cusr-runner setup-harness (deploy/README.md#harness-thật-pin-và-manifest), or --from record-manifest when the pin is already recorded; no model is invoked',
                 )
-              : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
+              : manifestCheck(`manifest:${h}`, m),
       );
     }
     checks.push(

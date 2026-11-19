@@ -325,8 +325,11 @@ describe('harness records', () => {
         host_policy_hash: `sha256:${'0'.repeat(64)}`,
       }),
     ).toContain('host sandbox policy');
+    // An upgrade in place is what runs next; a binary that cannot run is named.
     writeFileSync(h.pin.binary.realpath, '#!/bin/sh\n');
-    expect(harnessRecordProblem(loaded.value, check)).toContain('digest');
+    expect(harnessRecordProblem(loaded.value, check)).toBeNull();
+    chmodSync(h.pin.binary.realpath, 0o644);
+    expect(harnessRecordProblem(loaded.value, check)).toContain('is not executable');
   });
 
   it('refuses evidence that never proved this configuration, with the same binary', () => {
@@ -545,7 +548,7 @@ describe('production task surface', () => {
     expect(JSON.stringify(missing.check)).toContain('pin.json does not exist');
     expect(missing.check?.status).toBe('fail');
 
-    // A record whose binary changed after the proof is not offered either.
+    // A binary upgraded in place after the record keeps it usable.
     h.writePin(h.pin);
     const recorded = recordManifest({
       dataDir: h.dataDir,
@@ -558,7 +561,7 @@ describe('production task surface', () => {
     });
     expect(recorded.ok).toBe(true);
     writeFileSync(h.pin.binary.realpath, '#!/bin/sh\n');
-    expect(JSON.stringify((await doctor(h)).check)).toContain('digest');
+    expect((await doctor(h)).check?.status).toBe('ok');
   });
 
   it('holds new work when a credential reference changes under a running daemon', async () => {

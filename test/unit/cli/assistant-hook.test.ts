@@ -614,6 +614,21 @@ describe('runStopHook', () => {
     expect(wakeNote([{ ...ITEM, code: 'failed' }], false)).not.toContain('need the user');
   });
 
+  it('says what stopped a harness and how it is fixed, in fixed text only', () => {
+    const note = wakeNote(
+      [
+        { ...ITEM, task_id: 'task-1', code: 'harness_auth' },
+        { ...ITEM, task_id: 'task-2', code: 'auth_config' },
+      ],
+      false,
+    );
+    expect(note).toContain('task-1: the harness login expired or was refused');
+    expect(note).toContain('cusr task recheck task-1');
+    expect(note).toContain('cusr task explain task-2 names the cause and the fix');
+    expect(note).not.toContain(ITEM.title);
+    expect(note).not.toContain(ITEM.question);
+  });
+
   it('never puts worker text in the note', () => {
     const note = wakeNote([ITEM], true);
     expect(note).not.toContain(ITEM.title);

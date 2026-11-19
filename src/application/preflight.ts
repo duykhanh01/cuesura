@@ -315,6 +315,7 @@ async function run(
     input.manifests,
     input.mode ?? null,
     input.proposed_profile,
+    input.manifest_problems,
   );
   support.problems.push(...(await checkTools(ports.host, input, validated.value, support)));
   const remote = await readRepoIdentity(ports.github, location.repo);
@@ -986,6 +987,8 @@ export function checkSupport(
   manifests: Readonly<Record<string, CapabilityManifest | null>>,
   mode: ExecutionMode | null = null,
   proposedProfile?: string | null,
+  /** Why a harness has no manifest here, when the source knows. */
+  manifestProblems: Readonly<Record<string, string>> = {},
 ): {
   problems: PreflightProblem[];
   capability_refs: Record<string, Hash>;
@@ -1065,7 +1068,10 @@ export function checkSupport(
     const before = problems.length;
     const m = manifests[h] ?? null;
     if (m === null) {
-      cap('harness', `harness '${h}' has no capability manifest; run doctor`);
+      cap(
+        'harness',
+        `harness '${h}' cannot run: ${manifestProblems[h] ?? 'no capability manifest'}; run cusr doctor for the fix`,
+      );
       continue;
     }
     for (const message of manifestShortfalls(

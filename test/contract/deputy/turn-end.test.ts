@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
-import { FakeHarness } from '../../../src/adapters/harness/fake.ts';
+import { FakeHarness, type FakeStep } from '../../../src/adapters/harness/fake.ts';
 import {
   ROLE_SCHEMA_DIGESTS,
   wireRoleSchema,
@@ -336,6 +336,60 @@ describe('an interactive turn ends through the Stop hook (FR-013)', () => {
 describe('a stalled interactive run goes on headless in the same session and turn (FR-011, SC-003)', () => {
   const tmp = useTempDir('cusr-turn-end-daemon-');
   let ids = 97_000;
+
+  const begin = (steps: readonly FakeStep[]) => {
+    const dir = tmp();
+    const d = new StoreDriver(openFileStoreForTest(dbPath(dir)));
+    const t = buildTask({ id: uuidOf(ids++) });
+    createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 48 * 3_600_000 } });
+    const failed = { ...PREPARE_DATA, setup: { ran: true, passed: false } };
+    for (let i = 0; i < 12 && d.task(t.id).wait?.detail.code !== 'backoff_exhausted'; i++) {
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', failed);
+      d.now += 300_000;
+      d.fire();
+    }
+    const harness = new FakeHarness({ deputy: steps }, 'fake', { interactive: true });
+    const deputy = createDeputy({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      newId: () => uuidOf(ids++),
+      harnesses: { fake: harness },
+      setting: () => Promise.resolve(FAKE_DEPUTY),
+      autonomous: () => Promise.resolve(false),
+      cwd: '/cusr-data',
+      worktreePath: (id) => `/cusr-data/worktrees/${id}`,
+      worktree: NO_WORKTREE,
+      recordsDir: join(dir, 'deputy'),
+      dataDir: dir,
+      redactor: new Redactor({ values: [] }),
+    });
+    return { d, t, harness, deputy };
+  };
+
+  it('a native session that ended without its Stop hook goes on headless; a refused login goes to the owner', async () => {
+    const { d, t, harness, deputy } = begin([
+      {
+        kind: 'failure',
+        failure: 'process_failed',
+        session_ref: null,
+        detail: 'session ended without a turn end (exited 1)',
+      },
+      { kind: 'failure', failure: 'auth', detail: 'Please run /login' },
+    ]);
+    await deputy.round();
+    await deputy.idle();
+    expect(d.store.deputy.runningTurn(t.id)).toMatchObject({
+      state: 'retry_wait',
+      infra_failures: 0,
+    });
+    await deputy.round();
+    await deputy.idle();
+    expect(harness.calls[1]?.interactive).toBeFalsy();
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'auth',
+    });
+  });
 
   it('resumes at once, headless, without counting an infra failure', async () => {
     const dir = tmp();
