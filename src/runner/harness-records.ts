@@ -10,8 +10,8 @@
  * that error. With an evidence file, it takes capabilities only from evidence that names what it showed: the
  * binary and, under `attested`, the settings, environment, host policy and layouts of the run.
  */
-import { execFileSync, spawnSync } from 'node:child_process';
-import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   accessSync,
   constants,
@@ -21,7 +21,7 @@ import {
   readFileSync,
   realpathSync,
   renameSync,
-  rmSync,
+  unlinkSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -60,6 +60,12 @@ import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { attemptLayoutInputs } from './invocation.ts';
 import {
+  checkedProfile,
+  checkedProfiles,
+  nativeWriteRefused,
+  sandboxProblem,
+} from './native-check.ts';
+import {
   HostExecutionProvider,
   IN_SANDBOX,
   hostExecutionPath,
@@ -69,6 +75,7 @@ import {
 export const HARNESS_RECORDS_DIR = 'harnesses';
 const PIN_FILE = 'pin.json';
 const MANIFEST_FILE = 'manifest.json';
+const NEXT_FILE = 'record.next.json';
 const RECORD_BYTES = 1024 * 1024;
 
 export type HarnessRecord = {
@@ -116,6 +123,8 @@ export const recordDir = (dataDir: string, harness: string): string =>
   join(dataDir, HARNESS_RECORDS_DIR, harness);
 
 export function readPin(dataDir: string, harness: string): Result<VendorPin, string> {
+  const next = readNext(recordDir(dataDir, harness));
+  if (next !== null) return next.ok ? ok(next.value.pin) : next;
   const path = join(recordDir(dataDir, harness), PIN_FILE);
   const raw = readTrusted(path);
   if (!raw.ok) return raw;
@@ -124,6 +133,8 @@ export function readPin(dataDir: string, harness: string): Result<VendorPin, str
 }
 
 export function loadHarnessRecord(dataDir: string, harness: string): Result<HarnessRecord, string> {
+  const next = readNext(recordDir(dataDir, harness));
+  if (next !== null) return next;
   const pin = readPin(dataDir, harness);
   if (!pin.ok) return pin;
   const path = join(recordDir(dataDir, harness), MANIFEST_FILE);
@@ -167,6 +178,8 @@ export function harnessRecordProblems(o: {
   readonly dataDir: string;
   readonly harnesses: readonly string[];
   readonly runtime: RuntimeConfig;
+  /** Also run each no-model sandbox check against the binary installed now. */
+  readonly checkSandbox?: boolean;
 }): { readonly harness: string; readonly problem: string }[] {
   const host_policy_hash = hostSandbox().policy_hash;
   return [...o.harnesses].sort().flatMap((harness) => {
@@ -175,6 +188,7 @@ export function harnessRecordProblems(o: {
       ? harnessRecordProblem(record.value, {
           isolation: o.runtime.harness_isolation[harness] ?? 'internal_required',
           host_policy_hash,
+          ...(o.checkSandbox === true ? { sandboxDataDir: o.dataDir } : {}),
         })
       : record.error;
     return problem === null ? [] : [{ harness, problem }];
@@ -188,6 +202,7 @@ export function harnessRecordProblem(
     readonly isolation: HarnessInnerModePolicy;
     readonly host_policy_hash: Hash;
     readonly digest?: (path: string) => Hash;
+    readonly sandboxDataDir?: string;
   },
 ): string | null {
   if (record.manifest.provider !== 'host' || record.manifest.isolation_mode !== 'native')
@@ -216,6 +231,17 @@ export function harnessRecordProblem(
     resume: false,
   });
   if (!verified.ok) return verified.error.map((p) => p.message).join('; ');
+  if (o.sandboxDataDir === undefined) return null;
+  for (const profile of checkedProfiles(record.pin)) {
+    const problem = sandboxProblem(
+      record.pin,
+      record.manifest,
+      profile,
+      observed.value.binary.digest,
+      o.sandboxDataDir,
+    );
+    if (problem !== null) return problem;
+  }
   return null;
 }
 
@@ -263,9 +289,11 @@ export function evidenceMismatch(
   entry: z.infer<typeof EvidenceVendorSchema>,
   pin: VendorPin,
   identity: HarnessIdentity,
+  /** sha256 of the binary the pin's command resolves to now, not the one it was set up with. */
+  current: string,
 ): string | null {
-  if (entry.binary.sha256 !== pin.binary.sha256)
-    return `${file} proves another binary (sha256 ${entry.binary.sha256}); prove ${pin.binary.version} first`;
+  if (entry.binary.sha256 !== current)
+    return `${file} proves another binary (sha256 ${entry.binary.sha256}); ${binaryPath(pin)} is sha256 ${current}`;
   const evidence = entry as unknown as EvidenceEntry;
   if (evidence.isolation_mode !== 'native' || evidence.selected_inner_mode === 'external_verified')
     return 'evidence must prove native host execution; outer bwrap proofs no longer apply';
@@ -317,56 +345,41 @@ function evidenceEntry(
   if (!data.success) return err(`${file} fails its schema`);
   const entry = data.data.vendors[pin.vendor];
   if (entry === undefined) return err(`${file} has no evidence for ${pin.vendor}`);
-  const mismatch = evidenceMismatch(file, entry, pin, identity);
+  let current: string;
+  try {
+    current = sha256File(realpathSync(binaryPath(pin)));
+  } catch (e) {
+    return err(`cannot read ${binaryPath(pin)}: ${String(e)}`);
+  }
+  const mismatch = evidenceMismatch(file, entry, pin, identity, current);
   return mismatch === null ? ok(entry as unknown as EvidenceEntry) : err(mismatch);
 }
 
 /**
- * The vendor's native sandbox run directly on this host, with no model: a harmless command must pass and a
- * write outside the worktree must be refused by the OS. Only Codex has such a command; a Claude sandbox is
- * shown only by a model run, so it stays `not_tried` (see `nativeResultFits`).
+ * The vendor's native sandbox run on this host with no model, for every profile the runner launches. Only
+ * Codex has such a command; a Claude sandbox shows only in a model run, so it stays `not_tried` (see
+ * `nativeResultFits`). A failing read-only profile refuses the record even when workers run full access.
  */
-function nativeSandboxResult(pin: VendorPin, dataDir: string): EvidenceEntry['native_result'] {
-  if (!nativeSandboxEnabled(pin) || pin.vendor !== 'codex') return 'not_tried';
-  // Under the data dir, not /tmp: a workspace sandbox may leave the system temp directory writable.
-  const dir = join(dataDir, 'worktrees', `sandbox-check-${randomUUID()}`);
-  const worktree = join(dir, 'worktree');
-  const home = join(dir, 'home');
-  const marker = join(dir, 'native-write-probe');
-  try {
-    mkdirSync(worktree, { recursive: true, mode: 0o700 });
-    mkdirSync(home, { mode: 0o700 });
-    // Positive control: this UID can write there outside the sandbox.
-    writeFileSync(marker, '');
-    rmSync(marker);
-    const denied = adapterFor(pin.vendor).nativeWriteDenied({
-      role: 'coder',
-      worktree,
-      marker,
-      stdout: [],
-      runPinned: (argv) => {
-        const r = spawnSync(binaryPath(pin), argv, {
-          encoding: 'utf8',
-          stdio: ['ignore', 'pipe', 'pipe'],
-          timeout: 30_000,
-          env: {
-            ...pin.env,
-            PATH: hostExecutionPath(pin.toolchain).join(':'),
-            HOME: home,
-            CODEX_HOME: home,
-          },
-        });
-        return { status: r.status, output: `${r.stdout}${r.stderr}` };
-      },
-    });
-    return denied ? 'passed' : 'failed';
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+function nativeSandboxResult(
+  pin: VendorPin,
+  dataDir: string,
+): Result<EvidenceEntry['native_result'], string> {
+  for (const profile of checkedProfiles(pin))
+    if (!nativeWriteRefused(pin, profile, dataDir))
+      return profile === 'coder'
+        ? ok('failed')
+        : err(
+            `codex read-only sandbox of ${binaryPath(pin)} did not refuse a write outside the worktree`,
+          );
+  return ok(checkedProfile(pin, 'coder') === null ? 'not_tried' : 'passed');
 }
 
 /** The pin's configuration, with nothing claimed that was not observed: no model runs. */
-function declaredEntry(pin: VendorPin, identity: HarnessIdentity, dataDir: string): EvidenceEntry {
+function declaredEntry(
+  pin: VendorPin,
+  identity: HarnessIdentity,
+  native: EvidenceEntry['native_result'],
+): EvidenceEntry {
   const inner = hostInnerMode(pin);
   const unknown = { status: 'unknown', evidence: 'not checked: setup runs no model' };
   return {
@@ -376,7 +389,7 @@ function declaredEntry(pin: VendorPin, identity: HarnessIdentity, dataDir: strin
       Object.entries(ROLE_SCHEMA_DIGESTS).map(([role, digest]) => [role, { digest }]),
     ),
     selected_inner_mode: inner === 'native' ? 'internal_required' : inner,
-    native_result: nativeSandboxResult(pin, dataDir),
+    native_result: native,
     outer_proof_hash: null,
     permission_policy_hash: hashCanonical({
       settings_hash: identity.settings_hash,
@@ -413,10 +426,12 @@ export function recordManifest(o: {
   if (!pin.ok) return pin;
   const identity = harnessIdentity({ ...o, pin: pin.value });
   if (!identity.ok) return identity;
-  const evidence =
-    o.evidenceFile === undefined
-      ? ok(declaredEntry(pin.value, identity.value, o.dataDir))
-      : evidenceEntry(o.evidenceFile, pin.value, identity.value);
+  let evidence: Result<EvidenceEntry, string>;
+  if (o.evidenceFile === undefined) {
+    const native = nativeSandboxResult(pin.value, o.dataDir);
+    if (!native.ok) return native;
+    evidence = ok(declaredEntry(pin.value, identity.value, native.value));
+  } else evidence = evidenceEntry(o.evidenceFile, pin.value, identity.value);
   if (!evidence.ok) return evidence;
   const source = o.fixtureRef ?? o.evidenceFile ?? 'declared';
   const observed = observeHarness(
@@ -451,11 +466,60 @@ export function commitManifest(
   o: { readonly dataDir: string; readonly harness: string },
   manifest: CapabilityManifest,
 ): void {
+  writeRecordFile(settledDir(o), MANIFEST_FILE, manifest);
+}
+
+function writeRecordFile(dir: string, name: string, value: unknown): void {
+  const tmp = join(dir, `${name}.${process.pid}.tmp`);
+  writeFileSync(tmp, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+  renameSync(tmp, join(dir, name));
+}
+
+/** The record dir, with a pair commit that stopped half way (a crash, a write error) finished first. */
+function settledDir(o: { readonly dataDir: string; readonly harness: string }): string {
   const dir = recordDir(o.dataDir, o.harness);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = join(dir, `${MANIFEST_FILE}.${process.pid}.tmp`);
-  writeFileSync(tmp, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, join(dir, MANIFEST_FILE));
+  const next = readNext(dir);
+  if (next === null) return dir;
+  if (!next.ok) throw new Error(next.error);
+  writeRecordFile(dir, PIN_FILE, next.value.pin);
+  writeRecordFile(dir, MANIFEST_FILE, next.value.manifest);
+  unlinkSync(join(dir, NEXT_FILE));
+  return dir;
+}
+
+const NextSchema = z.object({ pin: VendorPinSchema, manifest: CapabilityManifestSchema }).strict();
+
+/** The pair a commit was writing, which readers take over the files until it is finished; null if none. */
+function readNext(dir: string): Result<HarnessRecord, string> | null {
+  const path = join(dir, NEXT_FILE);
+  if (!existsSync(path)) return null;
+  const raw = readTrusted(path);
+  if (!raw.ok) return raw;
+  const next = NextSchema.safeParse(raw.value);
+  return next.success ? ok(next.data) : err(`${path} fails its schema`);
+}
+
+/**
+ * Replaces pin and manifest together: the pair goes to one file by an atomic rename first, so a reader sees
+ * the old pair or the new one, never a new pin with an old manifest.
+ */
+export function commitRecord(
+  o: { readonly dataDir: string; readonly harness: string; readonly force: boolean },
+  record: HarnessRecord,
+): Result<HarnessRecord, string> {
+  const dir = settledDir(o);
+  const path = join(dir, PIN_FILE);
+  if (!o.force && existsSync(path)) return err(`${path} exists; pass --force to replace it`);
+  writeRecordFile(dir, NEXT_FILE, record);
+  try {
+    settledDir(o);
+  } catch (e) {
+    return err(
+      `${String(e)}; readers use the new pair in ${join(dir, NEXT_FILE)}, and the next setup finishes writing it`,
+    );
+  }
+  return ok(record);
 }
 
 export type WritePinInput = {
@@ -596,12 +660,9 @@ export function commitPin(
   o: Pick<WritePinInput, 'dataDir' | 'harness' | 'force'>,
   pin: VendorPin,
 ): Result<VendorPin, string> {
-  const dir = recordDir(o.dataDir, o.harness);
+  const dir = settledDir(o);
   const path = join(dir, PIN_FILE);
   if (!o.force && existsSync(path)) return err(`${path} exists; pass --force to replace it`);
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  const tmp = join(dir, `${PIN_FILE}.${process.pid}.tmp`);
-  writeFileSync(tmp, `${JSON.stringify(pin, null, 2)}\n`, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeRecordFile(dir, PIN_FILE, pin);
   return ok(pin);
 }

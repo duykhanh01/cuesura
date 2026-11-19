@@ -333,7 +333,9 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
     child = spawn(spec.argv[0] as string, spec.argv.slice(1), {
       cwd: spec.cwd,
       env: { ...spec.env, ...secretEnv },
-      stdio: interactive ? 'inherit' : [stdinFd ?? 'ignore', 'pipe', 'pipe'],
+      // A native session's stderr is passed on to its terminal and also kept: a CLI that cannot start (a
+      // lost login, a broken sandbox) says why there, before any turn.
+      stdio: interactive ? ['inherit', 'inherit', 'pipe'] : [stdinFd ?? 'ignore', 'pipe', 'pipe'],
       detached: !interactive,
     });
   } catch (e) {
@@ -421,6 +423,7 @@ export async function execOperation(run: RunDir, deps: LifecycleDeps = {}): Prom
   });
   child.stderr?.on('data', (b: Buffer) => {
     outputChunks++;
+    if (interactive) process.stderr.write(b);
     if (!storing(b.length)) return;
     try {
       // On backpressure the text stays buffered in the writer and is counted when the run ends.

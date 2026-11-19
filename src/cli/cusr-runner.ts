@@ -368,6 +368,12 @@ const setupHarness: CliCommand = {
       let candidate: VendorPin | undefined;
       if (from === 'write-pin') {
         step = 'write-pin';
+        if (pinExists && !dryRun && values['force'] === undefined)
+          return reject(
+            'pin_refused',
+            `${join(records.recordDir(target.dataDir, harness), 'pin.json')} exists; pass --force to replace it`,
+            ExitCode.failure,
+          );
         let output = '';
         const code = await writePin.run(
           values,
@@ -407,15 +413,15 @@ const setupHarness: CliCommand = {
       });
       if (!manifest.ok) return reject('manifest_refused', manifest.error, ExitCode.failure);
       if (!dryRun) {
-        if (candidate !== undefined) {
-          step = 'write-pin';
-          const committed = records.commitPin(
+        step = 'commit';
+        if (candidate === undefined) records.commitManifest(target, manifest.value);
+        else {
+          const committed = records.commitRecord(
             { ...target, force: values['force'] !== undefined },
-            candidate,
+            { pin: candidate, manifest: manifest.value },
           );
-          if (!committed.ok) return reject('pin_refused', committed.error, ExitCode.failure);
+          if (!committed.ok) return reject('commit_failed', committed.error, ExitCode.failure);
         }
-        records.commitManifest(target, manifest.value);
       }
       const data = {
         harness,
@@ -453,6 +459,7 @@ const checkRecords: CliCommand = {
       // The runtime lists every configured harness here, each with its isolation.
       harnesses: Object.keys(cfg.value.runtime.harness_isolation),
       runtime: cfg.value.runtime,
+      checkSandbox: true,
     });
     if (problems.length > 0)
       return refuse(

@@ -469,12 +469,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       capability_missing: 'capability',
     };
     // A native session that stalled goes on headless in its own session at once, uncounted (FR-013, SC-003).
-    // So does one that ended without its Stop hook: a terminal keeps no stderr, and the headless run reads
-    // what stopped it (an expired login is handed to the owner, not retried as infra).
-    if (
-      record.input.interactive === true &&
-      (out.failure === 'timeout' || out.failure === 'process_failed')
-    ) {
+    if (record.input.interactive === true && out.failure === 'timeout') {
       const counted = runCount(deps, record.input.attempt_id);
       const r = store.deputy.scheduleRetry(record.turn_id, {
         retry_at: deps.clock.now(),
@@ -1035,6 +1030,8 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       if (configured === false || (s.pause ?? null) !== null) return false;
       if (route(s) !== 'deputy') return false;
       if (store.deputy.runningTurn(s.id) !== null) return true;
+      // Turns start only on WAITING (`due`); a PENDING preflight failure is never the deputy's to take.
+      if (s.status !== 'WAITING') return false;
       // A turn that ended at this incident, or could not start, gave it to the owner.
       const incident = incidentOf(s);
       return incident !== null && !handedBack.has(incident) && endedTurnFor(s) === null;

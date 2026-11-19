@@ -461,7 +461,7 @@ Với Claude, `roles.<role>.limits.max_turns` được áp dụng cùng trần t
 số nhỏ hơn. Bỏ cả hai để không giới hạn. Cap turn này chỉ áp dụng cho Claude;
 dùng wall/stall timeout cho binding Codex. Hết turn là `timeout`, dùng cơ chế retry/hỏi người vận hành của
 timeout, không tiêu lượt retry infra. Claude luôn lưu session vào private home của attempt, không dùng
-`--no-session-persistence`; chỉ resume khi manifest có `resume: proven`. Từ vòng review thứ hai, reviewer
+`--no-session-persistence`; resume trừ khi manifest ghi `resume: unsupported`. Từ vòng review thứ hai, reviewer
 resume phiên reviewer của vòng trước (cùng revision, step và binding) với packet dựng mới. Phiên reviewer
 không bao giờ trao cho coder/fixer và ngược lại; revision mới hoặc đổi binding thì mở phiên mới.
 
@@ -753,9 +753,12 @@ quyền thật ([người gọi và quyền](#người-gọi-và-quyền)).
   bí mật, `home_files` trỏ tới tên trong `runtime.credential_refs`, settings, `max_turns`, `tools`. Pin mới là
   thứ quyết định lệnh nào chạy, không phải `harnesses.<tên>.cmd`. Version và sha256 lúc ghi pin chỉ để chẩn đoán:
   mỗi lượt chạy phân giải lại `binary.path`, nên nâng cấp CLI tại chỗ (`claude update`, `npm i -g`) không cần
-  ghi lại pin hay manifest. Lệnh bị gỡ hoặc mất quyền chạy thì lượt đó báo lỗi kèm đường dẫn. Pin ghi trước bản
-  này chưa có `binary.path` nên vẫn chạy đúng file realpath cũ; chạy lại `setup-harness --force` để chuyển sang
-  đường dẫn lệnh. Tạo bằng `cusr-runner write-pin`, lệnh để `env` rỗng và từ chối đường dẫn không tồn tại ở host này.
+  ghi lại pin hay manifest; với Codex, sandbox của binary mới được kiểm lại trước lượt đầu của nó (xem dưới).
+  Lệnh bị gỡ, mất quyền chạy hoặc trỏ tới thứ không phải file thì lượt đó báo lỗi kèm đường dẫn. Pin ghi trước bản
+  này chưa có `binary.path` nên vẫn chạy đúng file realpath cũ, kể cả khi file đó được nâng cấp tại chỗ. Cài đặt
+  qua symlink (lệnh trỏ sang thư mục có version) mà file cũ đã bị xóa thì daemon không đoán lệnh nào thay thế:
+  lỗi nêu rằng pin có từ trước khi có đường dẫn lệnh, và chạy `setup-harness --force --binary <lệnh>` **một lần**
+  để chuyển. Đây là bước chuyển một lần của release này; các lần nâng cấp sau không cần. Tạo bằng `cusr-runner write-pin`, lệnh để `env` rỗng và từ chối đường dẫn không tồn tại ở host này.
 - `manifest.json`, chỉ ghi bằng lệnh dưới đây, từ pin của **đúng cấu hình đó**:
 
 ```sh
@@ -770,7 +773,10 @@ thấy (structured output, quyền tool, đăng nhập từ home riêng, báo us
 `proven`. Daemon dùng mọi năng lực không bị ghi `unsupported`. Binary chưa cài thì `write-pin` báo lỗi
 (`cannot run <binary> --version`). Pin đã tồn tại cần `--force` để ghi đè. Lệnh dựng và kiểm manifest của pin
 mới trước khi thay bản ghi nào: bước nào lỗi thì dừng, giữ mã lỗi, nêu tên bước (JSON có `error.details.step`)
-và cặp pin/manifest cũ giữ nguyên. `--dry-run` kiểm như thật mà không ghi gì, báo `native_result` và
+và cặp pin/manifest cũ giữ nguyên. Pin và manifest mới được ghi thành một cặp: lệnh ghi cả hai vào
+`record.next.json` bằng một lần rename, rồi mới thay hai file. Bị lỗi ghi hay crash giữa chừng thì người đọc lấy cặp
+mới từ `record.next.json` (không bao giờ thấy pin mới với manifest cũ), lệnh báo bước `commit`, và lần ghi kế tiếp
+(`setup-harness`, `write-pin`, `record-manifest`) hoàn tất cặp đó trước. `--dry-run` kiểm như thật mà không ghi gì, báo `native_result` và
 `pin_exists`. Ghi lại manifest với pin đang có (sau khi đổi release, settings, hay để thêm role):
 
 ```sh
@@ -778,7 +784,8 @@ cusr-runner setup-harness --from record-manifest --config ~/.cusr/config.yaml --
 ```
 
 Hai lệnh riêng `write-pin` và `record-manifest` vẫn dùng được. `record-manifest --evidence <file>` vẫn nhận
-evidence cũ của lệnh `prove-harness` đã bỏ, nếu khớp đúng pin hiện tại.
+evidence cũ của lệnh `prove-harness` đã bỏ, chỉ khi evidence khớp đúng các byte mà đường dẫn lệnh đang trỏ tới:
+evidence của bản cũ không được ghi lại cho binary đã nâng cấp.
 
 Lỗi không gọi được harness lộ ra ở lượt agent, không ở bước setup, và không tự thử lại:
 
@@ -786,16 +793,26 @@ Lỗi không gọi được harness lộ ra ở lượt agent, không ở bướ
 - Đăng nhập hết hạn hoặc bị từ chối, kể cả khi CLI chỉ báo trên stderr rồi thoát: `WAITING/policy harness_auth`.
 - Bản ghi pin/manifest không nạp được lúc `cusrd` khởi động: preflight của task mới và handoff của deputy nêu
   đúng lỗi nạp (`harness '<h>' cannot run: ...`), không chỉ "no harness".
-- Phiên deputy trong terminal thoát trước Stop hook: lượt chạy tiếp headless ngay trong cùng phiên, nên lỗi
-  đăng nhập được đọc và giao cho owner thay vì thử lại như lỗi hạ tầng.
+- Phiên trong terminal (deputy interactive) thoát trước Stop hook: stderr của phiên vừa hiện ở terminal vừa được
+  lưu vào run, nên lỗi đăng nhập trên stderr thành `auth` và giao cho owner; lỗi khác mang đuôi stderr trong chi
+  tiết và theo đường lỗi hạ tầng có đếm lượt. Chỉ phiên bị treo (`timeout`) mới chạy tiếp headless ngay.
 
 Các wait này thuộc owner, nên assistant đang giữ lease được đánh thức qua Stop hook hoặc `cusr assistant wait`.
 Session assistant đã thêm task (`cusr task add` gửi kèm session của nó) cũng được báo lỗi khởi chạy của chính
 task đó dù lease đã sang session khác hoặc daemon đã restart: daemon lưu session vào `requested_by.session` của task
 lúc nhận lệnh, lấy từ lease header chứ không từ nội dung task. Stop hook hoặc `assistant wait` của session không
-giữ lease hỏi `assistant_origin`, chỉ thấy các wait `harness_auth`, `auth_config`, `capability_missing` của task
-do nó thêm, và xác nhận đã nhận trên kênh riêng nên không lấy gì khỏi hàng đợi của session giữ lease. Hook chỉ
-chờ khi session còn task đang chạy. Ghi chú đánh thức nêu bằng văn bản cố định harness hỏng ra sao và lệnh sửa
+giữ lease hỏi `assistant_origin`, chỉ thấy lỗi khởi chạy harness của task do nó thêm: `harness_auth`, `auth_config`
+của một bước agent, `capability_missing` lúc preflight do harness hoặc host (không tính lỗi quyền GitHub hay
+toolchain của gate), và handoff của deputy vì chính harness của deputy không chạy được (`auth`, `capability`,
+`no_harness`). Session xác nhận trên kênh riêng nên không lấy gì khỏi hàng đợi của session giữ lease; xác nhận chỉ
+gửi sau khi ghi chú đã tới (hook) hoặc đã in ra (`assistant wait`), và hook thử lại khi đẩy vào hàng đợi Codex lỗi.
+Hook chỉ chờ khi session còn task đang chạy. Lỗi preflight PENDING không bị giữ lại cho deputy, vì deputy chỉ nhận
+lượt trên task WAITING; sau restart nó vẫn tới cả hai kênh.
+
+Phạm vi theo session dựa trên cùng mô hình tin cậy với lease ([người gọi và quyền](#người-gọi-và-quyền)): socket
+0600 chỉ mở cho process cùng UID, và daemon tin session ID trong header mà không xác thực process đứng sau. Nó giữ
+các session trung thực khỏi lẫn tin của nhau, không phải ranh giới bảo mật giữa các process cùng UID. Task tạo từ
+kế hoạch goal là luồng riêng, không mang session gốc. Ghi chú đánh thức nêu bằng văn bản cố định harness hỏng ra sao và lệnh sửa
 (`cusr task recheck <id>` sau khi đăng nhập lại, hoặc `cusr task explain <id>`), không chép chữ của worker.
 
 Resume được dùng trừ khi manifest ghi `resume: unsupported`. Resume chỉ mang dữ liệu của đúng session, không mang
@@ -811,7 +828,11 @@ Nếu transcript/run cũ đã mất, worker dùng phiên mới với context đ�
 không chờ người vận hành chỉ để khôi phục hội thoại.
 
 Manifest gắn với cấu hình của pin: settings, environment (env, toolchain, `home_files`, `max_turns`, `tools`),
-host policy và layout; không gắn với version hay digest của binary. Pin sửa sau khi ghi manifest chặn request và attempt kế tiếp cho đến khi ghi lại
+host policy và layout; không gắn với version hay digest của binary. Kết quả sandbox native thì gắn với byte đã
+kiểm: với Codex, mỗi lượt chạy so digest của binary đang cài với digest trong manifest; khác thì chạy lại phép kiểm
+`codex sandbox` không gọi model cho đúng profile lượt đó dùng (workspace cho worker, read-only cho reviewer, kể cả
+khi worker full access) trước khi khởi chạy. Kết quả đạt được nhớ theo digest và profile trong runner; không đạt
+thì lượt đó `capability_missing` kèm lý do và lần sau kiểm lại. Pin sửa sau khi ghi manifest chặn request và attempt kế tiếp cho đến khi ghi lại
 manifest. Đổi đường dẫn file credential thì không cần. `record-manifest` không gọi harness, không tốn usage.
 
 Công cụ harness được tìm trên toolchain của pin cộng PATH daemon. Setup/gate dùng thư mục Node của daemon
@@ -824,7 +845,8 @@ Doctor/preflight kiểm file executable trên host, không tạo outer sandbox �
 Worker Claude tắt sandbox ghi `native_result=not_tried`; auto dùng mode `permissions_only`, full access dùng
 `full_access`. Sandbox native bật thì `setup-harness` kiểm thật, không qua model: Codex chạy `codex sandbox`, một
 lệnh vô hại phải chạy được và lệnh ghi ra ngoài worktree phải bị hệ điều hành từ chối; chỉ khi đạt mới ghi
-`native_result=passed`, không đạt thì từ chối và giữ bản ghi cũ. Sandbox của Claude chỉ thấy được qua một lượt
+`native_result=passed`, không đạt thì từ chối và giữ bản ghi cũ. Profile read-only của reviewer cũng được kiểm,
+kể cả với pin full access. Sandbox của Claude chỉ thấy được qua một lượt
 model, nên pin Claude `--sandbox on` ghi `native_result=not_tried`, không bao giờ `passed`. Việc quan sát dời sang
 mỗi lượt chạy: adapter luôn chạy Claude native với `sandbox.failIfUnavailable=true` và
 `allowUnsandboxedCommands=false`, nên sandbox không khởi động được thì lượt đó lỗi chứ không chạy ngoài sandbox.
@@ -834,7 +856,8 @@ Ranh giới: setup không chứng minh sandbox Claude chặn ghi ra ngoài workt
 giữ hay xóa đều được.
 
 `cusr-runner check-records --config <file> --data-dir <dir>` kiểm config và mọi harness record với release đang chạy
-lệnh, không gọi model; nên chạy bằng release mới trước khi đổi sang nó.
+lệnh, không gọi model, gồm cả phép kiểm sandbox Codex với binary đang cài; nên chạy bằng release mới trước khi đổi
+sang nó, và sau khi nâng cấp CLI.
 
 Claude cần `TMPDIR` đủ ngắn cho Unix socket của sandbox (đường dẫn tối đa 108 byte), nên mỗi lượt chạy Claude có thư
 mục riêng 0700 `/tmp/cusr-<hash>`, xóa khi lượt kết thúc. Với host có `/tmp` là tmpfs nhỏ, việc ghi file tạm lớn trong

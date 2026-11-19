@@ -66,12 +66,39 @@ const UnregisterSchema = z
   })
   .strict();
 
-/** What the originating session is told by itself (T1-R03): a harness that could not run its task. */
-export const ORIGIN_CODES: ReadonlySet<string> = new Set([
-  'harness_auth',
-  'auth_config',
-  'capability_missing',
-]);
+/** A deputy turn whose own harness could not run hands the task over for that reason. */
+const DEPUTY_LAUNCH: Partial<Record<string, string>> = {
+  auth: 'harness_auth',
+  capability: 'capability_missing',
+  no_harness: 'capability_missing',
+};
+
+/** Preflight checks of a harness itself; a GitHub or gate problem with the same code is not one. */
+const HARNESS_CHECKS: ReadonlySet<string> = new Set(['harness', 'host']);
+
+/**
+ * The code of a harness that could not run this task's step or its deputy turn, or null: what an
+ * assistant hears as a launch failure (T1-R03).
+ */
+export function launchCode(s: TaskState, handedOff: HandedOffView | null): string | null {
+  const d = s.wait?.detail;
+  if (d?.code === 'harness_auth') return d.code;
+  if (d?.code === 'auth_config' && s.effects[String(d['effect_id_failed'])]?.kind === 'start_agent')
+    return d.code;
+  if (d?.code === 'capability_missing') {
+    const problems = (d['error'] as { problems?: unknown } | undefined)?.problems;
+    if (
+      Array.isArray(problems) &&
+      problems.some((p: { check?: unknown; message?: unknown }) =>
+        p.check === 'toolchain'
+          ? String(p.message).startsWith('harness ')
+          : HARNESS_CHECKS.has(String(p.check)),
+      )
+    )
+      return d.code;
+  }
+  return DEPUTY_LAUNCH[handedOff?.handoff_reason ?? ''] ?? null;
+}
 
 const OriginSchema = z
   .object({
@@ -104,6 +131,8 @@ export type AttentionItem = {
   readonly task_version: number;
   /** The deputy's handoff when a turn gave this incident to the owner (FR-023). */
   readonly deputy?: HandedOffView;
+  /** Set when a harness could not run: the code its fix is told by (see {@link launchCode}). */
+  readonly launch?: string;
   /** A goal's news (FR-102): `task_id` holds the goal ID and `task_version` its version. */
   readonly goal?: true;
 };
@@ -206,6 +235,7 @@ function goalPrReady(g: GoalState, s: TaskState): Keyed {
 function keyed(s: TaskState, enteredAt: number, handedOff: HandedOffView | null = null): Keyed {
   const code = s.wait?.detail.code ?? 'run_config_unconfirmed';
   const q = openQuestions(s).find((x) => x.blocking) ?? null;
+  const launch = launchCode(s, handedOff);
   return {
     key: `${s.id}:${s.revision}:${code}:${enteredAt}`,
     item: {
@@ -217,6 +247,7 @@ function keyed(s: TaskState, enteredAt: number, handedOff: HandedOffView | null 
       question: q?.body ?? null,
       task_version: s.version,
       ...(handedOff === null ? {} : { deputy: handedOff }),
+      ...(launch === null ? {} : { launch }),
     },
   };
 }
@@ -436,16 +467,14 @@ export class AttentionDesk {
       const s = this.#store.readTask(id as Uuid);
       if (s?.task.requested_by.session !== session) continue;
       live += 1;
-      if (
-        !ORIGIN_CODES.has(s.wait?.detail.code ?? '') ||
-        !needsUser(s, now, () => this.#statusSince(s)) ||
-        this.#deputy?.holds(s) === true
-      )
+      if (!needsUser(s, now, () => this.#statusSince(s)) || this.#deputy?.holds(s) === true)
         continue;
+      const handedOff = this.#deputy?.handedOff?.(s) ?? null;
+      if (launchCode(s, handedOff) === null) continue;
       const seq =
         this.#store.readEvents(id as Uuid).findLast((e) => ENTERS_WAIT.has(e.type))?.global_seq ??
         0;
-      current.push(keyed(s, seq));
+      current.push(keyed(s, seq, handedOff));
     }
     if (this.#holder?.id === session) return ok({ items: [], keys: [], live });
     const keys = new Set(current.map((c) => c.key));

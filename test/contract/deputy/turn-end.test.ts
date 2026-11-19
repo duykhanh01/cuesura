@@ -366,28 +366,34 @@ describe('a stalled interactive run goes on headless in the same session and tur
     return { d, t, harness, deputy };
   };
 
-  it('a native session that ended without its Stop hook goes on headless; a refused login goes to the owner', async () => {
+  it('a native session whose login was refused goes to the owner, not on headless', async () => {
+    // The runner reads the session's stderr, so the refusal arrives as `auth`.
     const { d, t, harness, deputy } = begin([
+      { kind: 'failure', failure: 'auth', detail: 'Please run /login' },
+    ]);
+    await deputy.round();
+    await deputy.idle();
+    expect(harness.calls).toHaveLength(1);
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'auth',
+    });
+  });
+
+  it('a native session that ended for no known reason is a counted infra failure, not a free relaunch', async () => {
+    const { d, t, deputy } = begin([
       {
         kind: 'failure',
         failure: 'process_failed',
         session_ref: null,
         detail: 'session ended without a turn end (exited 1)',
       },
-      { kind: 'failure', failure: 'auth', detail: 'Please run /login' },
     ]);
     await deputy.round();
     await deputy.idle();
     expect(d.store.deputy.runningTurn(t.id)).toMatchObject({
       state: 'retry_wait',
-      infra_failures: 0,
-    });
-    await deputy.round();
-    await deputy.idle();
-    expect(harness.calls[1]?.interactive).toBeFalsy();
-    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
-      state: 'handed_off',
-      handoff_reason: 'auth',
+      infra_failures: 1,
     });
   });
 

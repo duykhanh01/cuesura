@@ -228,25 +228,33 @@ export function observeHarness(
   digest: (path: string) => Hash = binaryDigest,
 ): Result<ObservedHarness, CapabilityProblem> {
   const path = binaryPath(pin);
+  const fail = (message: string): Result<ObservedHarness, CapabilityProblem> =>
+    err({ check: 'binary', message });
   let real: string;
+  let found: Hash;
   try {
     real = realpathSync(path);
+    if (!statSync(real).isFile()) return fail(`binary ${path} is not a file`);
     accessSync(real, constants.X_OK);
+    found = digest(real);
   } catch (e) {
-    return err({
-      check: 'binary',
-      message:
-        (e as NodeJS.ErrnoException).code === 'EACCES'
-          ? `binary ${path} is not executable`
-          : `binary ${path} not found; install it, or pin another with cusr-runner setup-harness --force --binary <path>`,
-    });
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EACCES') return fail(`binary ${path} is not executable`);
+    if (code !== 'ENOENT') return fail(`cannot read binary ${path}: ${code ?? String(e)}`);
+    // A pin from before `binary.path` keeps only the file the command resolved to then; which command
+    // the owner runs now is not recorded, so nothing else is tried in its place.
+    return fail(
+      pin.binary.path === undefined
+        ? `binary ${path} not found; this pin predates command paths, so set it up once more with cusr-runner setup-harness --force --binary <command>`
+        : `binary ${path} not found; install it, or pin another with cusr-runner setup-harness --force --binary <path>`,
+    );
   }
   return ok({
     vendor: pin.vendor,
     binary: {
       realpath: real,
       version: pin.binary.version,
-      digest: digest(real),
+      digest: found,
     },
     settings_hash: settingsHash,
     environment_hash: environmentHash(pin),

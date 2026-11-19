@@ -95,6 +95,35 @@ describe('runStopHook', () => {
     expect(leases).toEqual([]);
   });
 
+  it('keeps trying a launch failure a failed codex queue did not deliver, and confirms only one that arrived', async () => {
+    register('s-2');
+    let clock = 0;
+    const acked: string[][] = [];
+    const item = { ...ITEM, code: 'harness_auth', launch: 'harness_auth' };
+    const arrived = [false, true];
+    const code = await runStopHook(
+      deps({
+        parkMs: 10 * 60_000,
+        now: () => clock,
+        sleep: (ms) => {
+          clock += ms;
+          return Promise.resolve();
+        },
+        origin: (ack) => {
+          if (ack.length > 0) acked.push([...ack]);
+          return Promise.resolve(okEnvelope({ items: [item], keys: ['k1'], live: 1 }));
+        },
+        deliver: (note) => {
+          err += note;
+          return Promise.resolve({ exit: 0, confirmed: arrived.shift() ?? true });
+        },
+      }),
+    );
+    expect(code).toBe(0);
+    expect(err.match(/the harness login expired/g)).toHaveLength(2);
+    expect(acked).toEqual([['k1']]);
+  });
+
   it('wakes the session with exit 2 and comes back with that lease', async () => {
     register('s-1');
     replies = [reply('s-1.0'), reply('s-1.1', [ITEM])];
@@ -617,14 +646,32 @@ describe('runStopHook', () => {
   it('says what stopped a harness and how it is fixed, in fixed text only', () => {
     const note = wakeNote(
       [
-        { ...ITEM, task_id: 'task-1', code: 'harness_auth' },
-        { ...ITEM, task_id: 'task-2', code: 'auth_config' },
+        { ...ITEM, task_id: 'task-1', code: 'harness_auth', launch: 'harness_auth' },
+        { ...ITEM, task_id: 'task-2', code: 'auth_config', launch: 'auth_config' },
+        { ...ITEM, task_id: 'task-3', code: 'capability_missing' },
+        {
+          ...ITEM,
+          task_id: 'task-4',
+          code: 'backoff_exhausted',
+          launch: 'harness_auth',
+          deputy: {
+            turn_id: 't',
+            state: 'handed_off',
+            handoff_reason: 'auth',
+            handoff: null,
+            final_message: null,
+            commands: [],
+          },
+        },
       ],
       false,
     );
     expect(note).toContain('task-1: the harness login expired or was refused');
     expect(note).toContain('cusr task recheck task-1');
     expect(note).toContain('cusr task explain task-2 names the cause and the fix');
+    // A GitHub capability problem is not told as a broken harness.
+    expect(note).not.toContain('task-3:');
+    expect(note).toContain("task-4: the deputy's harness could not run");
     expect(note).not.toContain(ITEM.title);
     expect(note).not.toContain(ITEM.question);
   });

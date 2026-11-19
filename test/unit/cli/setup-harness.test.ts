@@ -8,7 +8,7 @@ const mocks = vi.hoisted(() => ({
   load: vi.fn(),
   write: vi.fn(),
   record: vi.fn(),
-  commitPin: vi.fn(),
+  commitRecord: vi.fn(),
   commitManifest: vi.fn(),
 }));
 vi.mock('../../../src/cli/program.ts', async (original) => ({
@@ -25,7 +25,7 @@ vi.mock('../../../src/runner/harness-records.ts', async (original) => ({
   ...(await original<typeof import('../../../src/runner/harness-records.ts')>()),
   writePin: mocks.write,
   recordManifest: mocks.record,
-  commitPin: mocks.commitPin,
+  commitRecord: mocks.commitRecord,
   commitManifest: mocks.commitManifest,
 }));
 await import('../../../src/cli/cusr-runner.ts');
@@ -62,7 +62,7 @@ beforeEach(() => {
     ok: true,
     value: { manifest_hash: 'manifest', native_result: 'not_tried' },
   });
-  mocks.commitPin.mockReturnValue({ ok: true, value: candidate });
+  mocks.commitRecord.mockReturnValue({ ok: true, value: { pin: candidate, manifest: {} } });
 });
 
 describe('setup-harness composition', () => {
@@ -87,13 +87,14 @@ describe('setup-harness composition', () => {
       expect.not.objectContaining({ evidenceFile: expect.anything() as unknown }),
     );
     expect(mocks.record.mock.invocationCallOrder[0]).toBeLessThan(
-      mocks.commitPin.mock.invocationCallOrder[0]!,
+      mocks.commitRecord.mock.invocationCallOrder[0]!,
     );
-    expect(mocks.commitPin).toHaveBeenCalledWith(
+    // Pin and manifest go to disk together, as one pair.
+    expect(mocks.commitRecord).toHaveBeenCalledWith(
       expect.objectContaining({ force: true }),
-      candidate,
+      expect.objectContaining({ pin: candidate }),
     );
-    expect(mocks.commitManifest).toHaveBeenCalledOnce();
+    expect(mocks.commitManifest).not.toHaveBeenCalled();
   });
 
   it('stops at a pin refusal and names the step', async () => {
@@ -123,7 +124,7 @@ describe('setup-harness composition', () => {
         },
       },
     });
-    expect(mocks.commitPin).not.toHaveBeenCalled();
+    expect(mocks.commitRecord).not.toHaveBeenCalled();
     expect(mocks.commitManifest).not.toHaveBeenCalled();
   });
 
@@ -132,7 +133,7 @@ describe('setup-harness composition', () => {
       code: ExitCode.ok,
       body: { ok: true, data: { pin_exists: false } },
     });
-    expect(mocks.commitPin).not.toHaveBeenCalled();
+    expect(mocks.commitRecord).not.toHaveBeenCalled();
     expect(mocks.commitManifest).not.toHaveBeenCalled();
   });
 
@@ -142,7 +143,7 @@ describe('setup-harness composition', () => {
     expect(mocks.record).toHaveBeenCalledWith(
       expect.not.objectContaining({ pin: expect.anything() as unknown }),
     );
-    expect(mocks.commitPin).not.toHaveBeenCalled();
+    expect(mocks.commitRecord).not.toHaveBeenCalled();
     expect(mocks.commitManifest).toHaveBeenCalledOnce();
   });
 

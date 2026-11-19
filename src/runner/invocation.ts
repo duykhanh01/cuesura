@@ -47,6 +47,7 @@ import {
 } from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
+import { checkedProfile, nativeCheck, sandboxProblem } from './native-check.ts';
 import {
   observeHarness,
   verifyManifest,
@@ -330,6 +331,7 @@ export type RunnerHarnessOptions = {
   readonly interactive?: boolean;
   readonly poll_ms?: number;
   readonly digest?: (path: string) => Hash;
+  readonly native_check?: typeof nativeCheck;
   readonly sleep?: (ms: number) => Promise<void>;
 };
 
@@ -531,6 +533,19 @@ export class RunnerHarness implements HarnessPort {
       resume: session !== null,
     });
     if (!verified.ok) return never('capability_missing', problemText(verified.error));
+    const profile = hostExecution ? checkedProfile(o.pin, boundaryRole(input.role)) : null;
+    const unsandboxed =
+      profile === null
+        ? null
+        : sandboxProblem(
+            o.pin,
+            o.manifest,
+            profile,
+            observed.value.binary.digest,
+            o.data_dir,
+            o.native_check,
+          );
+    if (unsandboxed !== null) return never('capability_missing', unsandboxed);
     if (session !== null && !verified.value.resume)
       return never(
         'capability_missing',
@@ -936,6 +951,19 @@ export class RunnerHarness implements HarnessPort {
       invoked,
     });
     const notRun = notStarted(exit);
+    const exited = (): HarnessOutcome => {
+      const stderr = readStderr(run);
+      const said = stderrFailure(stderr);
+      if (said !== null) return failure(said.kind, said.detail);
+      const tail = stderr.trim().split('\n').slice(-5).join('\n');
+      return failure(
+        'process_failed',
+        `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})${tail === '' ? '' : `: ${tail}`}`.slice(
+          0,
+          DETAIL_MAX,
+        ),
+      );
+    };
     const outcome: HarnessOutcome =
       violations.length > 0
         ? failure('boundary_violation', violations.join('; '))
@@ -947,10 +975,7 @@ export class RunnerHarness implements HarnessPort {
               ? failure('timeout', INTERACTIVE_STALLED)
               : exit.outcome === 'timeout' || exit.outcome === 'cancelled'
                 ? failure(exit.outcome, `runner outcome ${exit.outcome}`)
-                : failure(
-                    'process_failed',
-                    `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})`,
-                  );
+                : exited();
     return this.#store(run, st, outcome, redactAuth);
   }
 

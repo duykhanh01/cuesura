@@ -26,7 +26,8 @@ const waiting = (id: string, code: string): TaskState =>
     revision: 1,
     version: 7,
     questions: {},
-    wait: { reason: 'policy', detail: { code } },
+    effects: { e1: { kind: 'start_agent' }, e2: { kind: 'create_pr' } },
+    wait: { reason: 'policy', detail: { code, effect_id_failed: 'e1' } },
   }) as unknown as TaskState;
 
 function bench(tasks: TaskState[] = []) {
@@ -147,7 +148,42 @@ describe('AttentionDesk', () => {
   // A harness that cannot run (binary missing: auth_config; login expired: harness_auth) is never retried.
   it.each(['auth_config', 'harness_auth'])('tells the assistant a launch failure: %s', (c) => {
     const { desk } = bench([waiting('a', c)]);
-    expect(value(desk().poll(CALLER, NEW)).items).toMatchObject([{ task_id: 'a', code: c }]);
+    expect(value(desk().poll(CALLER, NEW)).items).toMatchObject([
+      { task_id: 'a', code: c, launch: c },
+    ]);
+  });
+
+  it('marks as a launch failure only what a harness caused, not GitHub', () => {
+    const github = waiting('a', 'auth_config');
+    github.wait = { ...github.wait!, detail: { code: 'auth_config', effect_id_failed: 'e2' } };
+    const pending = (id: string, check: string, message = 'x'): TaskState => {
+      const t = waiting(id, 'capability_missing');
+      t.status = 'PENDING';
+      t.wait = {
+        ...t.wait!,
+        reason: 'needs_info',
+        detail: {
+          code: 'capability_missing',
+          error: { code: 'capability_missing', problems: [{ check, message }] },
+        },
+      };
+      return t;
+    };
+    const { desk } = bench([
+      github,
+      pending('b', 'github_repo'),
+      pending('c', 'harness'),
+      pending('d', 'toolchain', "harness 'h' sandbox cannot run git"),
+      pending('e', 'toolchain', 'the gate sandbox cannot run make'),
+    ]);
+    const items = value(desk().poll(CALLER, NEW)).items;
+    expect(items.map((i) => [i.task_id, i.launch])).toEqual([
+      ['a', undefined],
+      ['b', undefined],
+      ['c', 'capability_missing'],
+      ['d', 'capability_missing'],
+      ['e', undefined],
+    ]);
   });
 
   it('leaves out a wait that resolves without a person', () => {

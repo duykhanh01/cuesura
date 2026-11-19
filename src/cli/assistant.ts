@@ -133,7 +133,12 @@ Examples:
       ) {
         // Another session holds the lease: this one still hears its own tasks' launch failures (T1-R03).
         const own = await waitOrigin(values, ownerAlive, deadline);
-        return print(own ?? r, json, io);
+        if (own === null) return print(r, json, io);
+        const code = print(own.envelope, json, io);
+        // Confirmed only once printed: a wait stopped before that is told the same failure again.
+        if (own.ack.length > 0)
+          await queryDaemon(values, { kind: 'assistant_origin', ack: own.ack });
+        return code;
       } else if (!unreachable(r.error.code)) return print(r, json, io);
       else {
         // A restart is not news: the lease resumes on the first poll after it. A daemon that stays down is.
@@ -165,27 +170,26 @@ type Origin = {
 };
 
 /**
- * Waits for a launch failure of a task this session added while another session holds the lease; printed
- * output counts as told. Null when this session has no live task, so the lease error stands.
+ * Waits for a launch failure of a task this session added while another session holds the lease, with the
+ * keys to confirm once it is printed. Null when this session has no live task, so the lease error stands.
  */
 async function waitOrigin(
   values: Readonly<Record<string, string | undefined>>,
   ownerAlive: () => boolean,
   deadline: number,
-): Promise<Envelope | null> {
+): Promise<{ readonly envelope: Envelope; readonly ack: readonly string[] } | null> {
+  const none = (envelope: Envelope) => ({ envelope, ack: [] });
   for (let first = true; ; first = false) {
-    if (!ownerAlive()) return okEnvelope({ items: [], origin: true });
+    if (!ownerAlive()) return none(okEnvelope({ items: [], origin: true }));
     const r = await queryDaemon(values, { kind: 'assistant_origin' });
     if (r.ok) {
       const data = r.data as Origin;
-      if (data.items.length > 0) {
-        await queryDaemon(values, { kind: 'assistant_origin', ack: data.keys });
-        return okEnvelope({ items: data.items, origin: true });
-      }
-      if (data.live === 0) return first ? null : okEnvelope({ items: [], origin: true });
-    } else if (!unreachable(r.error.code)) return first ? null : r;
+      if (data.items.length > 0)
+        return { envelope: okEnvelope({ items: data.items, origin: true }), ack: data.keys };
+      if (data.live === 0) return first ? null : none(okEnvelope({ items: [], origin: true }));
+    } else if (!unreachable(r.error.code)) return first ? null : none(r);
     const left = deadline - Date.now();
-    if (left <= 0) return okEnvelope({ items: [], origin: true, timed_out: true });
+    if (left <= 0) return none(okEnvelope({ items: [], origin: true, timed_out: true }));
     await sleep(Math.min(POLL_MS, left));
   }
 }
@@ -380,6 +384,9 @@ const LAUNCH_HINTS: Readonly<Record<string, (id: string) => string>> = {
     `a harness this task needs cannot run here; cusr task explain ${id} names the cause and the fix`,
 };
 
+const DEPUTY_LAUNCH_HINT = (id: string): string =>
+  `the deputy's harness could not run (not installed, not set up or signed out), so it handed the task over; cusr task explain ${id} names the cause and the fix`;
+
 /** IDs and fixed codes only: a title or question is worker text, and this reaches the model unasked. */
 export function wakeNote(items: readonly AttentionItem[], truncated: boolean): string {
   const list = (xs: readonly AttentionItem[]) =>
@@ -388,7 +395,12 @@ export function wakeNote(items: readonly AttentionItem[], truncated: boolean): s
   const ended = items.filter((i) => ENDED.has(i.code));
   const more = truncated ? ', and more' : '';
   const launch = waits.flatMap((i) => {
-    const hint = LAUNCH_HINTS[i.code];
+    const hint =
+      i.launch === undefined
+        ? undefined
+        : i.deputy !== undefined && i.code !== i.launch
+          ? DEPUTY_LAUNCH_HINT
+          : LAUNCH_HINTS[i.launch];
     return hint === undefined ? [] : [`${i.task_id}: ${hint(i.task_id)}.`];
   });
   const parts = [
@@ -435,6 +447,8 @@ async function originLoop(
   mine: () => boolean,
 ): Promise<number> {
   const end = d.now() + d.parkMs;
+  let retryAt = 0;
+  let retryWait = RETRY_MIN_MS;
   for (let reached = false; ; reached = true) {
     if (!mine() || !d.ownerAlive() || registeredSession(d.dataDir) === d.session)
       return ExitCode.ok;
@@ -443,15 +457,19 @@ async function originLoop(
     if (!r.ok && !reached) return ExitCode.ok;
     if (r.ok) {
       const data = r.data as Origin;
-      if (data.items.length > 0) {
+      if (data.items.length > 0 && d.now() >= retryAt) {
         const sent = await d.deliver(
           wakeNote(data.items, false),
           `${ORIGIN_PREFIX}${data.keys.join(',')}`,
         );
-        if (sent.confirmed) await d.origin(data.keys);
-        return sent.exit;
-      }
-      if (data.live === 0) return ExitCode.ok;
+        if (sent.confirmed || sent.exit !== ExitCode.ok) {
+          if (sent.confirmed) await d.origin(data.keys);
+          return sent.exit;
+        }
+        // A failed codex queue: no Stop follows in an idle session, so keep parking and try again.
+        retryAt = d.now() + retryWait;
+        retryWait = Math.min(2 * retryWait, RETRY_MAX_MS);
+      } else if (data.live === 0) return ExitCode.ok;
     } else if (!unreachable(r.error.code)) return ExitCode.ok;
     if (d.now() + POLL_MS > end) return ExitCode.ok;
     await d.sleep(POLL_MS);
