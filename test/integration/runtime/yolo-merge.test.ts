@@ -58,6 +58,8 @@ type Remote = {
   pullReads?: Record<string, unknown>[];
   /** When each workflow run was made, by id. */
   workflows?: Record<number, string>;
+  /** Workflow runs of the head beyond `workflows`, as GitHub lists them. */
+  moreWorkflows?: unknown[];
   /** The answer to reads of the check runs, when not the listing. */
   checkRunsStatus?: { status: number; retry_after_ms: number | null };
 };
@@ -159,6 +161,19 @@ function github(r: Remote = {}) {
               },
             )
           : failure(r.targetStatus);
+      if (req.path.endsWith('/actions/runs'))
+        return reply({
+          workflow_runs: [
+            ...Object.entries(r.workflows ?? {}).map(([id, created_at]) => ({
+              id: Number(id),
+              head_sha: A,
+              created_at,
+              status: 'completed',
+              workflow_id: Number(id),
+            })),
+            ...(r.moreWorkflows ?? []),
+          ],
+        });
       const wf = /\/actions\/runs\/(\d+)$/.exec(req.path);
       if (wf !== null) {
         const made = r.workflows?.[Number(wf[1])];
@@ -1551,6 +1566,47 @@ describe('yolo merge', () => {
       workflows: workflowsOf(readyRuns),
     });
     expect(await advanceTaskPr(deps(d, ready.port), t.id)).toBe('merged');
+  });
+
+  // Issue #362: the draft's skipped workflow run is dated a second after the ready event while the ready
+  // workflow run, on the same head, is still queued.
+  it('a draft skip made after the ready event beside an unfinished ready workflow run stops the merge until its checks pass', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const events = [{ event: 'ready_for_review', created_at: '2026-11-18T01:17:20Z' }];
+    const lateSkips = [
+      run(1, 'build', 'skipped', '2026-11-18T01:17:21Z'),
+      run(2, 'test', 'skipped', '2026-11-18T01:17:21Z'),
+    ];
+    const queued = github({
+      checkRuns: { check_runs: lateSkips },
+      events,
+      workflows: workflowsOf(lateSkips),
+      moreWorkflows: [
+        {
+          id: 9999,
+          head_sha: A,
+          created_at: '2026-11-18T01:17:24Z',
+          status: 'queued',
+          workflow_id: 1,
+        },
+      ],
+    });
+    expect(await advanceTaskPr(deps(d, queued.port), t.id)).toBe('not_ready');
+    expect(puts(queued.sent)).toEqual([]);
+    expect(approvals(d, t)).toEqual([]);
+    const readyRuns = [
+      ...lateSkips,
+      run(3, 'build', 'success', '2026-11-18T01:30:00Z'),
+      run(4, 'test', 'success', '2026-11-18T01:30:00Z'),
+    ];
+    const done = github({
+      checkRuns: { check_runs: readyRuns },
+      events,
+      workflows: workflowsOf(readyRuns),
+    });
+    expect(await advanceTaskPr(deps(d, done.port), t.id)).toBe('merged');
   });
 
   it('turned ready a second time: skips of the second draft are no pass; those of the new ready run are', async () => {

@@ -463,8 +463,21 @@ describe('CI of a PR turned ready', () => {
     runs: unknown[],
     workflows: Record<number, string>,
     events: unknown[] = [{ event: 'ready_for_review', created_at: READY }],
+    extra: Record<number, { created_at: string; status: string; workflow_id: number }> = {},
   ) =>
     fakePort({
+      [`GET repos/o/r/actions/runs`]: {
+        workflow_runs: [
+          ...Object.entries(workflows).map(([id, created_at]) => ({
+            id: Number(id),
+            head_sha: A,
+            created_at,
+            status: 'completed',
+            workflow_id: 1,
+          })),
+          ...Object.entries(extra).map(([id, w]) => ({ id: Number(id), head_sha: A, ...w })),
+        ],
+      },
       [`GET repos/o/r/commits/${A}/check-runs`]: { check_runs: runs },
       [`GET repos/o/r/commits/${A}/statuses`]: [],
       'GET repos/o/r/issues/1/events': events,
@@ -552,6 +565,60 @@ describe('CI of a PR turned ready', () => {
       { name: 'docs', state: 'skipped', run: 41 },
     ]);
     expect(calls(port, '/actions/runs/')).toBe(2);
+  });
+
+  // Issue #362: GitHub made the draft's skipped workflow run a second after the ready event, and the ready
+  // workflow run, on the same head, has no `ci-ok` yet.
+  it('a late skipped workflow run of the draft stays pending while the ready workflow run is unfinished', async () => {
+    const skipped = run(11, 'ci-ok', 'skipped', 101);
+    const draftWf = { 101: '2026-11-18T01:17:21Z' };
+    const sameWorkflow = github([skipped], draftWf, undefined, {
+      102: { created_at: '2026-11-18T01:17:24Z', status: 'queued', workflow_id: 1 },
+    });
+    expect(await read(sameWorkflow)).toEqual([{ name: 'ci-ok', state: 'pending', run: 11 }]);
+    // Another workflow, still running, is newer: the same wait.
+    const otherUnfinished = github([skipped], draftWf, undefined, {
+      102: { created_at: '2026-11-18T01:17:24Z', status: 'in_progress', workflow_id: 2 },
+    });
+    expect(await read(otherUnfinished)).toEqual([{ name: 'ci-ok', state: 'pending', run: 11 }]);
+    // The same workflow made in the same second as the skip: neither is older, so a wait too.
+    const sameSecond = github([skipped], draftWf, undefined, {
+      102: { created_at: '2026-11-18T01:17:21Z', status: 'completed', workflow_id: 1 },
+    });
+    expect(await read(sameSecond)).toEqual([{ name: 'ci-ok', state: 'pending', run: 11 }]);
+    // A listing that cannot be read, or lacks the skip's own workflow run, proves nothing.
+    const noList = fakePort({
+      [`GET repos/o/r/commits/${A}/check-runs`]: { check_runs: [skipped] },
+      [`GET repos/o/r/commits/${A}/statuses`]: [],
+      'GET repos/o/r/issues/1/events': [{ event: 'ready_for_review', created_at: READY }],
+      'GET repos/o/r/actions/runs/101': {
+        id: 101,
+        head_sha: A,
+        created_at: '2026-11-18T01:17:21Z',
+      },
+    });
+    expect(await read(noList)).toEqual([{ name: 'ci-ok', state: 'pending', run: 11 }]);
+  });
+
+  it('the ready workflow run’s required check decides once it exists, and a lone or unrelated run keeps the skip', async () => {
+    const draftWf = { 101: '2026-11-18T01:17:21Z' };
+    // Its `ci-ok` succeeded: the newest generation wins over the draft's skip.
+    const done = github([run(11, 'ci-ok', 'skipped', 101), run(13, 'ci-ok', 'success', 102)], {
+      ...draftWf,
+      102: '2026-11-18T01:17:24Z',
+    });
+    expect(await read(done)).toEqual([{ name: 'ci-ok', state: 'success', run: 13 }]);
+    // The ready workflow run skipped too (docs-only): the newest skip counts.
+    const docs = github([run(11, 'ci-ok', 'skipped', 101), run(14, 'ci-ok', 'skipped', 102)], {
+      ...draftWf,
+      102: '2026-11-18T01:17:24Z',
+    });
+    expect(await read(docs)).toEqual([{ name: 'ci-ok', state: 'skipped', run: 14 }]);
+    // A newer finished run of another workflow does not supersede it.
+    const other = github([run(11, 'ci-ok', 'skipped', 101)], draftWf, undefined, {
+      103: { created_at: '2026-11-18T01:17:30Z', status: 'completed', workflow_id: 2 },
+    });
+    expect(await read(other)).toEqual([{ name: 'ci-ok', state: 'skipped', run: 11 }]);
   });
 
   it('a PR never a draft keeps its skips (docs-only) and reads no workflow run', async () => {

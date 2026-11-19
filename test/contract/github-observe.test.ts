@@ -446,6 +446,7 @@ describe('skipped runs of a draft PR', () => {
     draft: boolean | undefined,
     runs: ReturnType<typeof run>[],
     events: FixtureResponse[] = [{ status: 200, body: [] }],
+    more: unknown[] = [],
   ): FixtureScript => ({
     [PULL]: [{ status: 200, body: pull(7, draft === undefined ? {} : { draft }) }],
     'GET repos/acme/app/branches/master': [{ status: 200, body: { protected: false } }],
@@ -457,6 +458,23 @@ describe('skipped runs of a draft PR', () => {
       { status: 200, body: [] },
     ],
     [EVENTS]: events,
+    [`GET repos/acme/app/actions/runs?head_sha=${HEAD}&per_page=100&page=1`]: [
+      {
+        status: 200,
+        body: {
+          workflow_runs: [
+            ...runs.map((r) => ({
+              id: r.id + 1000,
+              head_sha: HEAD,
+              created_at: r.made,
+              status: 'completed',
+              workflow_id: r.id,
+            })),
+            ...more,
+          ],
+        },
+      },
+    ],
     ...Object.fromEntries(
       runs.map((r) => [
         `GET repos/acme/app/actions/runs/${r.id + 1000}`,
@@ -501,6 +519,24 @@ describe('skipped runs of a draft PR', () => {
     });
     const fresh = [draftRun, ciOk(2, 'success', '2026-11-18T01:17:30Z')];
     expect(verdict(await observe(script(false, fresh, events)).obs)).toEqual({ kind: 'pass' });
+  });
+
+  it('#362: a draft skip made after the ready event, beside an unfinished ready workflow run, keeps the CI wait', async () => {
+    const events = ok(ready('2026-11-18T01:17:20Z'));
+    const lateSkip = ciOk(1, 'skipped', '2026-11-18T01:17:21Z');
+    const readyRun = {
+      id: 1002,
+      head_sha: HEAD,
+      created_at: '2026-11-18T01:17:24Z',
+      status: 'queued',
+      workflow_id: 1,
+    };
+    const waiting = await observe(script(false, [lateSkip], events, [readyRun])).obs;
+    expect(verdict(waiting).kind).not.toBe('pass');
+    expect(waiting).toMatchObject({ checks: { checks: [{ name: 'ci-ok', state: 'pending' }] } });
+    // Its required check passed: the CI wait ends.
+    const passed = [lateSkip, ciOk(2, 'success', '2026-11-18T01:17:40Z')];
+    expect(verdict(await observe(script(false, passed, events)).obs)).toEqual({ kind: 'pass' });
   });
 
   it('turned ready a second time: the latest ready event decides, not the first', async () => {

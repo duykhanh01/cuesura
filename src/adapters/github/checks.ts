@@ -179,8 +179,8 @@ const MAX_RUN_READS = 10;
  * draft → ready change. A check run answers the workflow run that made it: a workflow run created before
  * that time ran for the draft (its jobs may start or skip after it), one created strictly after it for
  * the ready PR. GitHub dates both to the second, so a workflow run created in that very second proves
- * neither and stays undetermined, as does one that cannot be read or belongs to another head: a wait,
- * never a wrong pass. Only the workflow run of each check's current run is read, once per run.
+ * neither and stays undetermined, as does one that cannot be read or belongs to another head, or that a
+ * newer workflow run of the head (same workflow, or unfinished) may supersede: a wait, never a wrong pass. Only the workflow run of each check's current run is read, once per run.
  */
 async function skipTurns(
   port: GitHubPort,
@@ -214,6 +214,47 @@ async function skipTurns(
     created.set(id, value);
     return value;
   };
+  // A skip after the ready time can still be the draft's own aggregate that GitHub created late. It is
+  // the ready PR's only while no newer workflow run of the head is of the same workflow or unfinished:
+  // the ready workflow's check may simply not exist yet. Unreadable or capped listings fail closed.
+  let heads: ReadonlyMap<number, Obj> | null | undefined;
+  const newestOfHead = async (
+    id: number,
+    at: number,
+  ): Promise<boolean | { error: GitHubFailure }> => {
+    if (heads === undefined) {
+      const l = await listAll(
+        port,
+        `repos/${repo}/actions/runs`,
+        (b) => {
+          const list = obj(b)['workflow_runs'];
+          return Array.isArray(list) ? list : null;
+        },
+        { query: { head_sha: sha } },
+      );
+      if (!l.ok && l.error.status !== 404) return { error: l.error };
+      heads =
+        l.ok && l.value.complete
+          ? new Map(
+              l.value.items
+                .map(obj)
+                .filter((w) => typeof w['id'] === 'number' && w['head_sha'] === sha)
+                .map((w) => [w['id'] as number, w] as const),
+            )
+          : null;
+    }
+    const own = heads?.get(id);
+    if (heads == null || own === undefined) return false;
+    for (const w of heads.values()) {
+      const wid = w['id'] as number;
+      if (wid === id) continue;
+      const wat = Date.parse(String(w['created_at']));
+      const newer = !Number.isFinite(wat) || wat > at || (wat === at && wid > id);
+      if (newer && (w['workflow_id'] === own['workflow_id'] || w['status'] !== 'completed'))
+        return false;
+    }
+    return true;
+  };
   const byId = new Map<number, Obj>();
   for (const r of runs) {
     const o = obj(r);
@@ -224,10 +265,15 @@ async function skipTurns(
     const o = byId.get(c.generation as number);
     const at = o === undefined ? null : await createdAt(o);
     if (typeof at === 'object' && at !== null) return { ok: false, error: at.error };
-    turns.set(
-      c.generation as number,
-      at === null || at === readyAt ? 'undetermined' : at < readyAt ? 'draft' : 'ready',
-    );
+    let turn: Turn =
+      at === null || at === readyAt ? 'undetermined' : at < readyAt ? 'draft' : 'ready';
+    if (turn === 'ready' && at !== null) {
+      const id = Number(WORKFLOW_RUN.exec(String(obj(o)['details_url']))?.[1]);
+      const sibling = await newestOfHead(id, at);
+      if (typeof sibling === 'object') return { ok: false, error: sibling.error };
+      if (!sibling) turn = 'undetermined';
+    }
+    turns.set(c.generation as number, turn);
   }
   return { ok: true, turns };
 }

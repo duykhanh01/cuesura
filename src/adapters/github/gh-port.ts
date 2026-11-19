@@ -52,6 +52,7 @@ export const GET_ENDPOINTS: readonly RegExp[] = [
   new RegExp(`^${REPO}/rulesets/\\d+$`),
   new RegExp(`^${REPO}/commits/[0-9a-f]{40}/(check-runs|statuses)$`),
   new RegExp(`^${REPO}/compare/[0-9a-f]{40}\\.\\.\\.${COMPARE_BRANCH}$`),
+  new RegExp(`^${REPO}/actions/runs$`),
   new RegExp(`^${REPO}/actions/runs/\\d+$`),
 ];
 
@@ -144,7 +145,16 @@ function validMergeBody(body: unknown): boolean {
   );
 }
 
-const QUERY_KEYS = new Set(['per_page', 'page', 'state', 'head', 'base', 'sort', 'direction']);
+const QUERY_KEYS = new Set([
+  'per_page',
+  'page',
+  'state',
+  'head',
+  'head_sha',
+  'base',
+  'sort',
+  'direction',
+]);
 const KEEP_HEADERS = new Set([
   'etag',
   'link',
