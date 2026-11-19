@@ -70,8 +70,8 @@ file settings; nếu không khai báo thì sandbox tắt như mặc định Clau
 
 | Claude worker | Sandbox tắt (mặc định) | Sandbox bật |
 | --- | --- | --- |
-| `--permission-mode auto` | Auto review quyền tool, `native_result=not_tried` | Auto review quyền tool và sandbox native, cần evidence cũ |
-| `--permission-mode full-access` | `bypassPermissions`, không sandbox worker | `bypassPermissions` trong sandbox native, cần evidence cũ |
+| `--permission-mode auto` | Auto review quyền tool, `native_result=not_tried` | Auto review quyền tool và sandbox native (`failIfUnavailable`), `native_result=not_tried` |
+| `--permission-mode full-access` | `bypassPermissions`, không sandbox worker | `bypassPermissions` trong sandbox native (`failIfUnavailable`), `native_result=not_tried` |
 
 Khi sandbox native bật, adapter thêm `sandbox.network.allowAllUnixSockets: true` để worker tạo được socket
 `AF_UNIX` (trên Linux sandbox chặn mặc định), nhờ đó chạy được test dùng daemon thật. Khai
@@ -789,8 +789,13 @@ Lỗi không gọi được harness lộ ra ở lượt agent, không ở bướ
 - Phiên deputy trong terminal thoát trước Stop hook: lượt chạy tiếp headless ngay trong cùng phiên, nên lỗi
   đăng nhập được đọc và giao cho owner thay vì thử lại như lỗi hạ tầng.
 
-Các wait này thuộc owner, nên assistant đã đăng ký (`cusr assistant register`) được đánh thức qua Stop hook hoặc
-`cusr assistant wait`. Ghi chú đánh thức nêu bằng văn bản cố định harness hỏng ra sao và lệnh sửa
+Các wait này thuộc owner, nên assistant đang giữ lease được đánh thức qua Stop hook hoặc `cusr assistant wait`.
+Session assistant đã thêm task (`cusr task add` gửi kèm session của nó) cũng được báo lỗi khởi chạy của chính
+task đó dù lease đã sang session khác hoặc daemon đã restart: daemon lưu session vào `requested_by.session` của task
+lúc nhận lệnh, lấy từ lease header chứ không từ nội dung task. Stop hook hoặc `assistant wait` của session không
+giữ lease hỏi `assistant_origin`, chỉ thấy các wait `harness_auth`, `auth_config`, `capability_missing` của task
+do nó thêm, và xác nhận đã nhận trên kênh riêng nên không lấy gì khỏi hàng đợi của session giữ lease. Hook chỉ
+chờ khi session còn task đang chạy. Ghi chú đánh thức nêu bằng văn bản cố định harness hỏng ra sao và lệnh sửa
 (`cusr task recheck <id>` sau khi đăng nhập lại, hoặc `cusr task explain <id>`), không chép chữ của worker.
 
 Resume được dùng trừ khi manifest ghi `resume: unsupported`. Resume chỉ mang dữ liệu của đúng session, không mang
@@ -820,8 +825,11 @@ Worker Claude tắt sandbox ghi `native_result=not_tried`; auto dùng mode `perm
 `full_access`. Sandbox native bật thì `setup-harness` kiểm thật, không qua model: Codex chạy `codex sandbox`, một
 lệnh vô hại phải chạy được và lệnh ghi ra ngoài worktree phải bị hệ điều hành từ chối; chỉ khi đạt mới ghi
 `native_result=passed`, không đạt thì từ chối và giữ bản ghi cũ. Sandbox của Claude chỉ thấy được qua một lượt
-model, nên pin Claude `--sandbox on` bị từ chối với lý do cụ thể: dùng `--sandbox off`, hoặc ghi từ evidence cũ
-khớp pin bằng `record-manifest --evidence <file>`. Không tự chuyển sang tắt sandbox hay full access. Rule deny
+model, nên pin Claude `--sandbox on` ghi `native_result=not_tried`, không bao giờ `passed`. Việc quan sát dời sang
+mỗi lượt chạy: adapter luôn chạy Claude native với `sandbox.failIfUnavailable=true` và
+`allowUnsandboxedCommands=false`, nên sandbox không khởi động được thì lượt đó lỗi chứ không chạy ngoài sandbox.
+Ranh giới: setup không chứng minh sandbox Claude chặn ghi ra ngoài worktree; điều đó dựa vào sandbox của Claude và
+`sandbox.filesystem` trong settings của owner. Không tự chuyển sang tắt sandbox hay full access. Rule deny
 `permission-denied-by-rule` trong settings Claude hoặc `.codex/rules/` chỉ phục vụ lệnh `prove-harness` đã bỏ;
 giữ hay xóa đều được.
 

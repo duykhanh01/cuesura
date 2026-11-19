@@ -241,6 +241,9 @@ export function buildNewTask(
     requested_by: {
       kind: caller.grant.actor === 'assistant' ? 'assistant' : 'human',
       id: caller.grant.actor,
+      ...(caller.grant.actor === 'assistant' && caller.lease
+        ? { session: caller.lease.split('.')[0] }
+        : {}),
     },
     source_key: source_key ?? `cli:${id}`,
     ...rest,

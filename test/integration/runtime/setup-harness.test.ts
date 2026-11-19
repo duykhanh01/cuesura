@@ -38,7 +38,7 @@ function setup() {
   const config = join(dir, 'config.yaml');
   writeFileSync(
     config,
-    `version: 1\nharnesses:\n  codex: { cmd: codex, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${data}\n`,
+    `version: 1\nharnesses:\n  codex: { cmd: codex, auth: subscription, pool: p }\n  claude: { cmd: claude, auth: subscription, pool: p }\npools: { p: 1 }\nruntime:\n  data_dir: ${data}\n`,
   );
   const modelCalled = join(dir, 'model-called');
   const binary = (name: string, sandbox: 'refuse' | 'allow') => {
@@ -65,7 +65,7 @@ function setup() {
     return { code: r.status, body: JSON.parse(r.stdout) as Envelope };
   };
   const read = (file: string) => readFileSync(join(records, file), 'utf8');
-  return { records, modelCalled, binary, run, read };
+  return { dir, data, records, modelCalled, binary, run, read };
 }
 
 describe('setup-harness CLI without model calls', () => {
@@ -130,6 +130,39 @@ describe('setup-harness CLI without model calls', () => {
     });
     expect(h.read('pin.json')).toBe(pin);
     expect(h.read('manifest.json')).toBe(manifest);
+    expect(existsSync(h.modelCalled)).toBe(false);
+  });
+
+  it('records a Claude sandbox as not tried, never passed, and leaves it to fail closed at launch', () => {
+    const h = setup();
+    const settings = join(h.dir, 'claude-settings.json');
+    writeFileSync(settings, JSON.stringify({ permissions: { defaultMode: 'auto' } }));
+    const tools = join(h.dir, 'tools');
+    mkdirSync(tools);
+    for (const tool of ['bwrap', 'socat'])
+      writeFileSync(join(tools, tool), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    const claude = (...extra: string[]) =>
+      h.run(
+        '--harness',
+        'claude',
+        '--vendor',
+        'claude',
+        '--binary',
+        h.binary('claude', 'refuse'),
+        '--settings',
+        settings,
+        '--toolchain',
+        tools,
+        ...extra,
+      );
+    expect(claude('--sandbox', 'on')).toMatchObject({
+      code: 0,
+      body: { ok: true, data: { harness: 'claude', native_result: 'not_tried' } },
+    });
+    const manifest = JSON.parse(
+      readFileSync(join(h.data, 'harnesses', 'claude', 'manifest.json'), 'utf8'),
+    ) as { selected_inner_mode: string; native_result: string };
+    expect(manifest).toMatchObject({ selected_inner_mode: 'native', native_result: 'not_tried' });
     expect(existsSync(h.modelCalled)).toBe(false);
   });
 

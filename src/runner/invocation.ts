@@ -42,6 +42,7 @@ import {
   classifyFailure,
   DETAIL_MAX,
   hostInnerMode,
+  nativeResultFits,
   nativeSandboxEnabled,
 } from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
@@ -435,7 +436,7 @@ export class RunnerHarness implements HarnessPort {
       hostExecution &&
       (o.manifest.provider !== 'host' ||
         o.manifest.selected_inner_mode !== inner ||
-        o.manifest.native_result !== (nativeSandboxEnabled(o.pin) ? 'passed' : 'not_tried'))
+        !nativeResultFits(o.pin.vendor, nativeSandboxEnabled(o.pin), o.manifest.native_result))
     )
       return never(
         'capability_missing',

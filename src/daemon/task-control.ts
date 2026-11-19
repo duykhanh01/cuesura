@@ -318,6 +318,7 @@ export function taskControl(deps: TaskControlDeps): {
       assistant_register: (caller, body) => reply(attention.register(caller, body)),
       assistant_unregister: (caller, body) => reply(attention.unregister(caller, body)),
       assistant_moved_ack: (caller, body) => reply(attention.movedAck(caller, body)),
+      assistant_origin: (caller, body) => reply(attention.origin(caller, body)),
       task_show: (caller, body) => reply(taskShow(store, caller, body, deps.redact)),
       task_list: async (caller, body) =>
         reply(await withListScope(scope, taskList(store, caller, body))),

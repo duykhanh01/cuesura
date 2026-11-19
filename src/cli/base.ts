@@ -42,6 +42,8 @@ export async function queryDaemon(
   values: Readonly<Record<string, string | undefined>>,
   body: unknown,
   timeoutMs?: number,
+  /** The assistant lease to send instead of this process's session. */
+  lease?: string,
 ): Promise<Envelope> {
   const dataDir = resolveDataDir(values['dataDir']);
   const actor = readClientActor();
@@ -53,6 +55,7 @@ export async function queryDaemon(
         path: '/v1/query',
         body,
         ...(timeoutMs === undefined ? {} : { timeoutMs }),
+        ...(lease === undefined ? {} : { lease }),
       })
     : actor;
   if (reply.ok) return reply.value.envelope;

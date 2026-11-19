@@ -20,7 +20,7 @@ import {
   type SelectedInnerMode,
 } from '../domain/runtime.ts';
 import { ROLE_SCHEMA_DIGESTS, type Role } from '../adapters/harness/result-schema.ts';
-import { binaryPath, type VendorPin } from '../adapters/harness/vendor.ts';
+import { binaryPath, nativeResultFits, type VendorPin } from '../adapters/harness/vendor.ts';
 import type { Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -133,7 +133,8 @@ export function verifyManifest(
     } else if (m.selected_inner_mode === 'full_access') {
       inner = 'full_access';
       if (m.native_result === 'failed') p('isolation', 'native sandbox was not proven');
-    } else if (m.native_result !== 'passed') p('isolation', 'native sandbox was not proven');
+    } else if (!nativeResultFits(m.vendor, true, m.native_result))
+      p('isolation', 'native sandbox was not proven');
   } else if (m.selected_inner_mode === 'external_verified') {
     inner = 'external_verified';
     if (needs.isolation !== 'allow_external_verified')

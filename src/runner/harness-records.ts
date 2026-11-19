@@ -35,6 +35,7 @@ import {
   binaryPath,
   isRec,
   hostInnerMode,
+  nativeResultFits,
   nativeSandboxEnabled,
   type VendorAdapter,
   type VendorPin,
@@ -195,12 +196,10 @@ export function harnessRecordProblem(
   if (record.manifest.selected_inner_mode !== expected)
     return 'manifest permission mode differs from the pin';
   const sandbox = nativeSandboxEnabled(record.pin);
-  if (record.manifest.native_result !== (sandbox ? 'passed' : 'not_tried'))
+  if (!nativeResultFits(record.pin.vendor, sandbox, record.manifest.native_result))
     return !sandbox
       ? 'native sandbox result differs from the pin sandbox setting'
-      : record.pin.vendor === 'claude'
-        ? `native sandbox ${record.manifest.native_result}: a Claude sandbox is shown only by a model run, which setup does not do; pin --sandbox off, or record matching evidence with cusr-runner record-manifest --evidence <file>`
-        : `native sandbox ${record.manifest.native_result}: codex sandbox did not start, or did not refuse a write outside the worktree`;
+      : `native sandbox ${record.manifest.native_result}: codex sandbox did not start, or did not refuse a write outside the worktree`;
   const settings = pinSettingsHash(record.pin);
   if (!settings.ok) return settings.error;
   const observed = observeHarness(
@@ -325,7 +324,7 @@ function evidenceEntry(
 /**
  * The vendor's native sandbox run directly on this host, with no model: a harmless command must pass and a
  * write outside the worktree must be refused by the OS. Only Codex has such a command; a Claude sandbox is
- * shown only by a model run, so it stays `not_tried` and its manifest is refused.
+ * shown only by a model run, so it stays `not_tried` (see `nativeResultFits`).
  */
 function nativeSandboxResult(pin: VendorPin, dataDir: string): EvidenceEntry['native_result'] {
   if (!nativeSandboxEnabled(pin) || pin.vendor !== 'codex') return 'not_tried';

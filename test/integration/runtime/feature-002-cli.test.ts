@@ -23,6 +23,7 @@ import { logsCommandWith } from '../../../src/cli/logs.ts';
 import { ExitCode, okEnvelope } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
 import { call } from '../../../src/cli/tasks.ts';
+import { queryDaemon } from '../../../src/cli/base.ts';
 import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { ObservationCoordinator } from '../../../src/daemon/observation.ts';
 import { Scheduler } from '../../../src/daemon/scheduler.ts';
@@ -642,6 +643,125 @@ describe('assistant wait (issue #166)', () => {
     ]);
     const quiet = await wait('--lease', told.envelope.data['lease'] as string);
     expect(quiet.envelope.data).toMatchObject({ items: [], timed_out: true });
+  });
+
+  it('tells the session that added a task its harness launch failure after another took the lease and the daemon restarted (T1-R03)', async () => {
+    vi.stubEnv('CUSR_ACTOR', 'assistant');
+    const sd = daemon();
+    const fromA = buildTask({
+      id: uuidOf(71_001),
+      requested_by: { kind: 'assistant', id: 'assistant', session: 's-A' },
+    });
+    const fromC = buildTask({
+      id: uuidOf(71_002),
+      requested_by: { kind: 'assistant', id: 'assistant', session: 's-C' },
+    });
+    const AUTH = {
+      failure_class: 'auth_config',
+      message: 'Failed to authenticate: OAuth session expired',
+      invoked: true,
+      auth: { harness: 'claude' },
+    };
+    // A submitted its task; it runs into the expired login after B took the lease.
+    sd.seed((d) => {
+      for (const t of [fromA, fromC]) {
+        createGrantStart(d, t, 'direct-pr');
+        d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+      }
+    });
+    await sd.start();
+    await cli(sd, ['assistant', 'register', '--session', 's-A']);
+    await cli(sd, ['assistant', 'register', '--session', 's-B', '--take']);
+    await sd.stop();
+    sd.seed((d) => {
+      for (const t of [fromA, fromC])
+        d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', AUTH);
+    });
+    await sd.start();
+
+    const notes: string[] = [];
+    const hook = (session: string) =>
+      runStopHook({
+        dataDir: sd.dataDir,
+        session,
+        pid: process.pid,
+        parkMs: 50,
+        alive: () => false,
+        owner: null,
+        ownerAlive: () => true,
+        query: (lease) =>
+          call(
+            { dataDir: sd.dataDir },
+            '/v1/query',
+            { kind: 'attention', lease, mode: 'hook' },
+            null,
+          ),
+        now: Date.now,
+        sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+        deliver: (note) => {
+          notes.push(note);
+          return Promise.resolve({ exit: 2, confirmed: true });
+        },
+        ackMoved: () =>
+          queryDaemon({ dataDir: sd.dataDir }, { kind: 'assistant_moved_ack', session }),
+        origin: (ack) =>
+          queryDaemon(
+            { dataDir: sd.dataDir },
+            { kind: 'assistant_origin', ...(ack.length === 0 ? {} : { ack }) },
+            undefined,
+            session,
+          ),
+      });
+
+    // A was replaced: it is told the lease moved, and on its next Stop its own task's failure, only that one.
+    expect(await hook('s-A')).toBe(2);
+    expect(notes.pop()).toContain('another session took the assistant lease');
+    expect(await hook('s-A')).toBe(2);
+    const own = notes.pop() ?? '';
+    expect(own).toContain(`${fromA.id} (harness_auth)`);
+    expect(own).toContain(`cusr task recheck ${fromA.id}`);
+    expect(own).not.toContain(fromC.id);
+    // Confirmed once: A's next Stop parks without waking it again.
+    expect(await hook('s-A')).toBe(ExitCode.ok);
+    expect(notes).toEqual([]);
+
+    // A's confirmation took nothing from B, which holds the lease and still hears both tasks.
+    rmSync(join(sd.dataDir, 'assistant-hook.json'), { force: true });
+    expect(await hook('s-B')).toBe(2);
+    expect(notes.pop()).toContain(`${fromA.id} (harness_auth)`);
+
+    // A session reads only its own tasks; the holder gets nothing on this channel.
+    const asB = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin' },
+      undefined,
+      's-B',
+    );
+    expect(asB.ok && asB.data).toMatchObject({ items: [] });
+    const asC = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin' },
+      undefined,
+      's-C',
+    );
+    expect(
+      asC.ok && (asC.data as { items: { task_id: string }[] }).items.map((i) => i.task_id),
+    ).toEqual([fromC.id]);
+    // Keys of another session's tasks confirm nothing.
+    const forged = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin', ack: [`${fromC.id}:1:harness_auth:0`] },
+      undefined,
+      's-A',
+    );
+    expect(forged.ok && forged.data).toMatchObject({ items: [] });
+    const again = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin' },
+      undefined,
+      's-C',
+    );
+    expect(again.ok && (again.data as { items: unknown[] }).items).toHaveLength(1);
   });
 
   it('refuses a timeout that is not a positive whole number', async () => {

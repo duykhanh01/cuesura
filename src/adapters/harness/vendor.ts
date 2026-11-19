@@ -102,6 +102,21 @@ export function nativeSandboxEnabled(
   return isRec(sandbox) && sandbox['enabled'] === true;
 }
 
+/**
+ * Whether a manifest's native result fits this pin. A Codex sandbox is run at setup without a model, so it
+ * must have passed. A Claude sandbox shows only in a model run: it may stay `not_tried`, never claimed
+ * passed, because every native launch carries `failIfUnavailable` and no unsandboxed retry, so a sandbox
+ * that cannot start fails that run instead of running without it.
+ */
+export function nativeResultFits(
+  vendor: string,
+  sandbox: boolean,
+  result: 'passed' | 'failed' | 'not_tried',
+): boolean {
+  if (!sandbox) return result === 'not_tried';
+  return result === 'passed' || (vendor === 'claude' && result === 'not_tried');
+}
+
 /** The host manifest records permissions-only execution separately from native sandbox proof. */
 export function hostInnerMode(pin: VendorPin): 'native' | 'permissions_only' | 'full_access' {
   if (pin.permission_mode === 'full-access') return 'full_access';

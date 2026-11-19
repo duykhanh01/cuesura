@@ -38,6 +38,8 @@ const WAKE_SESSION = 2;
 const HOOK_FILE = 'assistant-hook.json';
 /** One per replaced session, so hooks of different sessions never write the same file. */
 const MOVED_FILE_PREFIX = 'assistant-moved-told.';
+/** The hook parked for a session's own launch failures, by session. */
+const ORIGIN_FILE_PREFIX = 'assistant-origin-hook.';
 
 function movedToldFile(dataDir: string, session: string): string {
   return join(dataDir, `${MOVED_FILE_PREFIX}${encodeURIComponent(session)}`);
@@ -125,6 +127,13 @@ Examples:
         mode = 'resume';
         downSince = null;
         if (data.items.length > 0) return print(r, json, io);
+      } else if (
+        (r.error.code === 'attention_held' || r.error.code === 'attention_superseded') &&
+        assistantSession() !== null
+      ) {
+        // Another session holds the lease: this one still hears its own tasks' launch failures (T1-R03).
+        const own = await waitOrigin(values, ownerAlive, deadline);
+        return print(own ?? r, json, io);
       } else if (!unreachable(r.error.code)) return print(r, json, io);
       else {
         // A restart is not news: the lease resumes on the first poll after it. A daemon that stays down is.
@@ -145,6 +154,41 @@ Examples:
 
 /** Claude Code waits for this hook while the session opens. */
 const PEEK_TIMEOUT_MS = 2_000;
+
+/** The confirmation a pi session sends back for launch failures told by the originating channel. */
+const ORIGIN_PREFIX = 'origin:';
+
+type Origin = {
+  readonly items: readonly AttentionItem[];
+  readonly keys: readonly string[];
+  readonly live: number;
+};
+
+/**
+ * Waits for a launch failure of a task this session added while another session holds the lease; printed
+ * output counts as told. Null when this session has no live task, so the lease error stands.
+ */
+async function waitOrigin(
+  values: Readonly<Record<string, string | undefined>>,
+  ownerAlive: () => boolean,
+  deadline: number,
+): Promise<Envelope | null> {
+  for (let first = true; ; first = false) {
+    if (!ownerAlive()) return okEnvelope({ items: [], origin: true });
+    const r = await queryDaemon(values, { kind: 'assistant_origin' });
+    if (r.ok) {
+      const data = r.data as Origin;
+      if (data.items.length > 0) {
+        await queryDaemon(values, { kind: 'assistant_origin', ack: data.keys });
+        return okEnvelope({ items: data.items, origin: true });
+      }
+      if (data.live === 0) return first ? null : okEnvelope({ items: [], origin: true });
+    } else if (!unreachable(r.error.code)) return first ? null : r;
+    const left = deadline - Date.now();
+    if (left <= 0) return okEnvelope({ items: [], origin: true, timed_out: true });
+    await sleep(Math.min(POLL_MS, left));
+  }
+}
 
 export const assistantRegisterCommand: CliCommand = {
   name: 'assistant register',
@@ -305,6 +349,8 @@ export type StopHookDeps = {
   readonly deliver: (note: string, lease: string) => Promise<Delivery>;
   /** Tells the daemon this replaced session got the note that the lease moved. */
   readonly ackMoved: () => Promise<Envelope>;
+  /** This session's own launch failures (`assistant_origin`), confirming `ack`; absent: not asked. */
+  readonly origin?: (ack: readonly string[]) => Promise<Envelope>;
 };
 
 function readHookState(file: string): HookState | null {
@@ -361,6 +407,57 @@ export function wakeNote(items: readonly AttentionItem[], truncated: boolean): s
   return `${parts.join(' ')} This note approves nothing.\n`;
 }
 
+/**
+ * A session that does not hold the lease parks for the launch failures of the tasks it added (T1-R03), and
+ * only while it has one live: the holder's news is not its to hear or confirm.
+ */
+async function parkForOrigin(d: StopHookDeps): Promise<number> {
+  if (d.origin === undefined) return ExitCode.ok;
+  // A hook starts on every Stop: the newest one parks, so a failure wakes the session once.
+  const file = join(d.dataDir, `${ORIGIN_FILE_PREFIX}${encodeURIComponent(d.session)}`);
+  writeFileSync(file, String(d.pid), { mode: 0o600 });
+  const mine = (): boolean => {
+    try {
+      return readFileSync(file, 'utf8') === String(d.pid);
+    } catch {
+      return false;
+    }
+  };
+  try {
+    return await originLoop({ ...d, origin: d.origin }, mine);
+  } finally {
+    if (mine()) rmSync(file, { force: true });
+  }
+}
+
+async function originLoop(
+  d: StopHookDeps & { readonly origin: NonNullable<StopHookDeps['origin']> },
+  mine: () => boolean,
+): Promise<number> {
+  const end = d.now() + d.parkMs;
+  for (let reached = false; ; reached = true) {
+    if (!mine() || !d.ownerAlive() || registeredSession(d.dataDir) === d.session)
+      return ExitCode.ok;
+    const r = await d.origin([]);
+    // No daemon to ask at the start: nothing is known to wait for, as before this channel existed.
+    if (!r.ok && !reached) return ExitCode.ok;
+    if (r.ok) {
+      const data = r.data as Origin;
+      if (data.items.length > 0) {
+        const sent = await d.deliver(
+          wakeNote(data.items, false),
+          `${ORIGIN_PREFIX}${data.keys.join(',')}`,
+        );
+        if (sent.confirmed) await d.origin(data.keys);
+        return sent.exit;
+      }
+      if (data.live === 0) return ExitCode.ok;
+    } else if (!unreachable(r.error.code)) return ExitCode.ok;
+    if (d.now() + POLL_MS > end) return ExitCode.ok;
+    await d.sleep(POLL_MS);
+  }
+}
+
 export function unreachableNote(dataDir: string): string {
   return `cusr: daemon unreachable at ${dataDir} for ${UNREACHABLE_WAKE_MS / 60_000} minutes, so no task moves. Run cusr status and tell the user. This note is not repeated until the daemon comes back and goes down again.\n`;
 }
@@ -373,7 +470,7 @@ export const MOVED_TOKEN = 'lease-moved';
 export const DOWN_TOKEN = 'daemon-down';
 
 export const LEASE_MOVED_NOTE =
-  'cusr: another session took the assistant lease; this session no longer gets task news. Run cusr assistant register --take only if the user asks to move it back.\n';
+  'cusr: another session took the assistant lease; this session no longer gets task news, except a harness that could not run a task it added. Run cusr assistant register --take only if the user asks to move it back.\n';
 
 /**
  * Parks for one Stop of the registered session. The harness runs this in the background, so the user can
@@ -417,7 +514,15 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
   };
   // A record left from an earlier replacement must not silence the next one.
   if (!replaced()) rmSync(toldFile, { force: true });
-  if (registeredSession(d.dataDir) !== d.session) return replaced() ? tellMoved() : ExitCode.ok;
+  if (d.confirm?.startsWith(ORIGIN_PREFIX) === true)
+    await d.origin?.(d.confirm.slice(ORIGIN_PREFIX.length).split(','));
+  if (registeredSession(d.dataDir) !== d.session) {
+    if (replaced()) {
+      const exit = await tellMoved();
+      if (exit !== ExitCode.ok) return exit;
+    }
+    return parkForOrigin(d);
+  }
   const file = join(d.dataDir, HOOK_FILE);
   const ownState = (): HookState | null => {
     const now = readHookState(file);
@@ -434,7 +539,12 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
   }
   if (own?.retired === true) return ExitCode.ok;
   // Coming back with the lease of the last wake confirms that wake arrived.
-  const confirm = d.confirm === DOWN_TOKEN || d.confirm === MOVED_TOKEN ? undefined : d.confirm;
+  const confirm =
+    d.confirm === DOWN_TOKEN ||
+    d.confirm === MOVED_TOKEN ||
+    d.confirm?.startsWith(ORIGIN_PREFIX) === true
+      ? undefined
+      : d.confirm;
   let lease = confirm ?? own?.lease ?? d.session;
   let told = own?.unreachable === true || d.confirm === DOWN_TOKEN;
   const save = (pid: number | null, reached: string, delivering = false): void =>
@@ -691,6 +801,13 @@ Codex needs "async": true, and the pi extension from cusr init starts this itsel
       ...(values['confirm'] === undefined ? {} : { confirm: values['confirm'] }),
       deliver: deliverer(harness, session, owner, io),
       ackMoved: () => queryDaemon(values, { kind: 'assistant_moved_ack', session }),
+      origin: (ack) =>
+        queryDaemon(
+          values,
+          { kind: 'assistant_origin', ...(ack.length === 0 ? {} : { ack }) },
+          undefined,
+          session,
+        ),
     });
   },
 };
