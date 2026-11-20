@@ -73,7 +73,7 @@ import { afterMessageStop, stoppedByMessage } from './message.ts';
 import { reusableReview, reviewInputDigest } from './review-evidence.ts';
 import { CI_REPAIR_STEPS } from './workflows/software-dev.ts';
 import { ensureRunning, mkWait, waitPolicy, waitTask } from './waits.ts';
-import { gatesPass, reviewWaived, reviewWaivers } from './waivers.ts';
+import { findingWaived, gatesPass, reviewWaived, reviewWaivers } from './waivers.ts';
 
 /**
  * All continuation passes through these guards: terminal state, cancellation, source drift, then
@@ -2310,10 +2310,11 @@ function modeReview(ctx: Ctx): boolean {
 
 /**
  * Before the review of a fix round: when the commits since the last rejecting review touched none of
- * the files it blocked on, the fix went around the findings (only tests, say). No reviewer run is spent
- * on it and no person is asked: the round counts against the fixer, which runs again with a note naming
- * those files (#168, #247). Returns true when the task went back to the fixer. Unknown changed files
- * never block.
+ * the files its unwaived findings block on and changed nothing beyond tests, the fix went around the
+ * findings. No reviewer run is spent on it and no person is asked:
+ * the round counts against the fixer, which runs again with a note naming those files (#168, #247).
+ * A change to other code may fix a finding where its cited file calls it, so the reviewer judges that
+ * (#370). Returns true when the task went back to the fixer. Unknown changed files never block.
  */
 function fixLeftFindings(
   ctx: Ctx,
@@ -2331,10 +2332,14 @@ function fixLeftFindings(
   // An unchanged commit is the reused review's case (M03), not this one.
   if (prior?.verdict !== 'request_changes' || prior.sha !== changed.sha || prior.sha === head)
     return false;
-  const findings = prior.findings.filter((f) => isBlocking(f) && (f.file ?? '') !== '');
+  const findings = prior.findings.filter(
+    (f) => isBlocking(f) && (f.file ?? '') !== '' && !findingWaived(ctx.state, prior, f),
+  );
   const files = [...new Set(findings.map((f) => f.file as string))].sort();
   const touched = new Set(changed.paths);
   if (files.length === 0 || files.some((f) => touched.has(f))) return false;
+  // A file name cannot tell which behaviour changed, so any change beyond tests is the reviewer's call.
+  if (changed.paths.some((p) => !isTestPath(p))) return false;
   recordCheckFailure(ctx, prior.signature);
   answerForFixer(ctx, 'fix_no_src_change', {
     step,

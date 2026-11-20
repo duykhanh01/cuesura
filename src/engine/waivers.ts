@@ -10,6 +10,7 @@ import type { ReviewEvidence, TaskState, Waiver, WaiverTarget } from '../domain/
 import { branchMatches } from '../domain/workflow.ts';
 import {
   blockingKeys,
+  findingKey,
   gateSignature,
   latestGateFailure,
   latestRejection,
@@ -59,6 +60,15 @@ export function reviewWaived(s: WithWaivers, review: Pick<ReviewEvidence, 'findi
   const keys = blockingKeys(review);
   const scope = reviewScope(review);
   return keys.length > 0 && keys.every((k) => covers(s, 'finding', k, scope));
+}
+
+/** A finding of this rejection whose key has a waiver on the rejection's key set. */
+export function findingWaived(
+  s: WithWaivers,
+  review: Pick<ReviewEvidence, 'findings'>,
+  f: Pick<ReviewEvidence['findings'][number], 'file' | 'msg' | 'key'>,
+): boolean {
+  return covers(s, 'finding', findingKey(f), reviewScope(review));
 }
 
 /** The waivers that let this rejection through, by ID. */

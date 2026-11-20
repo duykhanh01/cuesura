@@ -307,7 +307,9 @@ dự án ngày 2026-11-18).
   fixer với signature của lượt review đó, rồi fixer chạy lại (cùng luật một lượt như trên, lặp lại thì
   nâng nấc). Chỉ cần một file của finding
   chặn bị đổi là đi tiếp; daemon không đọc được diff hoặc checkpoint trùng commit đã review (M03) thì
-  bỏ kiểm này.
+  bỏ kiểm này. Kiểm này bỏ qua finding đã có waiver trên tập key của lượt review đó, và cũng đi tiếp
+  khi vòng sửa đổi bất kỳ file nào ngoài test, kể cả file chỉ có finding minor/info (ví dụ sửa ở hàm
+  được file của finding gọi tới, issue #370): reviewer xét bản sửa đó trên checkpoint mới.
 - Mỗi checkpoint ghi `base_conflicts`: base tip lấy từ `refs/remotes/origin/<base>` đã fetch cục bộ
   (không fetch thêm) và các file `git merge-tree` báo conflict khi tích hợp tip đó; không đọc được thì
   bỏ trống (unknown). Review từ chối một checkpoint đã publish có conflict với tip đó thì trước lượt

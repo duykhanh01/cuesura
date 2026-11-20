@@ -68,6 +68,8 @@ export type SetupOptions = {
   template?: string;
   merge_method?: MergeMethod;
   duringReview?: (remote: string) => void;
+  /** The file worker runs after the first edit (default `search.ts`). */
+  fixFile?: string;
   /** One entry per worker run: the content it writes, in order (default: one run with `content`). */
   runs?: readonly Content[];
   /** The fake harness proves resume and reports a session per run (a session port for tests only). */
@@ -167,7 +169,7 @@ export function flowEnv(prefix: string) {
         const k = coder.calls.length;
         if (o.writeCode !== false)
           writeFileSync(
-            join(paths.worktrees, task.id, 'search.ts'),
+            join(paths.worktrees, task.id, k === 0 ? 'search.ts' : (o.fixFile ?? 'search.ts')),
             `export const search = (q: string) => q;${k === 0 ? '' : ` // fix ${k}`}\n`,
           );
         if (typeof o.content === 'function') o.content(contentFile(input.context.text));

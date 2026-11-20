@@ -11,6 +11,7 @@ import { BASE_REPAIR_WAIT_MS } from '../../../src/engine/interpreter.ts';
 import { explain } from '../../../src/explain/explain.ts';
 import { headVerdict, reviewOf } from '../../../src/engine/head-evidence.ts';
 import { mergeGuard } from '../../../src/engine/merge-guard.ts';
+import { findingKey } from '../../../src/engine/failure-signature.ts';
 import { readyOutcome } from '../../../src/daemon/handlers.ts';
 import { observation } from '../../support/observation.ts';
 import { hashCanonical } from '../../../src/shared/hash.ts';
@@ -1499,6 +1500,7 @@ describe('a review/fix loop that does not move (#141)', () => {
         blocking('src/tui/client/mutations.ts', 'a lost link spends a check'),
         { severity: 'minor', file: 'b.ts', msg: 'naming' },
       ],
+      waive: readonly string[] = [],
     ) => {
       const d = setup();
       const t = buildTask();
@@ -1507,6 +1509,16 @@ describe('a review/fix loop that does not move (#141)', () => {
       publishToReview(d, t.id, A);
       reject(d, t, A, findings);
       completePost(d, t.id);
+      for (const key of waive)
+        d.must(
+          t.id,
+          {
+            kind: 'waive',
+            target: { kind: 'finding', key },
+            evidence: 'checked on the checkpoint',
+          },
+          { authz: ownerAuthz() },
+        );
       // A base update that finished earlier stays recorded with its certificate.
       if (certifiedBase)
         injectEvents(d.store, t.id, [
@@ -1537,10 +1549,7 @@ describe('a review/fix loop that does not move (#141)', () => {
     };
 
     it('goes back to the fixer with a note before the reviewer runs, no person asked (#247)', () => {
-      const { d, t } = toFixGates({
-        sha: A,
-        paths: ['test/unit/tui/mutations.test.ts', 'b.ts'],
-      });
+      const { d, t } = toFixGates({ sha: A, paths: ['test/unit/tui/mutations.test.ts'] });
       const stop = autoAnswered(d, t, 'fix_no_src_change');
       expect(stop.detail).toMatchObject({ step: 'gates', files: ['src/tui/client/mutations.ts'] });
       expect(stop.body).toContain(
@@ -1572,6 +1581,63 @@ describe('a review/fix loop that does not move (#141)', () => {
       const { d, t } = toFixGates({ sha: A, paths: ['test/unit/tui/mutations.test.ts'] }, true);
       expect(d.task(t.id).run.base_update?.certificate).toBeDefined();
       autoAnswered(d, t, 'fix_no_src_change');
+    });
+
+    it('goes on to the review when the fix changed other code, such as a callee of the cited file (#370)', () => {
+      const { d, t } = toFixGates({
+        sha: A,
+        paths: ['src/tui/client/transport.ts', 'test/unit/tui/mutations.test.ts'],
+      });
+      expect(types(d, t)).not.toContain('QuestionAsked');
+      expect(d.task(t.id).wait).toBeNull();
+      publishToReview(d, t.id, B);
+      expect(reviewerRuns(d, t)).toBe(2);
+      // The reviewer still judges the new head before any approval.
+      expect(d.task(t.id).run.reviews.at(-1)?.sha).toBe(A);
+    });
+
+    it('goes on to the review when the fix changed a file that also has a minor finding (#370)', () => {
+      const { d, t } = toFixGates(
+        { sha: A, paths: ['src/application/cancel.ts', 'test/unit/application/cancel.test.ts'] },
+        false,
+        [
+          blocking('src/application/recheck.ts', 'replay loses the dedup'),
+          { severity: 'minor', file: 'src/application/cancel.ts', msg: 'naming' },
+        ],
+      );
+      expect(types(d, t)).not.toContain('QuestionAsked');
+      expect(d.task(t.id).wait).toBeNull();
+      // The round is not counted against the fixer as a quality failure.
+      expect(d.task(t.id).failure_streaks['fix_review#0']).toBeUndefined();
+      publishToReview(d, t.id, B);
+      expect(reviewerRuns(d, t)).toBe(2);
+    });
+
+    it('leaves out a waived finding, so a test-only round goes on to the review (#370)', () => {
+      const cited = blocking('src/tui/client/mutations.ts', 'a lost link spends a check');
+      const other = blocking('src/a.ts', 'wrong');
+      const { d, t } = toFixGates(
+        { sha: A, paths: ['test/unit/tui/mutations.test.ts'] },
+        false,
+        [cited, other],
+        [findingKey(cited), findingKey(other)],
+      );
+      expect(d.task(t.id).run.waivers).toHaveLength(2);
+      expect(types(d, t)).not.toContain('QuestionAsked');
+      publishToReview(d, t.id, B);
+      expect(reviewerRuns(d, t)).toBe(2);
+    });
+
+    it('still goes back to the fixer for an unwaived finding left alone beside a waived one', () => {
+      const cited = blocking('src/tui/client/mutations.ts', 'a lost link spends a check');
+      const { d, t } = toFixGates(
+        { sha: A, paths: ['test/unit/tui/mutations.test.ts'] },
+        false,
+        [cited, blocking('src/a.ts', 'wrong')],
+        [findingKey(cited)],
+      );
+      expect(autoAnswered(d, t, 'fix_no_src_change').detail).toMatchObject({ files: ['src/a.ts'] });
+      expect(reviewerRuns(d, t)).toBe(1);
     });
 
     it('goes on to the review when the fix touched a blocking file or the changes are unknown', () => {

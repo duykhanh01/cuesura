@@ -1192,12 +1192,13 @@ describe('a fix round that left the reviewed files alone (#168, real Git)', () =
     findings: [{ severity: 'major', file, line: 1, message: 'wrong behaviour' }],
   });
   const approve = { schema_version: 1, verdict: 'approve', summary: 'ok', findings: [] };
-  const run = async (file: string) => {
+  const run = async (file: string, fixFile?: string) => {
     const task = buildTask();
     const f = setup(task, {
       mode: 'full-review',
       runs: [CONTENT, FIXED],
       verdicts: [rejectOn(file), approve],
+      ...(fixFile === undefined ? {} : { fixFile }),
     });
     f.d.must(task.id, { kind: 'create_task', task });
     f.start();
@@ -1205,15 +1206,22 @@ describe('a fix round that left the reviewed files alone (#168, real Git)', () =
     return { ...f, task };
   };
 
-  it('sends the fixer back with a note before a second review when it did not touch the finding file', async () => {
-    // The fake fixer only edits search.ts.
-    const { d, codex, coder, task } = await run('src/other.ts');
+  it('sends the fixer back with a note before a second review when it only changed tests', async () => {
+    const { d, codex, coder, task } = await run('search.ts', 'search.test.ts');
     expect(coder.calls.length).toBeGreaterThan(2);
     expect(codex.calls).toHaveLength(1);
     const q = Object.values(d.task(task.id).questions)[0];
     expect(q).toMatchObject({ status: 'answered', answered_by: 'engine:auto' });
-    expect(q?.body).toContain('src/other.ts');
+    expect(q?.body).toContain('search.ts');
     expect(d.task(task.id).wait?.detail.code).not.toBe('fix_no_src_change');
+  });
+
+  it('goes on to the second review when the fixer changed other code than the finding file (#370)', async () => {
+    // The fake fixer edits search.ts, which the cited file may call.
+    const { d, codex, task } = await run('src/other.ts');
+    expect(codex.calls).toHaveLength(2);
+    expect(Object.values(d.task(task.id).questions)).toEqual([]);
+    expect(d.task(task.id).wait).toMatchObject({ detail: { code: 'merge' } });
   });
 
   it('goes on to the second review when the fixer touched it', async () => {
