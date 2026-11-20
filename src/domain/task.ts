@@ -18,6 +18,11 @@ export const RequesterSchema = z
   .object({
     kind: z.enum(['human', 'assistant', 'source', 'deputy']),
     id: z.string().min(1),
+    /**
+     * The assistant session that added the task, from its lease header; it alone is told the task's harness
+     * launch failures while another session holds the lease. Absent before it existed and for other callers.
+     */
+    session: z.string().min(1).optional(),
   })
   .strict();
 export type Requester = z.infer<typeof RequesterSchema>;

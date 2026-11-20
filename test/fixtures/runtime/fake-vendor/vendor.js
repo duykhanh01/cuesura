@@ -2,7 +2,7 @@
 // Test-only stand-in for a pinned vendor binary: replays the stdout records of a real T007 run
 // (FAKE_VENDOR_REPLAY) and, for Codex, writes the final message where --output-last-message says.
 // FAKE_VENDOR_MODE (comma list): publish, write_worktree, print_home, leak_summary, hang, exit1,
-// no_output.
+// no_output, login_expired and sandbox_broken (exit 1 before any record, the cause only on stderr).
 // FAKE_VENDOR_ECHO_MODEL: system/init reports the --model it was given.
 // FAKE_VENDOR_APPLY_CODER / _FIXER: a directory copied over the worktree when that role runs.
 // FAKE_VENDOR_FIXER_REPLAY: the run a fixer replays instead of FAKE_VENDOR_REPLAY.
@@ -91,6 +91,14 @@ const codex = argv[0] === 'exec';
 const modes = (process.env.FAKE_VENDOR_MODE ?? '').split(',');
 const has = (m) => modes.includes(m);
 const stdin = readFileSync(0, 'utf8');
+if (has('login_expired')) {
+  process.stderr.write('Invalid API key · Please run /login\n');
+  process.exit(1);
+}
+if (has('sandbox_broken')) {
+  process.stderr.write('Error: sandbox could not be initialized: bwrap is not installed\n');
+  process.exit(1);
+}
 // Optional role routing lets one pinned binary/settings run both roles, as a real vendor does.
 // A decider replays the reviewer's run with its own answer: same read-only boundary, its own schema.
 const decider = /^Role: decider$/m.test(stdin);

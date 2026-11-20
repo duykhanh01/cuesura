@@ -7,7 +7,7 @@
  * doctor (exit 1), and it names the fix for the operator to run.
  */
 import { lstatSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import type { GitPort, HostProbePort } from '../adapters/ports.ts';
 import { ROLE_SCHEMA_DIGESTS } from '../adapters/harness/result-schema.ts';
@@ -22,7 +22,7 @@ import type { Store } from '../store/index.ts';
 import { snapshotDrift } from '../store/verify.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { ConfigInputs } from './confirm.ts';
-import { binaryDigest, manifestHash } from './capabilities.ts';
+import { manifestHash } from './capabilities.ts';
 import { checkHost, missingTools, readLocalBaseConfig, type SandboxTools } from './preflight.ts';
 import type { AppError } from './queries.ts';
 import type { AttachedTerminal } from '../config/schema-user.ts';
@@ -62,8 +62,6 @@ export type DoctorDeps = {
     readonly detail?: string;
   }[];
   readonly now: () => number;
-  /** Digest of a harness binary; reads the file by default. */
-  readonly digest?: (path: string) => string;
   readonly probeBudgetMs?: number;
   readonly probeCache?: DoctorProbeCache;
   /** What each recorded harness's sandbox can run, so a binary that cannot start shows before a task. */
@@ -78,7 +76,7 @@ export type DoctorDeps = {
   }>;
   /**
    * Per harness, the manifest hash cusrd loaded at start and the one on disk now (null: none or
-   * unreadable). A proof after start changes only the disk, so the fix is a restart, not another proof.
+   * unreadable). A manifest recorded after start changes only the disk, so the fix is a restart.
    */
   readonly manifestReload?: (harnesses: readonly string[]) => Readonly<
     Record<
@@ -463,38 +461,15 @@ async function unitProbe(host: HostProbePort, systemdRun: string | null): Promis
  * still describes the binary on disk. Settings, environment and host policy need the pin and are checked
  * by preflight and before each attempt.
  */
-function manifestCheck(
-  name: string,
-  m: CapabilityManifest,
-  digest: (path: string) => string,
-): DoctorCheck {
-  const fix = 'record a new manifest from experimental fixtures';
+function manifestCheck(name: string, m: CapabilityManifest): DoctorCheck {
+  const fix = 'record a new manifest with cusr-runner setup-harness --from record-manifest';
   if (!CapabilityManifestSchema.safeParse(m).success || manifestHash(m) !== m.manifest_hash)
     return fail(name, 'manifest fails its schema or its hash', fix);
-  const missing = (
+  const unsupported = (
     ['structured_output', 'permission_enforced', 'private_home_auth'] as const
-  ).filter(
-    (k) =>
-      !(
-        k === 'permission_enforced' &&
-        m.provider === 'host' &&
-        m.selected_inner_mode === 'full_access'
-      ) && m.capabilities[k] !== 'proven',
-  );
-  if (missing.length > 0) return fail(name, `not proven: ${missing.join(', ')}`, fix);
-  let now: string;
-  try {
-    now = digest(m.binary.realpath);
-  } catch (e) {
-    return fail(
-      name,
-      `cannot read ${m.binary.realpath}: ${(e as NodeJS.ErrnoException).code ?? String(e)}`,
-      fix,
-    );
-  }
-  return now === m.binary.digest
-    ? ok_(name, `manifest ${m.manifest_hash}, binary ${m.binary.digest}`)
-    : fail(name, `binary ${m.binary.realpath} changed since the proof`, fix);
+  ).filter((k) => m.capabilities[k] === 'unsupported');
+  if (unsupported.length > 0) return fail(name, `unsupported: ${unsupported.join(', ')}`, fix);
+  return ok_(name, `manifest ${m.manifest_hash}, recorded with binary ${m.binary.digest}`);
 }
 
 async function cachedProbe(
@@ -516,7 +491,7 @@ async function cachedProbe(
   return check;
 }
 
-/** Whether deputy turns can run (007, FR-124): binding, harness, and a manifest that proved the role. */
+/** Whether deputy turns can run (007, FR-124): binding, harness, and a manifest that covers the role. */
 export function deputyCheck(
   user: {
     readonly roles: Readonly<Record<string, NormalizedRole>>;
@@ -524,7 +499,7 @@ export function deputyCheck(
   },
   manifests: Readonly<Record<string, CapabilityManifest | null | undefined>>,
   restart: ReadonlySet<string> = new Set(),
-  /** The config file and data directory this daemon runs with, so the command proves this installation. */
+  /** The config file and data directory this daemon runs with, so the command records this installation. */
   paths: { readonly config: string; readonly dataDir: string } = {
     config: '<config>',
     dataDir: '<data-dir>',
@@ -554,20 +529,16 @@ export function deputyCheck(
       `harness ${harness} has no capability manifest`,
       restart.has(harness)
         ? restartFix
-        : `pin and prove the harness with cusr-runner setup-harness ${where} and the pin flags in deploy/README.md#harness-thật-pin-và-manifest\nthen restart cusrd`,
+        : `pin the harness with cusr-runner setup-harness ${where} and the pin flags in deploy/README.md#harness-thật-pin-và-manifest\nthen restart cusrd`,
     );
-  if (m.role_schemas['deputy'] !== ROLE_SCHEMA_DIGESTS.deputy) {
-    // setup-harness records the proof's --out as the manifest's reference.
-    const evidence = m.fixture_refs.find((f) => isAbsolute(f));
-    const id = user.models[model]?.id;
+  if (m.role_schemas['deputy'] !== ROLE_SCHEMA_DIGESTS.deputy)
     return fail(
       'deputy',
-      `the manifest of ${harness} has no proof of the deputy role`,
+      `the manifest of ${harness} has no deputy role`,
       restart.has(harness)
         ? restartFix
-        : `cusr-runner setup-harness --from prove-harness ${where} --model ${id === undefined ? '<model-id>' : shellWord(id)} --out ${evidence === undefined ? '<evidence file of its last proof>' : shellWord(evidence)}\nthen restart cusrd (systemctl --user restart cusrd.service); roles that file still proves are not run again (deploy/README.md#bat-deputy)`,
+        : `cusr-runner setup-harness --from record-manifest ${where}\nthen restart cusrd (systemctl --user restart cusrd.service); no model is invoked`,
     );
-  }
   return ok_(
     'deputy',
     `model ${model} on harness ${harness}; turns run headless${alias ? "; role 'decider' is read as 'deputy', rename it" : ''}`,
@@ -667,7 +638,7 @@ export async function runDoctor(
       a < b ? -1 : 1,
     )) {
       if (tools.requires.length === 0) continue;
-      const fix = `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`;
+      const fix = `install it under /usr, or run cusr-runner setup-harness --force with its directory in --toolchain`;
       const probe = await missingTools(host, tools.dirs, tools.requires);
       checks.push(
         !probe.ok
@@ -697,7 +668,7 @@ export async function runDoctor(
           ? fail(
               `manifest:${h}`,
               `cusrd holds manifest ${r.loaded}, but the record on disk is unusable (${r.disk_problem ?? 'missing or unreadable'}); after a restart the harness has no manifest and its bindings stay capability_missing`,
-              `restore harnesses/${h}/ in the data dir from backup, or prove the harness again (cusr-runner record-manifest --evidence <file>, or setup-harness)`,
+              `restore harnesses/${h}/ in the data dir from backup, or record it again with cusr-runner setup-harness --from record-manifest`,
             )
           : restart.has(h) && r !== undefined
             ? fail(
@@ -709,9 +680,9 @@ export async function runDoctor(
               ? fail(
                   `manifest:${h}`,
                   `${inputs.manifest_problems?.[h] ?? 'no capability manifest recorded'}; bindings of this harness stay capability_missing`,
-                  'if matching evidence exists, run cusr-runner record-manifest --evidence <file> to repair the manifest without model usage; otherwise see cusr-runner setup-harness in deploy/README.md; a help or version output is not proof',
+                  'run cusr-runner setup-harness (deploy/README.md#harness-thật-pin-và-manifest), or --from record-manifest when the pin is already recorded; no model is invoked',
                 )
-              : manifestCheck(`manifest:${h}`, m, deps.digest ?? binaryDigest),
+              : manifestCheck(`manifest:${h}`, m),
       );
     }
     checks.push(

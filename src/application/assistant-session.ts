@@ -14,6 +14,8 @@ type SessionFile = {
   readonly replaced: readonly string[];
   /** The attention desk's confirmed mark for ended tasks (#257). */
   readonly ended_after: number | null;
+  /** Launch failures each originating session confirmed it was told, by session. */
+  readonly origin_told: Readonly<Record<string, readonly string[]>>;
 };
 
 export function readSessionFile(dataDir: string): SessionFile {
@@ -25,15 +27,25 @@ export function readSessionFile(dataDir: string): SessionFile {
     const session = raw?.['session'];
     const replaced = raw?.['replaced'];
     const endedAfter = raw?.['ended_after'];
+    const told = raw?.['origin_told'];
     return {
       session: typeof session === 'string' ? session : null,
       replaced: Array.isArray(replaced)
         ? replaced.filter((r): r is string => typeof r === 'string')
         : [],
       ended_after: Number.isSafeInteger(endedAfter) ? (endedAfter as number) : null,
+      origin_told:
+        told !== null && typeof told === 'object' && !Array.isArray(told)
+          ? Object.fromEntries(
+              Object.entries(told as Record<string, unknown>).map(([k, v]) => [
+                k,
+                Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [],
+              ]),
+            )
+          : {},
     };
   } catch {
-    return { session: null, replaced: [], ended_after: null };
+    return { session: null, replaced: [], ended_after: null, origin_told: {} };
   }
 }
 

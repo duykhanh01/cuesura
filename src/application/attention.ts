@@ -66,6 +66,56 @@ const UnregisterSchema = z
   })
   .strict();
 
+/** A deputy turn whose own harness could not run hands the task over for that reason. */
+const DEPUTY_LAUNCH: Partial<Record<string, string>> = {
+  auth: 'harness_auth',
+  capability: 'capability_missing',
+  no_harness: 'capability_missing',
+};
+
+/** Preflight checks of a harness itself; a GitHub or gate problem with the same code is not one. */
+const HARNESS_CHECKS: ReadonlySet<string> = new Set(['harness', 'host']);
+
+/**
+ * The code of a harness that could not run this task's step or its deputy turn, or null: what an
+ * assistant hears as a launch failure (T1-R03).
+ */
+export function launchCode(s: TaskState, handedOff: HandedOffView | null): string | null {
+  const d = s.wait?.detail;
+  if (d?.code === 'harness_auth') return d.code;
+  if (d?.code === 'auth_config' && s.effects[String(d['effect_id_failed'])]?.kind === 'start_agent')
+    return d.code;
+  if (d?.code === 'capability_missing') {
+    const problems = (d['error'] as { problems?: unknown } | undefined)?.problems;
+    if (
+      Array.isArray(problems) &&
+      problems.some((p: { check?: unknown; message?: unknown }) =>
+        p.check === 'toolchain'
+          ? String(p.message).startsWith('harness ')
+          : HARNESS_CHECKS.has(String(p.check)),
+      )
+    )
+      return d.code;
+  }
+  return DEPUTY_LAUNCH[handedOff?.handoff_reason ?? ''] ?? null;
+}
+
+const OriginSchema = z
+  .object({
+    kind: z.literal('assistant_origin').optional(),
+    /** Keys of an earlier reply the session confirmed it was told. */
+    ack: z.array(z.string().min(1)).max(INBOX_LIMIT).optional(),
+  })
+  .strict();
+
+export type OriginReply = {
+  readonly items: readonly AttentionItem[];
+  /** One per item, to send back as `ack` once the session saw them. */
+  readonly keys: readonly string[];
+  /** Live tasks this session added; with none, nothing can come and its hook need not park. */
+  readonly live: number;
+};
+
 const LEASE_GUIDANCE =
   'Pass --lease exactly as the last cusr assistant wait printed it, or leave it out to start a new wait.';
 
@@ -81,6 +131,8 @@ export type AttentionItem = {
   readonly task_version: number;
   /** The deputy's handoff when a turn gave this incident to the owner (FR-023). */
   readonly deputy?: HandedOffView;
+  /** Set when a harness could not run: the code its fix is told by (see {@link launchCode}). */
+  readonly launch?: string;
   /** A goal's news (FR-102): `task_id` holds the goal ID and `task_version` its version. */
   readonly goal?: true;
 };
@@ -183,6 +235,7 @@ function goalPrReady(g: GoalState, s: TaskState): Keyed {
 function keyed(s: TaskState, enteredAt: number, handedOff: HandedOffView | null = null): Keyed {
   const code = s.wait?.detail.code ?? 'run_config_unconfirmed';
   const q = openQuestions(s).find((x) => x.blocking) ?? null;
+  const launch = launchCode(s, handedOff);
   return {
     key: `${s.id}:${s.revision}:${code}:${enteredAt}`,
     item: {
@@ -194,6 +247,7 @@ function keyed(s: TaskState, enteredAt: number, handedOff: HandedOffView | null 
       question: q?.body ?? null,
       task_version: s.version,
       ...(handedOff === null ? {} : { deputy: handedOff }),
+      ...(launch === null ? {} : { launch }),
     },
   };
 }
@@ -234,6 +288,8 @@ export class AttentionDesk {
    * claimed the lease (#257). On disk and kept when the lease moves, so an ended task waits for a holder.
    */
   #endedAfter: number | null = null;
+  /** Per originating session, the launch failures it confirmed (T1-R03); kept apart from the holder's. */
+  #originTold = new Map<string, Set<string>>();
   /** Reading a task's log only when it changed; holds the tasks that needed a person last time. */
   #entered = new Map<string, { readonly version: number; readonly seq: number }>();
 
@@ -250,11 +306,14 @@ export class AttentionDesk {
     this.#dataDir = deps.dataDir ?? null;
     const saved =
       this.#dataDir === null
-        ? { session: null, replaced: [], ended_after: null }
+        ? { session: null, replaced: [], ended_after: null, origin_told: {} }
         : readSessionFile(this.#dataDir);
     this.#registered = saved.session;
     this.#replaced = new Set(saved.replaced);
     this.#endedAfter = saved.ended_after;
+    this.#originTold = new Map(
+      Object.entries(saved.origin_told).map(([k, v]) => [k, new Set(v)] as const),
+    );
     if (this.#registered !== null)
       this.#holder = {
         id: this.#registered,
@@ -358,7 +417,12 @@ export class AttentionDesk {
     const dataDir = this.#dataDir;
     if (dataDir === null) return;
     const file = join(dataDir, ASSISTANT_SESSION_FILE);
-    if (this.#registered === null && this.#replaced.size === 0 && this.#endedAfter === null) {
+    if (
+      this.#registered === null &&
+      this.#replaced.size === 0 &&
+      this.#endedAfter === null &&
+      this.#originTold.size === 0
+    ) {
       rmSync(file, { force: true });
       return;
     }
@@ -367,9 +431,64 @@ export class AttentionDesk {
       ...(this.#registered === null ? {} : { session: this.#registered }),
       ...(this.#replaced.size === 0 ? {} : { replaced: [...this.#replaced] }),
       ...(this.#endedAfter === null ? {} : { ended_after: this.#endedAfter }),
+      ...(this.#originTold.size === 0
+        ? {}
+        : {
+            origin_told: Object.fromEntries(
+              [...this.#originTold].map(([k, v]) => [k, [...v]] as const),
+            ),
+          }),
     };
     writeFileSync(tmp, JSON.stringify(content), { mode: 0o600 });
     renameSync(tmp, file);
+  }
+
+  /**
+   * The launch failures of the tasks the calling session added, for a session that does not hold the lease
+   * (T1-R03). Scoped to the caller's own lease header: it sees no other task, and confirming here never
+   * touches the holder's deliveries. The holder itself gets none here: the lease already tells it.
+   */
+  origin(caller: Caller, body: Readonly<Record<string, unknown>>): Result<OriginReply, AppError> {
+    const q = OriginSchema.safeParse(body);
+    if (!q.success) return invalid('invalid assistant_origin query', q.error.issues);
+    const allowed = authorize(caller, { role: 'read' });
+    if (!allowed.ok) return forbidden('attention not readable', allowed.error);
+    const session = caller.lease?.split('.')[0] ?? '';
+    if (caller.grant.actor !== 'assistant' || session === '')
+      return forbidden('only an assistant session reads its own launch failures', {
+        code: 'forbidden',
+        reason: 'lease_required',
+        required: 'lease',
+      });
+    const now = this.#now();
+    let live = 0;
+    const current: Keyed[] = [];
+    for (const id of this.#store.taskIdsByStatus(LIVE)) {
+      const s = this.#store.readTask(id as Uuid);
+      if (s?.task.requested_by.session !== session) continue;
+      live += 1;
+      if (!needsUser(s, now, () => this.#statusSince(s)) || this.#deputy?.holds(s) === true)
+        continue;
+      const handedOff = this.#deputy?.handedOff?.(s) ?? null;
+      if (launchCode(s, handedOff) === null) continue;
+      const seq =
+        this.#store.readEvents(id as Uuid).findLast((e) => ENTERS_WAIT.has(e.type))?.global_seq ??
+        0;
+      current.push(keyed(s, seq, handedOff));
+    }
+    if (this.#holder?.id === session) return ok({ items: [], keys: [], live });
+    const keys = new Set(current.map((c) => c.key));
+    // Only what still waits is kept, so the record stays bounded and a wait that comes back is told again.
+    const told = new Set(
+      [...(this.#originTold.get(session) ?? []), ...(q.data.ack ?? [])].filter((k) => keys.has(k)),
+    );
+    const before = this.#originTold.get(session);
+    if (told.size === 0) this.#originTold.delete(session);
+    else this.#originTold.set(session, told);
+    if ((before?.size ?? 0) !== told.size || [...told].some((k) => before?.has(k) !== true))
+      this.#persist();
+    const fresh = current.filter((c) => !told.has(c.key)).slice(0, INBOX_LIMIT);
+    return ok({ items: fresh.map((c) => c.item), keys: fresh.map((c) => c.key), live });
   }
 
   poll(caller: Caller, body: Readonly<Record<string, unknown>>): Result<AttentionReply, AppError> {

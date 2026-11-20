@@ -34,6 +34,7 @@ import {
 } from '../../../src/daemon/production.ts';
 import { validateConfig } from '../../../src/config/validate.ts';
 import {
+  commitPin,
   harnessIdentity,
   harnessRecordProblem,
   hostSandbox,
@@ -109,10 +110,11 @@ function setup() {
   if (runtime === null) throw new Error('no runtime');
   const recordDir = join(dataDir, 'harnesses', 'claude');
   mkdirSync(recordDir, { recursive: true, mode: 0o700 });
-  const writePin = (p: VendorPin): void =>
-    writeFileSync(join(recordDir, 'pin.json'), JSON.stringify(p), {
-      mode: 0o600,
-    });
+  /** As `write-pin` leaves it: the pin, with no manifest until one is recorded for it. */
+  const writePin = (p: VendorPin): void => {
+    const r = commitPin({ dataDir, harness: 'claude', force: true }, p);
+    if (!r.ok) throw new Error(r.error);
+  };
   /** Evidence as `cusr-runner record-manifest` takes it: a proof of exactly this pin on this host. */
   const evidenceFor = (p: VendorPin): string => {
     const raw = JSON.parse(readFileSync(EVIDENCE, 'utf8')) as {
@@ -286,7 +288,6 @@ describe('harness records', () => {
     });
     expect(stale).toMatchObject({ ok: false });
     expect(stale.ok ? '' : stale.error).toContain('proves another binary');
-    expect(existsSync(join(h.recordDir, 'manifest.json'))).toBe(false);
     expect(loadHarnessRecord(h.dataDir, 'claude').ok).toBe(false);
 
     const recorded = recordManifest({
@@ -325,8 +326,11 @@ describe('harness records', () => {
         host_policy_hash: `sha256:${'0'.repeat(64)}`,
       }),
     ).toContain('host sandbox policy');
+    // An upgrade in place is what runs next; a binary that cannot run is named.
     writeFileSync(h.pin.binary.realpath, '#!/bin/sh\n');
-    expect(harnessRecordProblem(loaded.value, check)).toContain('digest');
+    expect(harnessRecordProblem(loaded.value, check)).toBeNull();
+    chmodSync(h.pin.binary.realpath, 0o644);
+    expect(harnessRecordProblem(loaded.value, check)).toContain('is not executable');
   });
 
   it('refuses evidence that never proved this configuration, with the same binary', () => {
@@ -345,7 +349,6 @@ describe('harness records', () => {
     const evidence = h.evidenceFor(proved);
     h.writePin(proved);
     expect(record(evidence)).toMatchObject({ ok: true });
-    rmSync(join(h.recordDir, 'manifest.json'));
 
     // The permission rule goes, the binary and the evidence stay: `permission_enforced` was not shown.
     const settingsWithoutDeny = structuredClone(proved.settings) as {
@@ -368,7 +371,8 @@ describe('harness records', () => {
     h.writePin({ ...proved, toolchain: ['/usr/lib'] });
     const layout = record(evidence);
     expect(layout.ok ? '' : layout.error).toContain('layout_shapes');
-    expect(existsSync(join(h.recordDir, 'manifest.json'))).toBe(false);
+    // None of the refused evidence was recorded for the pin last written.
+    expect(loadHarnessRecord(h.dataDir, 'claude').ok).toBe(false);
 
     // Evidence that says nothing about its configuration, like the T007 fixture, proves none.
     const raw = JSON.parse(readFileSync(evidence, 'utf8')) as {
@@ -432,7 +436,7 @@ describe('harness records', () => {
   it('refuses a record others can write', () => {
     const h = setup();
     h.writePin(h.pin);
-    chmodSync(join(h.recordDir, 'pin.json'), 0o664);
+    chmodSync(join(h.recordDir, 'record.json'), 0o664);
     const r = loadHarnessRecord(h.dataDir, 'claude');
     expect(r.ok ? '' : r.error).toContain('writable by group or others');
   });
@@ -545,7 +549,7 @@ describe('production task surface', () => {
     expect(JSON.stringify(missing.check)).toContain('pin.json does not exist');
     expect(missing.check?.status).toBe('fail');
 
-    // A record whose binary changed after the proof is not offered either.
+    // A binary upgraded in place after the record keeps it usable.
     h.writePin(h.pin);
     const recorded = recordManifest({
       dataDir: h.dataDir,
@@ -558,7 +562,7 @@ describe('production task surface', () => {
     });
     expect(recorded.ok).toBe(true);
     writeFileSync(h.pin.binary.realpath, '#!/bin/sh\n');
-    expect(JSON.stringify((await doctor(h)).check)).toContain('digest');
+    expect((await doctor(h)).check?.status).toBe('ok');
   });
 
   it('holds new work when a credential reference changes under a running daemon', async () => {

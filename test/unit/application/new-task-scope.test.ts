@@ -34,3 +34,28 @@ describe('task add scope (issue #240)', () => {
     }
   });
 });
+
+describe('the session that added a task (T1-R03)', () => {
+  it('is taken from the assistant lease header, never from the task body', () => {
+    const assistant = (lease?: string): Caller => ({
+      grant: { actor: 'assistant', roles: ['read', 'operate'] },
+      ...(lease === undefined ? {} : { lease }),
+    });
+    const r = buildNewTask(admitted, input({}), assistant('s-A.3'));
+    expect(r.ok && r.value.requested_by).toEqual({
+      kind: 'assistant',
+      id: 'assistant',
+      session: 's-A',
+    });
+    const noLease = buildNewTask(admitted, input({}), assistant());
+    expect(noLease.ok && 'session' in noLease.value.requested_by).toBe(false);
+    const owner = buildNewTask(admitted, input({}), { ...caller, lease: 's-A' });
+    expect(owner.ok && owner.value.requested_by).toEqual({ kind: 'human', id: 'owner' });
+    const forged = buildNewTask(
+      admitted,
+      input({ requested_by: { kind: 'assistant', id: 'assistant', session: 's-X' } }),
+      assistant('s-A'),
+    );
+    expect(forged.ok).toBe(false);
+  });
+});

@@ -23,6 +23,7 @@ import { logsCommandWith } from '../../../src/cli/logs.ts';
 import { ExitCode, okEnvelope } from '../../../src/cli/output.ts';
 import { runCli } from '../../../src/cli/program.ts';
 import { call } from '../../../src/cli/tasks.ts';
+import { queryDaemon } from '../../../src/cli/base.ts';
 import { ingestOperationSpool } from '../../../src/daemon/ingest.ts';
 import { ObservationCoordinator } from '../../../src/daemon/observation.ts';
 import { Scheduler } from '../../../src/daemon/scheduler.ts';
@@ -642,6 +643,125 @@ describe('assistant wait (issue #166)', () => {
     ]);
     const quiet = await wait('--lease', told.envelope.data['lease'] as string);
     expect(quiet.envelope.data).toMatchObject({ items: [], timed_out: true });
+  });
+
+  it('tells the session that added a task its harness launch failure after another took the lease and the daemon restarted (T1-R03)', async () => {
+    vi.stubEnv('CUSR_ACTOR', 'assistant');
+    const sd = daemon();
+    const fromA = buildTask({
+      id: uuidOf(71_001),
+      requested_by: { kind: 'assistant', id: 'assistant', session: 's-A' },
+    });
+    const fromC = buildTask({
+      id: uuidOf(71_002),
+      requested_by: { kind: 'assistant', id: 'assistant', session: 's-C' },
+    });
+    const AUTH = {
+      failure_class: 'auth_config',
+      message: 'Failed to authenticate: OAuth session expired',
+      invoked: true,
+      auth: { harness: 'claude' },
+    };
+    // A submitted its task; it runs into the expired login after B took the lease.
+    sd.seed((d) => {
+      for (const t of [fromA, fromC]) {
+        createGrantStart(d, t, 'direct-pr');
+        d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', PREPARE_DATA);
+      }
+    });
+    await sd.start();
+    await cli(sd, ['assistant', 'register', '--session', 's-A']);
+    await cli(sd, ['assistant', 'register', '--session', 's-B', '--take']);
+    await sd.stop();
+    sd.seed((d) => {
+      for (const t of [fromA, fromC])
+        d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', AUTH);
+    });
+    await sd.start();
+
+    const notes: string[] = [];
+    const hook = (session: string) =>
+      runStopHook({
+        dataDir: sd.dataDir,
+        session,
+        pid: process.pid,
+        parkMs: 50,
+        alive: () => false,
+        owner: null,
+        ownerAlive: () => true,
+        query: (lease) =>
+          call(
+            { dataDir: sd.dataDir },
+            '/v1/query',
+            { kind: 'attention', lease, mode: 'hook' },
+            null,
+          ),
+        now: Date.now,
+        sleep: (ms) => new Promise((r) => setTimeout(r, Math.min(ms, 5))),
+        deliver: (note) => {
+          notes.push(note);
+          return Promise.resolve({ exit: 2, confirmed: true });
+        },
+        ackMoved: () =>
+          queryDaemon({ dataDir: sd.dataDir }, { kind: 'assistant_moved_ack', session }),
+        origin: (ack) =>
+          queryDaemon(
+            { dataDir: sd.dataDir },
+            { kind: 'assistant_origin', ...(ack.length === 0 ? {} : { ack }) },
+            undefined,
+            session,
+          ),
+      });
+
+    // A was replaced: it is told the lease moved, and on its next Stop its own task's failure, only that one.
+    expect(await hook('s-A')).toBe(2);
+    expect(notes.pop()).toContain('another session took the assistant lease');
+    expect(await hook('s-A')).toBe(2);
+    const own = notes.pop() ?? '';
+    expect(own).toContain(`${fromA.id} (harness_auth)`);
+    expect(own).toContain(`cusr task recheck ${fromA.id}`);
+    expect(own).not.toContain(fromC.id);
+    // Confirmed once: A's next Stop parks without waking it again.
+    expect(await hook('s-A')).toBe(ExitCode.ok);
+    expect(notes).toEqual([]);
+
+    // A's confirmation took nothing from B, which holds the lease and still hears both tasks.
+    rmSync(join(sd.dataDir, 'assistant-hook.json'), { force: true });
+    expect(await hook('s-B')).toBe(2);
+    expect(notes.pop()).toContain(`${fromA.id} (harness_auth)`);
+
+    // A session reads only its own tasks; the holder gets nothing on this channel.
+    const asB = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin' },
+      undefined,
+      's-B',
+    );
+    expect(asB.ok && asB.data).toMatchObject({ items: [] });
+    const asC = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin' },
+      undefined,
+      's-C',
+    );
+    expect(
+      asC.ok && (asC.data as { items: { task_id: string }[] }).items.map((i) => i.task_id),
+    ).toEqual([fromC.id]);
+    // Keys of another session's tasks confirm nothing.
+    const forged = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin', ack: [`${fromC.id}:1:harness_auth:0`] },
+      undefined,
+      's-A',
+    );
+    expect(forged.ok && forged.data).toMatchObject({ items: [] });
+    const again = await queryDaemon(
+      { dataDir: sd.dataDir },
+      { kind: 'assistant_origin' },
+      undefined,
+      's-C',
+    );
+    expect(again.ok && (again.data as { items: unknown[] }).items).toHaveLength(1);
   });
 
   it('refuses a timeout that is not a positive whole number', async () => {
@@ -1615,7 +1735,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
         status: string;
         detail?: string;
       }[];
-      digest?: (path: string) => string;
+      manifestProblems?: Record<string, string>;
       probeBudgetMs?: number;
       harnessTools?: Record<string, { dirs: string[]; requires: string[] }>;
       runtime?: string;
@@ -1640,16 +1760,11 @@ describe('doctor (T112, FR-027.02/033)', () => {
             }),
             packs: PACKS,
             manifests: (o.manifests ?? PROVEN) as typeof MANIFESTS,
+            ...(o.manifestProblems === undefined ? {} : { manifest_problems: o.manifestProblems }),
           }),
         health: () => (o.health === undefined ? rt.health() : o.health),
         ...(o.recoveryClaims === undefined ? {} : { recoveryClaims: o.recoveryClaims }),
         ...(o.spoolProblems === undefined ? {} : { spoolProblems: o.spoolProblems }),
-        // The fixture's binaries are not on disk: unless told otherwise each is what its manifest says.
-        digest:
-          o.digest ??
-          ((path) =>
-            Object.values(MANIFESTS).find((m) => m.binary.realpath === path)?.binary.digest ??
-            'unknown'),
         now: () => sd.now,
         ...(o.probeBudgetMs === undefined ? {} : { probeBudgetMs: o.probeBudgetMs }),
         ...(o.harnessTools === undefined ? {} : { harnessTools: () => o.harnessTools ?? {} }),
@@ -1852,7 +1967,7 @@ describe('doctor (T112, FR-027.02/033)', () => {
     ).filter((check) => check.name.startsWith('manifest:'));
     expect(repairs.length).toBeGreaterThan(0);
     for (const check of repairs) {
-      expect(check.fix).toContain('record-manifest --evidence');
+      expect(check.fix).toContain('--from record-manifest');
       expect(check.fix).not.toContain('--force');
     }
   });
@@ -1901,11 +2016,28 @@ describe('doctor (T112, FR-027.02/033)', () => {
     expect(units()).toBe(3);
   });
 
-  it('a recorded manifest that does not prove what an attempt requires fails', async () => {
-    const { sd } = doctored({ manifests: MANIFESTS });
+  it('a capability not shown passes; one shown unsupported fails', async () => {
+    const shown = doctored({ manifests: MANIFESTS });
+    await shown.sd.start();
+    expect(
+      Object.entries(names(await cli(shown.sd, ['doctor']))).filter(([k]) =>
+        k.startsWith('manifest:'),
+      ),
+    ).toEqual(Object.keys(MANIFESTS).map((h) => [`manifest:${h}`, 'ok']));
+    const { sd } = doctored({
+      manifests: Object.fromEntries(
+        Object.entries(MANIFESTS).map(([k, m]) => {
+          const body = {
+            ...m,
+            capabilities: { ...m.capabilities, structured_output: 'unsupported' },
+          };
+          return [k, { ...body, manifest_hash: manifestHash(body as never) }];
+        }),
+      ),
+    });
     await sd.start();
     expect(JSON.stringify((await cli(sd, ['doctor'])).envelope.error.details)).toContain(
-      'not proven: structured_output',
+      'unsupported: structured_output',
     );
   });
 
@@ -1948,22 +2080,15 @@ describe('doctor (T112, FR-027.02/033)', () => {
     });
   });
 
-  it('a manifest fails when its binary changed or can no longer be read, or the record was altered', async () => {
-    const changed = doctored({ digest: () => 'sha256:other' });
-    await changed.sd.start();
-    const r1 = await cli(changed.sd, ['doctor']);
-    expect(r1.code).toBe(ExitCode.failure);
-    expect(JSON.stringify(r1.envelope.error.details)).toContain('changed since the proof');
-
+  it('a harness whose binary cannot run fails with the observed cause, as does an altered record', async () => {
     const gone = doctored({
-      digest: () => {
-        throw Object.assign(new Error('gone'), { code: 'ENOENT' });
-      },
+      manifests: { ...PROVEN, claude: null },
+      manifestProblems: { claude: 'binary /opt/claude not found' },
     });
     await gone.sd.start();
-    expect(JSON.stringify((await cli(gone.sd, ['doctor'])).envelope.error.details)).toContain(
-      'ENOENT',
-    );
+    const r1 = await cli(gone.sd, ['doctor']);
+    expect(r1.code).toBe(ExitCode.failure);
+    expect(JSON.stringify(r1.envelope.error.details)).toContain('binary /opt/claude not found');
 
     const altered = doctored({
       manifests: Object.fromEntries(

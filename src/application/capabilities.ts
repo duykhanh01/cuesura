@@ -1,9 +1,9 @@
 /**
- * Capability manifest admission (T070, FR-011/033, contracts/execution.md). A manifest is environment evidence for one pinned harness binary; it is built only from
- * experimental fixtures (T007), never from help text, and it stops being valid the moment the binary,
- * its version, the effective settings, the environment or the host policy changes. Every attempt is
- * checked again right before it starts, so a change blocks the next attempt instead of silently
- * running a binary nobody proved; a running attempt is never switched to another mode.
+ * Capability manifest admission (T070, FR-011/033, contracts/execution.md). A manifest records what is known of
+ * one pinned harness: a capability not shown stays `unknown` and is still used, only one shown `unsupported` is
+ * refused. The binary is the pinned command as installed now, so an upgrade in place needs no new record; the
+ * effective settings, the environment and the host policy must still match. Every attempt is checked again right
+ * before it starts; a running attempt is never switched to another mode.
  *
  * `external_verified` (inner sandbox off, outer Isolated boundary on) is accepted only when the
  * manifest records a native failure plus outer and permission proofs and the trusted owner config
@@ -11,7 +11,7 @@
  * profile that needs one is `capability_missing`, never replaced by an estimate.
  */
 import { createHash } from 'node:crypto';
-import { readFileSync, realpathSync, statSync } from 'node:fs';
+import { accessSync, constants, readFileSync, realpathSync, statSync } from 'node:fs';
 import {
   CapabilityManifestSchema,
   RUNTIME_SCHEMA_VERSION,
@@ -20,7 +20,7 @@ import {
   type SelectedInnerMode,
 } from '../domain/runtime.ts';
 import { ROLE_SCHEMA_DIGESTS, type Role } from '../adapters/harness/result-schema.ts';
-import type { VendorPin } from '../adapters/harness/vendor.ts';
+import { binaryPath, nativeResultFits, type VendorPin } from '../adapters/harness/vendor.ts';
 import type { Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -96,12 +96,6 @@ export function verifyManifest(
     p('integrity', 'manifest_hash does not cover the manifest');
   if (m.vendor !== observed.vendor)
     p('binary', `manifest is for ${m.vendor}, binary is ${observed.vendor}`);
-  if (m.binary.realpath !== observed.binary.realpath)
-    p('binary', `binary moved: ${observed.binary.realpath} is not ${m.binary.realpath}`);
-  if (m.binary.version !== observed.binary.version)
-    p('binary', `binary version ${observed.binary.version} is not the proven ${m.binary.version}`);
-  if (m.binary.digest !== observed.binary.digest)
-    p('binary', 'binary digest changed since the proof');
   if (m.settings_hash !== observed.settings_hash)
     p('settings', 'effective harness settings changed since the proof');
   if (m.environment_hash !== observed.environment_hash)
@@ -118,9 +112,9 @@ export function verifyManifest(
         m.provider === 'host' &&
         m.selected_inner_mode === 'full_access'
       ) &&
-      m.capabilities[k] !== 'proven'
+      m.capabilities[k] === 'unsupported'
     )
-      p('capability', `${k} is ${m.capabilities[k]}, not proven`);
+      p('capability', `${k} is unsupported`);
 
   let inner: SelectedInnerMode = 'native';
   if (m.provider === 'host') {
@@ -139,7 +133,8 @@ export function verifyManifest(
     } else if (m.selected_inner_mode === 'full_access') {
       inner = 'full_access';
       if (m.native_result === 'failed') p('isolation', 'native sandbox was not proven');
-    } else if (m.native_result !== 'passed') p('isolation', 'native sandbox was not proven');
+    } else if (!nativeResultFits(m.vendor, true, m.native_result))
+      p('isolation', 'native sandbox was not proven');
   } else if (m.selected_inner_mode === 'external_verified') {
     inner = 'external_verified';
     if (needs.isolation !== 'allow_external_verified')
@@ -163,7 +158,7 @@ export function verifyManifest(
     p('cost', `cost reporting is ${m.capabilities.cost_reporting}`);
 
   if (problems.length > 0) return err(problems);
-  const resume = needs.resume && m.capabilities.resume === 'proven';
+  const resume = needs.resume && m.capabilities.resume !== 'unsupported';
   return ok({
     manifest_hash: m.manifest_hash,
     inner_mode: inner,
@@ -225,33 +220,41 @@ export function environmentHash(pin: VendorPin): Hash {
   });
 }
 
-/** Observes the pinned binary on disk; a symlinked or moved binary does not match its realpath. */
+/** Resolves the pinned command now: an upgrade in place is what runs next, a missing one is named. */
 export function observeHarness(
   pin: VendorPin,
   settingsHash: Hash,
   hostPolicyHash: Hash,
   digest: (path: string) => Hash = binaryDigest,
 ): Result<ObservedHarness, CapabilityProblem> {
+  const path = binaryPath(pin);
+  const fail = (message: string): Result<ObservedHarness, CapabilityProblem> =>
+    err({ check: 'binary', message });
   let real: string;
+  let found: Hash;
   try {
-    real = realpathSync(pin.binary.realpath);
-  } catch {
-    return err({
-      check: 'binary',
-      message: `binary ${pin.binary.realpath} not found`,
-    });
+    real = realpathSync(path);
+    if (!statSync(real).isFile()) return fail(`binary ${path} is not a file`);
+    accessSync(real, constants.X_OK);
+    found = digest(real);
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code;
+    if (code === 'EACCES') return fail(`binary ${path} is not executable`);
+    if (code !== 'ENOENT') return fail(`cannot read binary ${path}: ${code ?? String(e)}`);
+    // A pin from before `binary.path` keeps only the file the command resolved to then; which command
+    // the owner runs now is not recorded, so nothing else is tried in its place.
+    return fail(
+      pin.binary.path === undefined
+        ? `binary ${path} not found; this pin predates command paths, so set it up once more with cusr-runner setup-harness --force --binary <command>`
+        : `binary ${path} not found; install it, or pin another with cusr-runner setup-harness --force --binary <path>`,
+    );
   }
-  if (`sha256:${pin.binary.sha256}` !== digest(real))
-    return err({
-      check: 'binary',
-      message: 'binary digest differs from the pin',
-    });
   return ok({
     vendor: pin.vendor,
     binary: {
       realpath: real,
       version: pin.binary.version,
-      digest: `sha256:${pin.binary.sha256}`,
+      digest: found,
     },
     settings_hash: settingsHash,
     environment_hash: environmentHash(pin),
@@ -285,8 +288,8 @@ const status = (e: EvidenceEntry, ...names: string[]): 'proven' | 'unknown' =>
     : 'unknown';
 
 /**
- * A manifest from recorded evidence only: a capability is `proven` only when the fixture marks it
- * proven with evidence; everything else stays `unknown`. `cost` says whether the proven usage report
+ * A manifest from recorded evidence only: a capability is `proven` only when the evidence marks it
+ * proven; everything else stays `unknown`. A role schema is left out only when shown unsupported. `cost` says whether the proven usage report
  * carries a cost (Claude) or tokens only (Codex), as the evidence records.
  */
 export function manifestFromEvidence(o: {
@@ -301,7 +304,8 @@ export function manifestFromEvidence(o: {
   const e = o.entry;
   const roleSchemas: Record<string, Hash> = {};
   for (const [role, s] of Object.entries(e.role_schemas))
-    if (status(e, `schema_acceptance_${role}`) === 'proven') roleSchemas[role] = s.digest as Hash;
+    if (e.capabilities[`schema_acceptance_${role}`]?.status !== 'unsupported')
+      roleSchemas[role] = s.digest as Hash;
   const body = {
     schema_version: RUNTIME_SCHEMA_VERSION,
     vendor: e.vendor,

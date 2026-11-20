@@ -57,6 +57,7 @@ import { hashCanonical, hashText } from '../shared/hash.ts';
 import { err, ok } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import type { CommandHandler } from './main.ts';
+import { noHarness } from './handlers.ts';
 
 export { DEPUTY_ACTOR, LOOP_GUARD_ACTOR } from '../domain/deputy.ts';
 
@@ -91,6 +92,8 @@ export type DeputyDeps = {
   readonly clock: Clock;
   readonly newId: () => string;
   readonly harnesses: Readonly<Record<string, HarnessPort>>;
+  /** Why a configured harness has no port: its records did not load at start. */
+  readonly harness_problems?: Readonly<Record<string, string>>;
   /** The `deputy` role as configured now (or the legacy `decider` one); null when there is none. */
   readonly setting: () => Promise<DeputySetting | null>;
   /** The owner's `autonomous` flag now, which routes the worker's questions (FR-003). */
@@ -562,7 +565,11 @@ export function createDeputy(deps: DeputyDeps): Deputy {
     if (harness === undefined) {
       await close(
         next,
-        { kind: 'handed_off', reason: 'no_harness', detail: `no harness ${input.binding.harness}` },
+        {
+          kind: 'handed_off',
+          reason: 'no_harness',
+          detail: noHarness(input.binding.harness, deps.harness_problems),
+        },
         null,
       );
       return;
@@ -615,7 +622,7 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         {
           kind: 'handed_off',
           reason: 'no_harness',
-          detail: `no harness ${record.input.binding.harness}`,
+          detail: noHarness(record.input.binding.harness, deps.harness_problems),
         },
         null,
       );
@@ -711,11 +718,11 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         store.deputy.finishTurn(turnId, {
           state: 'handed_off',
           handoff_reason: 'no_harness',
-          final_message: `no harness ${setting.harness}`,
+          final_message: noHarness(setting.harness, deps.harness_problems),
           now,
         });
       version += 1;
-      log(`task ${s.id}: no harness ${setting.harness}`);
+      log(`task ${s.id}: ${noHarness(setting.harness, deps.harness_problems)}`);
       return;
     }
     const baseline = await deps.worktree.baseline(s.id);
@@ -868,11 +875,11 @@ export function createDeputy(deps: DeputyDeps): Deputy {
         store.deputy.finishTurn(turnId, {
           state: 'handed_off',
           handoff_reason: 'no_harness',
-          final_message: `no harness ${setting.harness}`,
+          final_message: noHarness(setting.harness, deps.harness_problems),
           now,
         });
       version += 1;
-      log(`goal ${g.id}: no harness ${setting.harness}`);
+      log(`goal ${g.id}: ${noHarness(setting.harness, deps.harness_problems)}`);
       return;
     }
     const built = finish(
@@ -1028,6 +1035,8 @@ export function createDeputy(deps: DeputyDeps): Deputy {
       if (configured === false || (s.pause ?? null) !== null) return false;
       if (route(s) !== 'deputy') return false;
       if (store.deputy.runningTurn(s.id) !== null) return true;
+      // Turns start only on WAITING (`due`); a PENDING preflight failure is never the deputy's to take.
+      if (s.status !== 'WAITING') return false;
       // A turn that ended at this incident, or could not start, gave it to the owner.
       const incident = incidentOf(s);
       return incident !== null && !handedBack.has(incident) && endedTurnFor(s) === null;

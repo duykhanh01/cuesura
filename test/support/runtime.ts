@@ -137,7 +137,12 @@ export function createGrantStart(
   // tasks in flight run as with a large `runtime.concurrency`; slot tests pass the capacity they test.
   capacity = MAX_CONCURRENCY,
 ): string {
-  d.must(task.id, { kind: 'create_task', task });
+  // A task an assistant added is taken as the user's `intake.auto_confirm` would.
+  d.must(task.id, {
+    kind: 'create_task',
+    task,
+    ...(task.requested_by.kind === 'human' ? {} : { intake_auto_confirm: true as const }),
+  });
   proposeAndConfirm(d, task, selectionFor(task, mode));
   d.must(task.id, { kind: 'request_execution' });
   const g = d.store.grantNext(d.now as never, [], { capacity });

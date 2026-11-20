@@ -9,6 +9,7 @@
 import { randomUUID } from 'node:crypto';
 import {
   appendFileSync,
+  chmodSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -33,6 +34,8 @@ import {
   type ProcessPort,
 } from '../../../src/adapters/ports.ts';
 import { sessionFor } from '../../../src/daemon/handlers.ts';
+import { manifestHash } from '../../../src/application/capabilities.ts';
+import type { CapabilityManifest } from '../../../src/domain/runtime.ts';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
 import { InvocationUnknown, OUTCOME_FILE, RunnerHarness } from '../../../src/runner/invocation.ts';
 import { homeSecretValues, readInstalledAuth } from '../../../src/runner/private-home.ts';
@@ -293,17 +296,21 @@ describe('six role × vendor runs through the real runner lifecycle', () => {
 describe('admission before every attempt (T070)', () => {
   const attempt = 's0-claude-coder-1793172185';
 
-  it('a binary changed on disk since the proof is capability_missing and nothing launches', async () => {
+  it('a binary upgraded in place runs; one that cannot run is capability_missing before launch', async () => {
     const e = env('claude', attempt);
     const h = harness(e);
     appendFileSync(e.pin.binary.realpath, '\n// changed\n');
-    const out = await h.run(input('claude', 'coder'), signal());
+    expect((await h.run(input('claude', 'coder'), signal())).kind).toBe('result');
+    expect(e.proc.launches).toHaveLength(1);
+    chmodSync(e.pin.binary.realpath, 0o644);
+    const out = await h.run(input('claude', 'coder', { attempt_id: randomUUID() }), signal());
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
+      detail: expect.stringContaining('is not executable') as string,
       invoked: false,
     });
-    expect(e.proc.launches).toHaveLength(0);
+    expect(e.proc.launches).toHaveLength(1);
   });
 
   it('changed settings, environment or host policy block the next attempt', async () => {
@@ -380,14 +387,20 @@ describe('admission before every attempt (T070)', () => {
     expect(coder.kind).not.toBe('failure');
   });
 
-  it('a manifest without proven structured output or permission enforcement is refused', async () => {
+  it('a capability not shown is used; one shown unsupported is refused', async () => {
     const e = env('codex', 's0-codex-coder-1793178479');
     const m = evidenceManifest(e.pin, {
       capabilities: {
         structured_output: { status: 'unknown', evidence: null },
       },
     });
-    const out = await harness(e, { manifest: m }).run(input('codex', 'coder'), signal());
+    expect(m.capabilities.structured_output).toBe('unknown');
+    expect((await harness(e, { manifest: m }).run(input('codex', 'coder'), signal())).kind).toBe(
+      'result',
+    );
+    const out = await harness(e, {
+      manifest: withCapabilities(m, { structured_output: 'unsupported' }),
+    }).run(input('codex', 'coder', { attempt_id: randomUUID() }), signal());
     expect(out).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
@@ -543,6 +556,32 @@ describe('run outcomes', () => {
     });
   });
 
+  it('a login refused before any record is auth, from stderr', async () => {
+    const e = env('claude', 's0-claude-coder-1793172185', 'login_expired');
+    const out = await harness(e).run(input('claude', 'coder'), signal());
+    expect(out).toMatchObject({
+      kind: 'failure',
+      failure: 'auth',
+      detail: expect.stringContaining('Please run /login') as string,
+      invoked: true,
+    });
+  });
+
+  it('a CLI that says it cannot start its sandbox is capability_missing, not a retried exit', async () => {
+    const e = env('claude', 's0-claude-coder-1793172185', 'sandbox_broken');
+    expect(await harness(e).run(input('claude', 'coder'), signal())).toMatchObject({
+      kind: 'failure',
+      failure: 'capability_missing',
+      detail: expect.stringContaining('sandbox could not be initialized') as string,
+    });
+    // Any other failed exit stays the generic, retried one.
+    const other = env('claude', 's0-claude-coder-1793172185', 'exit1');
+    expect(await harness(other).run(input('claude', 'coder'), signal())).toMatchObject({
+      kind: 'failure',
+      failure: 'process_failed',
+    });
+  });
+
   it('codex without its output file is missing_output, not the agent message', async () => {
     const e = env('codex', 's0-codex-coder-1793178479', 'no_output');
     const out = await harness(e).run(input('codex', 'coder'), signal());
@@ -652,17 +691,23 @@ describe('worker content and reviewer input (T076)', () => {
 });
 
 describe('sessions (T138)', () => {
-  it('a session is passed only when resume is proven; otherwise the attempt is refused before launch', async () => {
+  it('a session resumes unless the manifest marks resume unsupported', async () => {
     const e = env('claude', 's0-claude-fixer-1793173414');
-    const unproven = await harness(e).run(
-      input('claude', 'fixer', { session: { ref: 'sess-1' } }),
-      signal(),
-    );
-    expect(unproven).toMatchObject({
+    const unsupported = await harness(e, {
+      manifest: withCapabilities(evidenceManifest(e.pin), { resume: 'unsupported' }),
+    }).run(input('claude', 'fixer', { session: { ref: 'sess-1' } }), signal());
+    expect(unsupported).toMatchObject({
       kind: 'failure',
       failure: 'capability_missing',
       invoked: false,
     });
+    const unknown = await harness(e).run(
+      input('claude', 'fixer', { session: { ref: 'sess-1' }, attempt_id: randomUUID() }),
+      signal(),
+    );
+    expect(harness(e).manifest.capabilities.resume).toBe('unknown');
+    expect(unknown.kind).toBe('result');
+    expect(e.proc.launches.at(-1)?.argv.join(' ')).toContain('--resume sess-1');
     const proven = evidenceManifest(e.pin, {
       capabilities: {
         ...evidenceManifestEntry('claude').capabilities,
@@ -673,7 +718,7 @@ describe('sessions (T138)', () => {
       },
     });
     const out = await harness(e, { manifest: proven }).run(
-      input('claude', 'fixer', { session: { ref: 'sess-1' } }),
+      input('claude', 'fixer', { session: { ref: 'sess-1' }, attempt_id: randomUUID() }),
       signal(),
     );
     expect(out.kind).toBe('result');
@@ -684,11 +729,16 @@ describe('sessions (T138)', () => {
     const e = env('codex', 's0-codex-fixer-1793173505');
     const thread = '01a1b7dd-6b52-7760-9e52-1f0d49d39970';
     const h = harness(e);
-    // Unproven: the handler asks for no session, and a session passed anyway is refused before launch.
-    expect(sessionFor({ resume: { session_ref: thread } }, h).session).toBeNull();
-    const unproven = await h.run(input('codex', 'fixer', { session: { ref: thread } }), signal());
-    expect(unproven).toMatchObject({ kind: 'failure', failure: 'capability_missing' });
-    expect(e.proc.launches).toHaveLength(0);
+    // Not shown either way: the handler still resumes; only a harness that cannot resume starts fresh.
+    expect(h.manifest.capabilities.resume).toBe('unknown');
+    expect(sessionFor({ resume: { session_ref: thread } }, h).session).toEqual({ ref: thread });
+    const fresh = harness(e, {
+      manifest: withCapabilities(evidenceManifest(e.pin), { resume: 'unsupported' }),
+    });
+    expect(sessionFor({ resume: { session_ref: thread } }, fresh)).toMatchObject({
+      session: null,
+      fallback: 'resume_unsupported',
+    });
 
     const from = 'codex-previous';
     const rollout = `private-home/.codex/sessions/2026/11/08/rollout-2026-11-08T04-15-03-${thread}.jsonl`;
@@ -722,6 +772,14 @@ describe('sessions (T138)', () => {
     expect(e.proc.launches.at(-1)?.argv).not.toContain('resume');
   });
 });
+
+function withCapabilities(
+  m: CapabilityManifest,
+  over: Partial<CapabilityManifest['capabilities']>,
+): CapabilityManifest {
+  const { manifest_hash: _old, ...body } = { ...m, capabilities: { ...m.capabilities, ...over } };
+  return { ...body, manifest_hash: manifestHash(body) };
+}
 
 function evidenceManifestEntry(vendor: 'claude' | 'codex'): {
   capabilities: Record<string, { status: string; evidence: string | null }>;

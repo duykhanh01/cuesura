@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { claudeAdapter } from '../../../src/adapters/harness/claude.ts';
 import { codexAdapter } from '../../../src/adapters/harness/codex.ts';
-import { FakeHarness } from '../../../src/adapters/harness/fake.ts';
+import { FakeHarness, type FakeStep } from '../../../src/adapters/harness/fake.ts';
 import {
   ROLE_SCHEMA_DIGESTS,
   wireRoleSchema,
@@ -336,6 +336,111 @@ describe('an interactive turn ends through the Stop hook (FR-013)', () => {
 describe('a stalled interactive run goes on headless in the same session and turn (FR-011, SC-003)', () => {
   const tmp = useTempDir('cusr-turn-end-daemon-');
   let ids = 97_000;
+
+  const begin = (steps: readonly FakeStep[], setting = FAKE_DEPUTY) => {
+    const dir = tmp();
+    const d = new StoreDriver(openFileStoreForTest(dbPath(dir)));
+    const t = buildTask({ id: uuidOf(ids++) });
+    createGrantStart(d, t, 'direct-pr', { limits: { max_wall_ms: 48 * 3_600_000 } });
+    const failed = { ...PREPARE_DATA, setup: { ran: true, passed: false } };
+    for (let i = 0; i < 12 && d.task(t.id).wait?.detail.code !== 'backoff_exhausted'; i++) {
+      d.complete(t.id, d.pendingOne(t.id, 'prepare').id, 'succeeded', failed);
+      d.now += 300_000;
+      d.fire();
+    }
+    const harness = new FakeHarness({ deputy: steps }, 'fake', { interactive: true });
+    const deputy = createDeputy({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      newId: () => uuidOf(ids++),
+      harnesses: { fake: harness },
+      setting: () => Promise.resolve(setting),
+      autonomous: () => Promise.resolve(false),
+      cwd: '/cusr-data',
+      worktreePath: (id) => `/cusr-data/worktrees/${id}`,
+      worktree: NO_WORKTREE,
+      recordsDir: join(dir, 'deputy'),
+      dataDir: dir,
+      redactor: new Redactor({ values: [] }),
+    });
+    return { d, t, harness, deputy };
+  };
+
+  it('a native session that ended for no known reason is a counted infra failure; its headless retry reads why', async () => {
+    // A terminal keeps its stderr, so a native exit says nothing more than its code.
+    const { d, t, harness, deputy } = begin([
+      {
+        kind: 'failure',
+        failure: 'process_failed',
+        session_ref: null,
+        detail: 'session ended without a turn end (exited 1)',
+      },
+      {
+        kind: 'failure',
+        failure: 'capability_missing',
+        detail: 'sandbox could not be initialized',
+      },
+    ]);
+    await deputy.round();
+    await deputy.idle();
+    const waiting = d.store.deputy.runningTurn(t.id);
+    expect(waiting).toMatchObject({ state: 'retry_wait', infra_failures: 1 });
+    d.now = Math.max(d.now, waiting?.retry_at ?? d.now);
+    await deputy.round();
+    await deputy.idle();
+    expect(harness.calls[1]?.interactive).toBeFalsy();
+    // A startup failure the runner identifies is the owner's, not one more retry.
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'capability',
+    });
+    expect(harness.calls).toHaveLength(2);
+  });
+
+  it.each([
+    ['auth', 'Invalid API key · Please run /login', 'auth'],
+    [
+      'capability_missing',
+      'the Claude sandbox cannot start here: bwrap: Permission denied',
+      'capability',
+    ],
+  ] as const)(
+    'with no infra retry left, a native session the runner found stopped by %s goes to the owner with its cause',
+    async (failure, detail, reason) => {
+      // What the runner reports once it read the CLI's own session or probed bubblewrap (T1-R05).
+      const { d, t, harness, deputy } = begin([{ kind: 'failure', failure, detail }], {
+        ...FAKE_DEPUTY,
+        infra_retries: 0,
+      });
+      await deputy.round();
+      await deputy.idle();
+      expect(harness.calls).toHaveLength(1);
+      const turn = d.store.deputy.turnsOf({ task_id: t.id })[0];
+      expect(turn).toMatchObject({ state: 'handed_off', handoff_reason: reason });
+      expect(turn?.final_message).toContain(detail);
+    },
+  );
+
+  it('with no infra retry left, an unexplained native exit stops at the limit without another run', async () => {
+    const { d, t, harness, deputy } = begin(
+      [
+        {
+          kind: 'failure',
+          failure: 'process_failed',
+          session_ref: null,
+          detail: 'session ended without a turn end (exited 1)',
+        },
+      ],
+      { ...FAKE_DEPUTY, infra_retries: 0 },
+    );
+    await deputy.round();
+    await deputy.idle();
+    expect(harness.calls).toHaveLength(1);
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'infra_cap',
+    });
+  });
 
   it('resumes at once, headless, without counting an infra failure', async () => {
     const dir = tmp();

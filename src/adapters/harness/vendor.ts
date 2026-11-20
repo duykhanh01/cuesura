@@ -34,6 +34,9 @@ export const VendorPinSchema = z
     binary: z
       .object({
         realpath: AbsPath,
+        /** The command as the owner gave it, resolved at each launch; absent in pins written before it. */
+        path: AbsPath.optional(),
+        /** Observed when the pin was written, for diagnostics; no launch depends on them. */
         version: z.string().min(1),
         sha256: z.string().regex(/^[0-9a-f]{64}$/),
       })
@@ -76,6 +79,9 @@ export type VendorPin = z.infer<typeof VendorPinSchema>;
  * the worktree, so it alone keeps the read-only boundary, still named `reviewer` so proven settings
  * hashes and layout shapes stay valid.
  */
+/** What a launch runs: an upgrade in place of the command needs no new pin. */
+export const binaryPath = (pin: VendorPin): string => pin.binary.path ?? pin.binary.realpath;
+
 export function boundaryRole(role: Role): Exclude<Role, 'decider' | 'deputy'> {
   if (role === 'decider') return 'reviewer';
   // The deputy has the harness's full tools; the daemon puts its worktree back after the turn (FR-017).
@@ -94,6 +100,21 @@ export function nativeSandboxEnabled(
   if (pin.vendor === 'codex') return pin.permission_mode !== 'full-access';
   const sandbox = pin.settings?.['sandbox'];
   return isRec(sandbox) && sandbox['enabled'] === true;
+}
+
+/**
+ * Whether a manifest's native result fits this pin. A Codex sandbox is run at setup without a model, so it
+ * must have passed. A Claude sandbox shows only in a model run: it may stay `not_tried`, never claimed
+ * passed, because every native launch carries `failIfUnavailable` and no unsandboxed retry, so a sandbox
+ * that cannot start fails that run instead of running without it.
+ */
+export function nativeResultFits(
+  vendor: string,
+  sandbox: boolean,
+  result: 'passed' | 'failed' | 'not_tried',
+): boolean {
+  if (!sandbox) return result === 'not_tried';
+  return result === 'passed' || (vendor === 'claude' && result === 'not_tried');
 }
 
 /** The host manifest records permissions-only execution separately from native sandbox proof. */
@@ -125,7 +146,7 @@ export type VendorPlanInput = {
   readonly inner_mode: SelectedInnerMode;
   /** Direct host execution: the harness owns permissions and its native sandbox. */
   readonly host_execution?: boolean;
-  /** Only passed when the manifest proved resume for this binary; see `resume_supported`. */
+  /** Not passed when the manifest marks resume unsupported; see `resume_supported`. */
   readonly session: { readonly ref: string } | null;
   readonly max_turns?: number | null;
   /** Directories the harness's file tools must not edit, where the harness has path rules (FR-053). */
@@ -334,6 +355,9 @@ const RATE_LIMITED_TEXT = /\b429\b|rate.?limit|too many requests/i;
 // An expired or revoked login is a person's fix, never a retry: each retry fails the same way.
 const AUTH_TEXT =
   /\b40[13]\b|unauthori[sz]ed|forbidden|not logged in|invalid api key|failed to authenticate|authentication[ _](?:failed|error|required)|oauth (?:session|token)|(?:session|token) (?:has )?expired|could not be refreshed|refresh token|invalid_grant|please (?:run \/login|log ?in|sign in)/i;
+/** A CLI that says it cannot start its sandbox or itself: the owner's fix, never an infra retry. */
+export const STARTUP_TEXT =
+  /sandbox\b[^\n]{0,40}\b(?:could not|cannot|can't|failed to|unable to)\b[^\n]{0,20}\b(?:be )?(?:initiali[sz]ed?|start(?:ed)?|created?)|sandbox\b[^\n]{0,20}\b(?:is )?(?:unavailable|not available|not supported)|\bbwrap: [^\n]*(?:operation not permitted|permission denied|no permissions)|cannot execute binary file|exec format error/i;
 const OVERLOADED_TEXT =
   /\b(?:50[0234]|529)\b|overloaded|at capacity|server is busy|temporarily unavailable|service unavailable|internal server error|bad gateway|gateway time-?out/i;
 

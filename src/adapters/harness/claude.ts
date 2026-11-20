@@ -17,6 +17,7 @@ import type { EpochMs } from '../../shared/brand.ts';
 import type { Usage } from '../../domain/trigger.ts';
 import type { PermissionDenial } from '../ports.ts';
 import {
+  binaryPath,
   bypassToken,
   hostInnerMode,
   nativeSandboxEnabled,
@@ -182,7 +183,7 @@ function plan(pin: VendorPin, input: VendorPlanInput): PlanResult {
   const caps = [input.max_turns, pin.max_turns].filter((v): v is number => typeof v === 'number');
   const maxTurns = caps.length === 0 ? null : Math.min(...caps);
   const argv = [
-    pin.binary.realpath,
+    binaryPath(pin),
     '-p',
     '--verbose',
     ...(maxTurns === null ? [] : ['--max-turns', String(maxTurns)]),
@@ -250,7 +251,7 @@ function interactive(
     return { ok: false, error: { code: 'policy_violation', message: 'prompt reads as an option' } };
   const session = input.session?.ref ?? extra.new_session;
   const argv = [
-    pin.binary.realpath,
+    binaryPath(pin),
     '--model',
     input.model,
     ...(input.effort === null ? [] : ['--effort', input.effort]),

@@ -38,6 +38,8 @@ const WAKE_SESSION = 2;
 const HOOK_FILE = 'assistant-hook.json';
 /** One per replaced session, so hooks of different sessions never write the same file. */
 const MOVED_FILE_PREFIX = 'assistant-moved-told.';
+/** The hook parked for a session's own launch failures, by session. */
+const ORIGIN_FILE_PREFIX = 'assistant-origin-hook.';
 
 function movedToldFile(dataDir: string, session: string): string {
   return join(dataDir, `${MOVED_FILE_PREFIX}${encodeURIComponent(session)}`);
@@ -125,6 +127,18 @@ Examples:
         mode = 'resume';
         downSince = null;
         if (data.items.length > 0) return print(r, json, io);
+      } else if (
+        (r.error.code === 'attention_held' || r.error.code === 'attention_superseded') &&
+        assistantSession() !== null
+      ) {
+        // Another session holds the lease: this one still hears its own tasks' launch failures (T1-R03).
+        const own = await waitOrigin(values, ownerAlive, deadline);
+        if (own === null) return print(r, json, io);
+        const code = print(own.envelope, json, io);
+        // Confirmed only once printed: a wait stopped before that is told the same failure again.
+        if (own.ack.length > 0)
+          await queryDaemon(values, { kind: 'assistant_origin', ack: own.ack });
+        return code;
       } else if (!unreachable(r.error.code)) return print(r, json, io);
       else {
         // A restart is not news: the lease resumes on the first poll after it. A daemon that stays down is.
@@ -145,6 +159,40 @@ Examples:
 
 /** Claude Code waits for this hook while the session opens. */
 const PEEK_TIMEOUT_MS = 2_000;
+
+/** The confirmation a pi session sends back for launch failures told by the originating channel. */
+const ORIGIN_PREFIX = 'origin:';
+
+type Origin = {
+  readonly items: readonly AttentionItem[];
+  readonly keys: readonly string[];
+  readonly live: number;
+};
+
+/**
+ * Waits for a launch failure of a task this session added while another session holds the lease, with the
+ * keys to confirm once it is printed. Null when this session has no live task, so the lease error stands.
+ */
+async function waitOrigin(
+  values: Readonly<Record<string, string | undefined>>,
+  ownerAlive: () => boolean,
+  deadline: number,
+): Promise<{ readonly envelope: Envelope; readonly ack: readonly string[] } | null> {
+  const none = (envelope: Envelope) => ({ envelope, ack: [] });
+  for (let first = true; ; first = false) {
+    if (!ownerAlive()) return none(okEnvelope({ items: [], origin: true }));
+    const r = await queryDaemon(values, { kind: 'assistant_origin' });
+    if (r.ok) {
+      const data = r.data as Origin;
+      if (data.items.length > 0)
+        return { envelope: okEnvelope({ items: data.items, origin: true }), ack: data.keys };
+      if (data.live === 0) return first ? null : none(okEnvelope({ items: [], origin: true }));
+    } else if (!unreachable(r.error.code)) return first ? null : none(r);
+    const left = deadline - Date.now();
+    if (left <= 0) return none(okEnvelope({ items: [], origin: true, timed_out: true }));
+    await sleep(Math.min(POLL_MS, left));
+  }
+}
 
 export const assistantRegisterCommand: CliCommand = {
   name: 'assistant register',
@@ -305,6 +353,8 @@ export type StopHookDeps = {
   readonly deliver: (note: string, lease: string) => Promise<Delivery>;
   /** Tells the daemon this replaced session got the note that the lease moved. */
   readonly ackMoved: () => Promise<Envelope>;
+  /** This session's own launch failures (`assistant_origin`), confirming `ack`; absent: not asked. */
+  readonly origin?: (ack: readonly string[]) => Promise<Envelope>;
 };
 
 function readHookState(file: string): HookState | null {
@@ -324,6 +374,19 @@ function writeHookState(file: string, state: HookState): void {
 /** Item codes of a task that ended (`ENDED_CODES` in the daemon); kept here so the hook loads no daemon code. */
 const ENDED = new Set(['done', 'failed', 'cancelled']);
 
+/** Fixed text for a harness that could not run, so the note itself says what failed and how it is fixed. */
+const LAUNCH_HINTS: Readonly<Record<string, (id: string) => string>> = {
+  harness_auth: (id) =>
+    `the harness login expired or was refused; the user signs in again on the daemon host, then cusr task recheck ${id}`,
+  auth_config: (id) =>
+    `a credential or setup problem stopped a step (a harness not installed, not executable or not set up, say); cusr task explain ${id} names the cause and the fix`,
+  capability_missing: (id) =>
+    `a harness this task needs cannot run here; cusr task explain ${id} names the cause and the fix`,
+};
+
+const DEPUTY_LAUNCH_HINT = (id: string): string =>
+  `the deputy's harness could not run (not installed, not set up or signed out), so it handed the task over; cusr task explain ${id} names the cause and the fix`;
+
 /** IDs and fixed codes only: a title or question is worker text, and this reaches the model unasked. */
 export function wakeNote(items: readonly AttentionItem[], truncated: boolean): string {
   const list = (xs: readonly AttentionItem[]) =>
@@ -331,10 +394,20 @@ export function wakeNote(items: readonly AttentionItem[], truncated: boolean): s
   const waits = items.filter((i) => !ENDED.has(i.code));
   const ended = items.filter((i) => ENDED.has(i.code));
   const more = truncated ? ', and more' : '';
+  const launch = waits.flatMap((i) => {
+    const hint =
+      i.launch === undefined
+        ? undefined
+        : i.deputy !== undefined && i.code !== i.launch
+          ? DEPUTY_LAUNCH_HINT
+          : LAUNCH_HINTS[i.launch];
+    return hint === undefined ? [] : [`${i.task_id}: ${hint(i.task_id)}.`];
+  });
   const parts = [
     ...(waits.length > 0
       ? [
           `cusr: tasks need the user: ${list(waits)}${more}. Read them with cusr inbox and cusr task explain, then relay them to the user.`,
+          ...launch,
         ]
       : []),
     ...(ended.length > 0
@@ -344,6 +417,63 @@ export function wakeNote(items: readonly AttentionItem[], truncated: boolean): s
       : []),
   ];
   return `${parts.join(' ')} This note approves nothing.\n`;
+}
+
+/**
+ * A session that does not hold the lease parks for the launch failures of the tasks it added (T1-R03), and
+ * only while it has one live: the holder's news is not its to hear or confirm.
+ */
+async function parkForOrigin(d: StopHookDeps): Promise<number> {
+  if (d.origin === undefined) return ExitCode.ok;
+  // A hook starts on every Stop: the newest one parks, so a failure wakes the session once.
+  const file = join(d.dataDir, `${ORIGIN_FILE_PREFIX}${encodeURIComponent(d.session)}`);
+  writeFileSync(file, String(d.pid), { mode: 0o600 });
+  const mine = (): boolean => {
+    try {
+      return readFileSync(file, 'utf8') === String(d.pid);
+    } catch {
+      return false;
+    }
+  };
+  try {
+    return await originLoop({ ...d, origin: d.origin }, mine);
+  } finally {
+    if (mine()) rmSync(file, { force: true });
+  }
+}
+
+async function originLoop(
+  d: StopHookDeps & { readonly origin: NonNullable<StopHookDeps['origin']> },
+  mine: () => boolean,
+): Promise<number> {
+  const end = d.now() + d.parkMs;
+  let retryAt = 0;
+  let retryWait = RETRY_MIN_MS;
+  for (let reached = false; ; reached = true) {
+    if (!mine() || !d.ownerAlive() || registeredSession(d.dataDir) === d.session)
+      return ExitCode.ok;
+    const r = await d.origin([]);
+    // No daemon to ask at the start: nothing is known to wait for, as before this channel existed.
+    if (!r.ok && !reached) return ExitCode.ok;
+    if (r.ok) {
+      const data = r.data as Origin;
+      if (data.items.length > 0 && d.now() >= retryAt) {
+        const sent = await d.deliver(
+          wakeNote(data.items, false),
+          `${ORIGIN_PREFIX}${data.keys.join(',')}`,
+        );
+        if (sent.confirmed || sent.exit !== ExitCode.ok) {
+          if (sent.confirmed) await d.origin(data.keys);
+          return sent.exit;
+        }
+        // A failed codex queue: no Stop follows in an idle session, so keep parking and try again.
+        retryAt = d.now() + retryWait;
+        retryWait = Math.min(2 * retryWait, RETRY_MAX_MS);
+      } else if (data.live === 0) return ExitCode.ok;
+    } else if (!unreachable(r.error.code)) return ExitCode.ok;
+    if (d.now() + POLL_MS > end) return ExitCode.ok;
+    await d.sleep(POLL_MS);
+  }
 }
 
 export function unreachableNote(dataDir: string): string {
@@ -358,7 +488,7 @@ export const MOVED_TOKEN = 'lease-moved';
 export const DOWN_TOKEN = 'daemon-down';
 
 export const LEASE_MOVED_NOTE =
-  'cusr: another session took the assistant lease; this session no longer gets task news. Run cusr assistant register --take only if the user asks to move it back.\n';
+  'cusr: another session took the assistant lease; this session no longer gets task news, except a harness that could not run a task it added. Run cusr assistant register --take only if the user asks to move it back.\n';
 
 /**
  * Parks for one Stop of the registered session. The harness runs this in the background, so the user can
@@ -402,7 +532,15 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
   };
   // A record left from an earlier replacement must not silence the next one.
   if (!replaced()) rmSync(toldFile, { force: true });
-  if (registeredSession(d.dataDir) !== d.session) return replaced() ? tellMoved() : ExitCode.ok;
+  if (d.confirm?.startsWith(ORIGIN_PREFIX) === true)
+    await d.origin?.(d.confirm.slice(ORIGIN_PREFIX.length).split(','));
+  if (registeredSession(d.dataDir) !== d.session) {
+    if (replaced()) {
+      const exit = await tellMoved();
+      if (exit !== ExitCode.ok) return exit;
+    }
+    return parkForOrigin(d);
+  }
   const file = join(d.dataDir, HOOK_FILE);
   const ownState = (): HookState | null => {
     const now = readHookState(file);
@@ -419,7 +557,12 @@ export async function runStopHook(d: StopHookDeps): Promise<number> {
   }
   if (own?.retired === true) return ExitCode.ok;
   // Coming back with the lease of the last wake confirms that wake arrived.
-  const confirm = d.confirm === DOWN_TOKEN || d.confirm === MOVED_TOKEN ? undefined : d.confirm;
+  const confirm =
+    d.confirm === DOWN_TOKEN ||
+    d.confirm === MOVED_TOKEN ||
+    d.confirm?.startsWith(ORIGIN_PREFIX) === true
+      ? undefined
+      : d.confirm;
   let lease = confirm ?? own?.lease ?? d.session;
   let told = own?.unreachable === true || d.confirm === DOWN_TOKEN;
   const save = (pid: number | null, reached: string, delivering = false): void =>
@@ -676,6 +819,13 @@ Codex needs "async": true, and the pi extension from cusr init starts this itsel
       ...(values['confirm'] === undefined ? {} : { confirm: values['confirm'] }),
       deliver: deliverer(harness, session, owner, io),
       ackMoved: () => queryDaemon(values, { kind: 'assistant_moved_ack', session }),
+      origin: (ack) =>
+        queryDaemon(
+          values,
+          { kind: 'assistant_origin', ...(ack.length === 0 ? {} : { ack }) },
+          undefined,
+          session,
+        ),
     });
   },
 };

@@ -49,47 +49,31 @@ biến này để gọi như owner là quy tắc, không phải giới hạn k�
 
 ## Cài đặt lần đầu (người dùng)
 
-1. Setup từng harness: ghi pin, chứng minh rồi ghi manifest bằng một lệnh. Bước chứng minh gọi model thật
-   và tốn usage; chuẩn bị credential/rule/settings theo [runbook](../deploy/README.md#harness-thật-pin-và-manifest):
+1. Setup từng harness: ghi pin rồi ghi manifest bằng một lệnh, **không gọi model**; chuẩn bị
+   credential/settings theo [runbook](../deploy/README.md#harness-thật-pin-và-manifest):
 
    ```sh
    cd ~/cuesura-dogfood
    cusr-runner setup-harness --config config.yaml --data-dir data --harness claude \
      --vendor claude --binary "$(command -v claude)" \
      --toolchain "$PWD/tools/node/bin" --auth claude-0:.claude/.credentials.json \
-     --settings claude-settings.json --permission-mode auto --sandbox off \
-     --model claude-haiku-5-5 --effort low \
-     --out evidence-claude.json
+     --settings claude-settings.json --permission-mode auto --sandbox off
    ```
 
    Thay `claude-0` bằng tên credential đã khai trong config và dùng đường dẫn toolchain canonical trên host.
-   Thêm `--dry-run` để xem `invocations_spent` và `invocations_needed`, không gọi model hoặc ghi pin,
-   evidence, manifest hay ledger. `--approval` (ghi vào ledger, mặc định `owner command`) và
-   `--max-invocations` (trần tổng số lượt cho cùng binary, tính cả lượt đã có trong ledger) là tùy chọn;
-   không truyền cap thì không giới hạn. Lệnh kiểm đầy đủ kế hoạch proof (và cap nếu có) trước khi ghi pin; preflight bị từ chối giữ nguyên pin/manifest cũ, kể cả có `--force`.
-   Pin đã có cần `--force` để thay thế khi chạy thật; dry-run không cần cờ này và báo `pin_exists`
-   để biết trước trạng thái pin. Proof vẫn kiểm lại ledger nếu usage thay đổi sau preflight.
-   Bước nào lỗi thì dừng ngay và nêu tên bước; proof thất bại không ghi manifest.
-   Dùng `--from prove-harness` để chạy lại proof với pin đã ghi, không pin lại;
-   dùng `--from record-manifest --out <evidence.json>` nếu chỉ bước ghi manifest lỗi. Bước này kiểm
-   evidence có sẵn, không gọi model và không cần model/approval/cap/force. Config được nạp một lần
-   cho cả luồng để các bước dùng cùng cấu hình.
+   Thêm `--dry-run` để kiểm như thật mà không ghi gì; kết quả báo `native_result` và `pin_exists`. Pin đã có cần `--force`
+   để thay. Binary chưa cài thì lệnh báo lỗi ở bước `write-pin`. Bước nào lỗi thì dừng ngay và nêu tên bước.
+   Dùng `--from record-manifest` để ghi lại manifest với pin đã ghi, ví dụ sau khi thêm role `deputy`.
 
-   Proof chạy năm role `coder`, `fixer`, `reviewer`, `decider`, `deputy`, tốn 5 lượt cho mỗi harness
-   (thêm `--prove-resume` thì cần 6 lượt). `--model` và `--effort` áp dụng chung cho cả năm role.
-   Chạy lại với cùng `--out` chỉ chứng minh role mà evidence ở đó còn thiếu hoặc không còn hợp lệ, ví dụ bật
-   deputy trên harness đã chứng minh chỉ tốn 1 lượt; trọn luồng ở [Bật deputy](../deploy/README.md#bat-deputy).
-   Proof chỉ kiểm quyền và sandbox native, xác thực và các thao tác cơ học của role, không kiểm chất lượng code,
-   nên dùng model rẻ nhất với effort `low`; model của proof không cần trùng model role dùng khi chạy task.
+   Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"` và auth/rules Codex
+   tương ứng; bỏ các cờ riêng Claude (`--settings`, `--sandbox`). Setup Codex chạy `codex sandbox` (không gọi
+   model) để kiểm sandbox thật. Manifest không gắn với version CLI hay model: nâng cấp CLI tại chỗ không cần setup
+   lại. Harness không gọi được (chưa đăng nhập, hết phiên, binary bị gỡ) lộ ra ở lượt agent: task chờ
+   `harness_auth` hoặc `auth_config` kèm lỗi và assistant đã đăng ký được báo
+   ([runbook](../deploy/README.md#harness-thật-pin-và-manifest)).
 
-   Lặp lại cho Codex với `--harness codex --vendor codex --binary "$(command -v codex)"`,
-   `--model gpt-6-luna --effort low`, auth/rules Codex tương ứng và `--out evidence-codex.json`;
-   bỏ các cờ riêng Claude (`--settings`, `--sandbox`). Manifest gắn với binary và pin, không gắn
-   với model, nên các model còn lại trong bảng [Chọn model](#chọn-model) chạy được mà chưa có lượt chứng minh
-   riêng. Coi task đầu tiên của mỗi model là lần kiểm thật của nó.
-
-   Ba lệnh `write-pin`, `prove-harness`, `record-manifest` vẫn dùng được riêng để gỡ lỗi hoặc chạy lại
-   từ bước lỗi; xem [runbook](../deploy/README.md#harness-thật-pin-và-manifest).
+   Hai lệnh `write-pin`, `record-manifest` vẫn dùng được riêng; xem
+   [runbook](../deploy/README.md#harness-thật-pin-và-manifest).
 
 2. Bật daemon theo [mẫu service](../deploy/README.md#chạy-daemon-foreground-hoặc-service), với `ExecStart`
    trỏ tới `~/cuesura-dogfood/config.yaml` và `~/cuesura-dogfood/data`, thêm
@@ -239,14 +223,14 @@ Thứ daemon đọc lại trực tiếp và thứ cần restart:
 | Đọc lại trực tiếp, không cần restart | Cần restart `cusrd` |
 | --- | --- |
 | Config người dùng (role, model, profile, kể cả role `deputy`), đọc khi xác nhận task mới và mỗi lượt deputy | `runtime.tool_paths`, `runtime.credential_refs`, `runtime.terminal` |
-| `cusr.yaml` của dự án, đọc ở base khi xem `task options` và khi bắt đầu task | Pin và manifest harness (`harnesses/<h>/pin.json`, `manifest.json`): daemon nạp lúc khởi động |
+| `cusr.yaml` của dự án, đọc ở base khi xem `task options` và khi bắt đầu task | Pin và manifest harness (`harnesses/<h>/record.json`; bản cài cũ: `pin.json`, `manifest.json`): daemon nạp lúc khởi động |
 | `yolo`, đọc trước khi daemon xét merge | Binary harness và release `cusrd` |
 
 Sau `setup-harness` hoặc `record-manifest`, manifest mới chỉ nằm trên đĩa cho tới khi restart:
 `doctor` so manifest trên đĩa với manifest daemon đang giữ và báo `manifest:<h>` (cùng `deputy` nếu
-harness đó chạy deputy) kèm cách sửa là restart, không phải chứng minh lại. Ngược lại, daemon còn giữ
+harness đó chạy deputy) kèm cách sửa là restart, không phải ghi lại manifest. Ngược lại, daemon còn giữ
 manifest mà bản trên đĩa mất hoặc hỏng thì doctor cũng thất bại, vì restart sẽ làm harness mất manifest:
-khôi phục file hoặc chứng minh lại trước khi restart. Không thay snapshot của task cũ. Assistant tự duyệt escalation (`task approve --kind
+khôi phục file hoặc ghi lại manifest trước khi restart. Không thay snapshot của task cũ. Assistant tự duyệt escalation (`task approve --kind
 escalation`, quyền operate) vì nấc đó đã nằm trong ladder người dùng cấu hình; duyệt nhận PR có sẵn
 (`--kind adopt`) vẫn cần người dùng chạy bằng quyền admin.
 
@@ -262,21 +246,21 @@ cusr doctor --project cuesura --json
 
 Script xây release mới, đổi `current` một lần và chép skill; process đang chạy vẫn giữ code cũ tới khi restart.
 Trước khi đổi `current`, script chạy `cusr-runner check-records` của release mới. Release mới từ chối config hoặc
-harness record thì script dừng, `current` giữ nguyên và in lệnh chứng minh lại: sửa config, hoặc chạy
+harness record thì script dừng, `current` giữ nguyên và in lệnh ghi lại manifest: sửa config, hoặc chạy
 `setup-harness` bằng `node releases/<sha>/dist/cli/cusr-runner.js` rồi chạy lại script. Release mới chỉ đổi cách
-dựng layout chạy của role (pin, binary và settings không đổi) thì không cần chứng minh lại: layout không còn là
-điều kiện của record. Binary hoặc pin đổi mà tham số pin giữ nguyên thì dùng `--from prove-harness`; đổi tham số
+dựng layout chạy của role (pin và settings không đổi) thì không cần ghi lại: layout không còn là
+điều kiện của record. Pin đổi mà tham số pin giữ nguyên thì dùng `--from record-manifest`; đổi tham số
 pin thì chạy đủ tham số như khi cài đặt, thêm `--force`. `--allow-unproven` đổi `current` dù task mới sẽ bị chặn.
 Script lấy code từ `repo/`, không từ repo phát triển.
 
-`doctor` và `check-records` báo `manifest:*` khi pin, binary hoặc settings của release đang chạy khác lúc proof: chứng minh lại harness trước khi chạy task. Không sửa tay
-`manifest.json`.
+`doctor` và `check-records` báo `manifest:*` khi pin hoặc settings của release đang chạy khác lúc ghi manifest, hoặc lệnh của pin không chạy được: ghi lại manifest (hoặc cài lại lệnh) trước khi chạy task. Nâng cấp CLI tại chỗ không cần. Không sửa tay
+`record.json` (hay `manifest.json` của bản cài cũ).
 
-Mỗi lần chứng minh lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.
+Mỗi lần ghi lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.
 Task đã bắt đầu giữ hash manifest trong snapshot. Manifest mới vẫn đáp ứng yêu cầu task đã chốt (schema
 kết quả của các role, không capability nào `unsupported`, không `external_verified`) thì task tự nhận và chạy
 lại bước đó. Không đáp ứng thì lượt agent kế tiếp không chạy mà chờ `manifest_changed` (harness, hash cũ, hash
-mới). Kiểm tra manifest mới là lượt proof mình đã duyệt, rồi chạy `cusr task recheck <id>`: task nhận manifest
+mới). Kiểm tra manifest mới là lượt ghi mình đã chạy, rồi chạy `cusr task recheck <id>`: task nhận manifest
 mới và chạy lại bước đó, không cần hủy hay tạo lại task.
 
 Lỗi đăng nhập harness (`WAITING/policy harness_auth`): đăng nhập lại vào đúng file trong
