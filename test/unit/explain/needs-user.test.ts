@@ -100,6 +100,19 @@ describe('needsUser (FR-007)', () => {
     expect(needsUser(reads(CANCEL_READS_BEFORE_ATTENTION))).toBe(true);
   });
 
+  it('#358: cancel_reconcile whose automatic reads stopped needs the user whatever the count', () => {
+    const w = waiting('cancel_reconcile');
+    expect(
+      needsUser({
+        ...w,
+        wait: {
+          ...w.wait!,
+          detail: { code: 'cancel_reconcile', cancel_reads: 0, auto_reads: 'stopped' },
+        },
+      }),
+    ).toBe(true);
+  });
+
   it('READY waiting for the slot follows the unconfirmed rule first', () => {
     expect(
       needsUser({

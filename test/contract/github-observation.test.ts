@@ -112,6 +112,40 @@ describe('PR observation (FR-041/042)', () => {
     });
   });
 
+  it.each([404, 410])(
+    '#358: GitHub answering %i to the first or the second pull read marks the read gone',
+    async (status) => {
+      const first = port({ [`GET repos/${REPO}/pulls/7`]: [{ status }] });
+      expect(await observePull(first.gh, target, 0)).toMatchObject({
+        status: 'unknown',
+        gone: true,
+      });
+      const second = port(
+        openPr([run(1, 'test', 'completed', 'success')], {
+          [`GET repos/${REPO}/pulls/7`]: [{ status: 200, body: pull() }, { status }],
+        }),
+      );
+      expect(await observePull(second.gh, target, 0)).toMatchObject({
+        status: 'unknown',
+        reasons: [expect.stringContaining('second pull read failed') as unknown],
+        gone: true,
+      });
+    },
+  );
+
+  it.each([401, 403, 502])('#358: a pull read failing with %i is not gone', async (status) => {
+    const first = port({ [`GET repos/${REPO}/pulls/7`]: [{ status }] });
+    expect(await observePull(first.gh, target, 0)).not.toHaveProperty('gone');
+    const second = port(
+      openPr([run(1, 'test', 'completed', 'success')], {
+        [`GET repos/${REPO}/pulls/7`]: [{ status: 200, body: pull() }, { status }],
+      }),
+    );
+    const obs = await observePull(second.gh, target, 0);
+    expect(obs.status).toBe('unknown');
+    expect(obs).not.toHaveProperty('gone');
+  });
+
   it('a rules page GitHub refuses makes the requirement unknown, not none (FR-042.06)', async () => {
     const { gh } = port(
       openPr([run(1, 'test', 'completed', 'success')], {

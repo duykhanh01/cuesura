@@ -87,6 +87,10 @@ export function onObservationResult(ctx: Ctx, t: ObservationResult): void {
     });
   if (s.observation !== null && canonicalJson(s.observation.subject) !== canonicalJson(o.subject))
     reject('invalid_trigger', { reason: 'observation_subject_mismatch' });
+  // The same read reported again by another caller that waited on it (#358): already recorded. Accepted
+  // as ignored, so that caller's request keeps its record and a replay of it does not read again.
+  if (s.observation?.last?.observation_id === o.observation_id)
+    return ignore(ctx, 'duplicate_observation', o.observation_id);
   const auto = o.source === 'timer';
   if (auto && s.observation !== null) {
     // A round of another chain, or one read before the window moved on, is history only (FR-043.05).
@@ -111,6 +115,8 @@ export function onObservationResult(ctx: Ctx, t: ObservationResult): void {
     observation: o,
     remote_digest: t.remote_digest,
     ...(t.target === undefined ? {} : { target: t.target }),
+    ...(t.failure === undefined || o.status !== 'unknown' ? {} : { failure: t.failure }),
+    ...(t.gone === true && o.status === 'unknown' ? { gone: true as const } : {}),
   });
   if (isTerminal(ctx.state.status) || ctx.state.completion !== null) return;
   // A merge keeps the schedule too: only an accepted merge proof stops observing (FR-041.01).

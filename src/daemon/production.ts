@@ -279,7 +279,7 @@ export async function productionControl(opts: {
         gate_path: hostExecutionPath(gateToolchain),
       };
     };
-    const coordinator = new ObservationCoordinator((taskId, ref, source) =>
+    const coordinator = new ObservationCoordinator((taskId, ref, source, readId) =>
       observeTaskPr(
         {
           store,
@@ -296,9 +296,12 @@ export async function productionControl(opts: {
         taskId,
         ref,
         source,
+        readId,
       ),
     );
-    const observe = (taskId: string, ref: string) => coordinator.observe(taskId, ref, 'recheck');
+    const observe = (taskId: string, ref: string, readId?: string) =>
+      coordinator.observe(taskId, ref, 'recheck', readId);
+    const readIdFor = (taskId: string, ref: string) => coordinator.readIdFor(taskId, ref);
     const cancelReadAt = new Map<string, number>();
     /** The user config as it is now; a config that cannot be read turns `what` off. */
     const currentConfig = async (what: string) => {
@@ -569,6 +572,7 @@ export async function productionControl(opts: {
       deputy,
       held: deputyAbsent,
       observe,
+      readIdFor,
       drain: (taskId) => drainRound(drainDeps, taskId),
       autoConfirmIntake: async (requester) =>
         (await currentConfig('intake auto_confirm'))?.intakeAutoConfirm.includes(requester) ??

@@ -16,7 +16,7 @@
  */
 import { isTerminal, type TaskState } from '../domain/state.ts';
 import { MAX_ENVELOPE_IDS, type Trigger } from '../domain/trigger.ts';
-import { cancelReadRef } from '../domain/runtime.ts';
+import { cancelReadRef, readFailureLine } from '../domain/runtime.ts';
 import { cancelReadEvidence } from '../engine/cancel.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
@@ -77,6 +77,13 @@ export function recordCancelReadFailure(
     readonly ref: string;
     readonly facts: readonly Trigger[];
     readonly failure: string | null;
+    /** GitHub answered 404 or 410 for the PR itself (#358). */
+    readonly gone?: boolean;
+    /**
+     * The read's own ID when callers share one read (`ObservationCoordinator`): the engine counts it once,
+     * while each caller's report is still recorded under its own `dedup_key`.
+     */
+    readonly read_id?: string;
     readonly dedup_key: string;
     readonly now: number;
     readonly ids: readonly string[];
@@ -95,7 +102,9 @@ export function recordCancelReadFailure(
     trigger: {
       kind: 'cancel_read_failed',
       read_token: token,
-      detail: (o.failure ?? 'no observation').slice(0, 2048),
+      detail: readFailureLine(o.failure ?? 'no observation'),
+      ...(o.gone === true ? { gone: true as const } : {}),
+      ...(o.read_id === undefined ? {} : { read_id: o.read_id }),
     },
     now: o.now,
     ids: o.ids,
@@ -156,6 +165,8 @@ export async function cancelTask(
       ref,
       facts: o.facts,
       failure: o.failure,
+      gone: o.gone === true,
+      ...(o.read_id === undefined ? {} : { read_id: o.read_id }),
       dedup_key: `${prefix}:read_failed`,
       now: deps.now(),
       ids: deps.newId === undefined ? [] : Array.from({ length: MAX_ENVELOPE_IDS }, deps.newId),

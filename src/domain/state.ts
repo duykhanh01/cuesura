@@ -722,6 +722,12 @@ export type TaskState = {
     };
     /** How many reads carrying `read_token` were recorded; the daemon backs off and the person is told by it. */
     reads?: number;
+    /** Why the newest read carrying `read_token` failed, as one short line; absent once a read succeeds. */
+    last_read_failure?: string;
+    /** Reads carrying `read_token` in a row that found the PR gone (404/410, #358); a successful read resets it. */
+    gone_reads?: number;
+    /** The newest failed reads already counted, by `read_id`: a shared read is counted once (#358). */
+    counted_reads?: string[];
     /** A read of any source showed the PR merged while this cancel was open (or just before it). */
     merge_seen?: string;
     /** See `CancelForced`: the PR read is no longer required. */

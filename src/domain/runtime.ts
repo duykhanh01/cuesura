@@ -312,6 +312,23 @@ export function cancelReadRef(token: string): string {
   return `cancel:${token}`;
 }
 
+// eslint-disable-next-line no-control-regex -- terminal escapes are exactly what this matches.
+const ESCAPES = /\u001b\[[0-9;?]*[ -/]*[@-~]/g;
+// The TUI's SafeText set: C0/C1 controls and the bidi controls that can reverse how a line reads.
+// eslint-disable-next-line no-control-regex -- control characters are exactly what this matches.
+const UNSAFE = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
+
+/** A read failure as one short line, safe to keep in a wait and show as it is in the CLI and the TUI. */
+export function readFailureLine(failure: string): string {
+  const line = failure
+    .toWellFormed()
+    .replace(ESCAPES, '')
+    .replace(/\s+/g, ' ')
+    .replace(UNSAFE, '\uFFFD')
+    .trim();
+  return line.length <= 200 ? line : `${line.slice(0, 199)}…`;
+}
+
 /** `registered`/`running` and `unknown`/`lost` are unresolved: they keep the slot and the reservation. */
 export const OPERATION_STATUSES = [
   'registered',

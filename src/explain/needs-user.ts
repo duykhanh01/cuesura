@@ -108,7 +108,10 @@ export function effectUnknownOverdue(
 export const CANCEL_READS_BEFORE_ATTENTION = 5;
 
 export function cancelReadsStuck(s: Waiting): boolean {
-  const reads = s.wait?.detail.code === 'cancel_reconcile' ? s.wait.detail['cancel_reads'] : null;
+  if (s.wait?.detail.code !== 'cancel_reconcile') return false;
+  const reads = s.wait.detail['cancel_reads'];
+  // Stopped reads (#358) always need the person, whatever the count says.
+  if (s.wait.detail['auto_reads'] === 'stopped') return true;
   return typeof reads === 'number' && reads >= CANCEL_READS_BEFORE_ATTENTION;
 }
 

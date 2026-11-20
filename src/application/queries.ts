@@ -275,6 +275,7 @@ export type TaskServiceDeps = {
   readonly newId?: () => string;
   /** One read of a task's PR (the recheck observation); without it a cancel leaves the read to recheck. */
   readonly observe?: RecheckDeps['observe'];
+  readonly readIdFor?: RecheckDeps['readIdFor'];
   /** One bounded drain round for `task recheck`; `task_recheck` needs this and `observe`. */
   readonly drain?: RecheckDeps['drain'];
   /** Whether the user config accepts tasks of this requester without the intake confirmation. */
@@ -486,6 +487,7 @@ export async function taskRecheck(
       ...deps.confirm,
       newId: deps.newId as () => string,
       observe: deps.observe as RecheckDeps['observe'],
+      ...(deps.readIdFor === undefined ? {} : { readIdFor: deps.readIdFor }),
       drain: deps.drain as RecheckDeps['drain'],
     },
     caller,

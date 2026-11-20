@@ -26,7 +26,7 @@ import {
   baseUpdateIntentKey,
   checkBaseMerge,
 } from '../adapters/git/update-base.ts';
-import { BaseUpdateSchema } from '../domain/runtime.ts';
+import { BaseUpdateSchema, readFailureLine } from '../domain/runtime.ts';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { DEPUTY_ACTOR } from '../domain/deputy.ts';
 import type { TurnWorktree } from './deputy.ts';
@@ -2323,6 +2323,8 @@ export type ObservedPr = {
   readonly facts: Trigger[];
   /** GitHub's own wait when `failure` is its rate limit. */
   readonly retry_after_ms?: number;
+  /** GitHub answered 404 or 410 for the PR itself (#358). */
+  readonly gone?: true;
 };
 
 /**
@@ -2345,6 +2347,8 @@ export async function observeTaskPr(
   taskId: string,
   evidenceRef: string,
   source: Observation['source'],
+  /** The coordinator's read ID: a request that joined the read finds its observation by it (#358). */
+  observationId?: string,
 ): Promise<ObservedPr> {
   let l: Loaded;
   try {
@@ -2389,7 +2393,7 @@ export async function observeTaskPr(
     const subject = subjectOf(obs.pull);
     if (subject === null) return [];
     const o: Observation = {
-      observation_id: deps.newId(),
+      observation_id: observationId ?? deps.newId(),
       source,
       requested_at: now,
       observed_at: deps.clock.now(),
@@ -2452,14 +2456,35 @@ export async function observeTaskPr(
     if (first?.kind === 'observation_result') first.target = target;
     return { ci, failure: null, facts };
   }
+  /**
+   * An `unknown` read and why: the reason travels with the fact, so a cancel waiting on the read can show
+   * it and count a PR GitHub says is gone (#358). It is made one safe line first: the fact is stored and
+   * printed as it is by `task history --full`, and `gh`'s stderr can carry escapes and bidi controls.
+   */
+  const unread = (
+    raw: string,
+    head: string | null,
+    digest: unknown,
+    gone: boolean,
+  ): { failure: string; facts: Trigger[]; gone?: true } => {
+    const failure = readFailureLine(raw);
+    const facts = observation('unknown', head, digest);
+    const first = facts[0];
+    if (first?.kind === 'observation_result') {
+      first.failure = failure;
+      if (gone) first.gone = true;
+    }
+    return { failure, facts, ...(gone ? { gone: true as const } : {}) };
+  };
   if (obs.status !== 'open' && obs.status !== 'closed') {
     return {
       ci: null,
-      failure: `observation ${obs.status}: ${obs.reasons.join('; ')}`,
-      facts: observation('unknown', obs.pull?.head.sha ?? null, {
-        status: obs.status,
-        reasons: obs.reasons,
-      }),
+      ...unread(
+        `observation ${obs.status}: ${obs.reasons.join('; ')}`,
+        obs.pull?.head.sha ?? null,
+        { status: obs.status, reasons: obs.reasons },
+        obs.status === 'unknown' && obs.gone === true,
+      ),
     };
   }
   if (obs.status === 'closed')
@@ -2476,8 +2501,12 @@ export async function observeTaskPr(
   if (limited !== null && !drifted)
     return {
       ci: null,
-      failure: `checks unreadable: ${obs.reasons.join('; ')}`,
-      facts: observation('unknown', obs.pull.head.sha, { reasons: obs.reasons }),
+      ...unread(
+        `checks unreadable: ${obs.reasons.join('; ')}`,
+        obs.pull.head.sha,
+        { reasons: obs.reasons },
+        false,
+      ),
       retry_after_ms: limited,
     };
   const verdict = evaluateRequired(obs.required, l.policy.ci.required_checks);

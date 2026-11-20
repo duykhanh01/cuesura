@@ -3,7 +3,7 @@ import { CI_REPAIR_ROUND_STEPS } from './workflows/software-dev.ts';
 import { approvalCovering } from './head-evidence.ts';
 import type { DomainEvent, DomainEventDraft } from '../domain/event.ts';
 import type { Hash } from '../shared/brand.ts';
-import { BaseUpdateSchema, cancelReadRef } from '../domain/runtime.ts';
+import { BaseUpdateSchema, cancelReadRef, readFailureLine } from '../domain/runtime.ts';
 import {
   isTerminal,
   STATE_SCHEMA_VERSION,
@@ -633,7 +633,15 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
       if (s.cancellation) s.cancellation.forced = { by: event.payload.by, at: event.payload.at };
       break;
     case 'CancelReadFailed':
-      if (s.cancellation) s.cancellation.reads = (s.cancellation.reads ?? 0) + 1;
+      if (s.cancellation) {
+        s.cancellation.reads = (s.cancellation.reads ?? 0) + 1;
+        noteCancelRead(s.cancellation, event.payload.detail, event.payload.gone === true);
+        const id = event.payload.read_id;
+        if (id !== undefined)
+          s.cancellation.counted_reads = [...(s.cancellation.counted_reads ?? []), id].slice(
+            -COUNTED_READS_KEPT,
+          );
+      }
       break;
     case 'CancelRecordedLate':
       if (s.cancellation) s.cancellation.late = true;
@@ -807,6 +815,7 @@ export function applyInPlace(state: TaskState | null, event: AnyEvent): TaskStat
             status: read.status,
             ...(event.payload.target === undefined ? {} : { target: event.payload.target }),
           };
+          noteCancelRead(c, event.payload.failure ?? null, event.payload.gone === true);
         }
       }
       const o = s.observation;
@@ -1137,6 +1146,27 @@ export function emptyRuntime(): Pick<
     completion: null,
     blockers: [],
   };
+}
+
+/** A read carrying the cancel's token: why it failed, or a reset when it read the PR (#358). */
+// Only the `gone` flag counts, never the failure text: events recorded before it existed replay without
+// a count, so no task stops reading without a wait that says so.
+/** Enough for every caller that can wait on one read: the daemon, a recheck and a cancel. */
+const COUNTED_READS_KEPT = 8;
+
+function noteCancelRead(
+  c: NonNullable<TaskState['cancellation']>,
+  failure: string | null,
+  gone: boolean,
+): void {
+  if (failure === null) {
+    delete c.last_read_failure;
+    delete c.gone_reads;
+    return;
+  }
+  c.last_read_failure = readFailureLine(failure);
+  if (gone) c.gone_reads = (c.gone_reads ?? 0) + 1;
+  else delete c.gone_reads;
 }
 
 function addBlocker(s: TaskState, b: Blocker): void {

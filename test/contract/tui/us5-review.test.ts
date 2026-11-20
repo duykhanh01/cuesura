@@ -331,7 +331,9 @@ describe('US5 scenarios 5 and 11: what changed or could not be read is never con
     const digest = await propose(sd, 'assistant', id);
     const fake = `sha256:${'0'.repeat(64)}`;
     // The screen is shown a digest the daemon does not hold, at the version it does.
-    proxy.rewrite = (body) => body.replaceAll(digest, fake);
+    // Only until the confirm is sent: a read answered after it, also one on a connection opened before,
+    // must carry the daemon's digest, or the next confirm is refused again.
+    proxy.rewrite = (body) => (t.writes.length > 0 ? body : body.replaceAll(digest, fake));
     const s = open();
     await openReview(s, 'Wrong digest');
     await said(s, 'Confirming: the task request and the run config.');

@@ -58,6 +58,8 @@ export type PullObservation =
       readonly status: 'inconsistent' | 'identity_mismatch' | 'unknown';
       readonly pull: PullFacts | null;
       readonly reasons: readonly string[];
+      /** A read of the PR itself was answered 404 or 410: GitHub says it is gone (#358). */
+      readonly gone?: true;
     };
 
 async function read(port: GitHubPort, path: string): Promise<GhRead> {
@@ -129,6 +131,11 @@ function identityOk(p: PullFacts, t: ObserveTarget): boolean {
   );
 }
 
+/** `{ gone: true }` for a PR read GitHub answered 404 or 410, which a later retry does not change. */
+function gone(f: GitHubFailure): { gone?: true } {
+  return f.status === 404 || f.status === 410 ? { gone: true } : {};
+}
+
 export async function observePull(
   port: GitHubPort,
   t: ObserveTarget,
@@ -146,6 +153,7 @@ export async function observePull(
       status: 'unknown',
       pull: null,
       reasons: [`pull unreadable: ${first.error.detail}`],
+      ...gone(first.error),
     };
   const pull = pullFacts(first.value.body);
   if (!identityOk(pull, t))
@@ -205,6 +213,7 @@ export async function observePull(
       status: 'unknown',
       pull,
       reasons: [`second pull read failed: ${second.error.detail}`],
+      ...gone(second.error),
     };
   const again = pullFacts(second.value.body);
   if (!identityOk(again, t))

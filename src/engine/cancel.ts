@@ -150,14 +150,57 @@ export function forceCancel(ctx: Ctx, reason: string): void {
 }
 
 /** A read for the open cancel that gave no observation; counted so the backoff and the person see it. */
-export function onCancelReadFailed(ctx: Ctx, token: string, detail: string): void {
+export function onCancelReadFailed(
+  ctx: Ctx,
+  token: string,
+  detail: string,
+  gone = false,
+  readId?: string,
+): void {
   const s = ctx.state;
   if (isTerminal(s.status) || s.cancellation?.read_token !== token || !cancelNeedsPrRead(s)) {
     ctx.emit('SignalIgnored', { reason: 'stale_cancel_read', trigger_kind: 'cancel_read_failed' });
     return;
   }
-  ctx.emit('CancelReadFailed', { detail });
+  // A read several callers waited on is reported by each of them; it counts once. The report is still
+  // accepted, so each caller's request keeps its record and a replay of it does not read again (#358).
+  if (readId !== undefined && s.cancellation.counted_reads?.includes(readId) === true) {
+    ctx.emit('SignalIgnored', {
+      reason: 'duplicate_cancel_read',
+      trigger_kind: 'cancel_read_failed',
+    });
+    return;
+  }
+  ctx.emit('CancelReadFailed', {
+    detail,
+    ...(gone ? { gone: true as const } : {}),
+    ...(readId === undefined ? {} : { read_id: readId }),
+  });
   maybeFinishCancel(ctx);
+}
+
+/**
+ * Reads in a row that found the PR gone (404/410) after which the daemon stops reading it for the cancel
+ * by itself (#358). With the backoff that is about ten minutes of reads; a recheck still reads, and a read
+ * that gets through starts the count again.
+ */
+export const CANCEL_GONE_READS_LIMIT = 8;
+
+/** The PR came back gone often enough that the daemon should stop reading it for the cancel. */
+function goneLimitReached(s: TaskState): boolean {
+  return (s.cancellation?.gone_reads ?? 0) >= CANCEL_GONE_READS_LIMIT;
+}
+
+/**
+ * The daemon no longer reads the PR for the cancel on its own. Taken from the wait, not the count alone,
+ * so reads stop only once the person can see that they did and why.
+ */
+export function cancelAutoReadsStopped(s: TaskState): boolean {
+  return (
+    goneLimitReached(s) &&
+    s.wait?.detail.code === 'cancel_reconcile' &&
+    s.wait.detail['auto_reads'] === 'stopped'
+  );
 }
 
 /** The evidence ref a read for the task's open cancel must carry; null when no read is asked for. */
@@ -169,12 +212,16 @@ export function cancelReadEvidence(s: TaskState): string | null {
 function waitCancelReconcile(ctx: Ctx): void {
   const s = ctx.state;
   const read = s.cancellation?.pr_read ?? null;
+  const failure = s.cancellation?.last_read_failure ?? null;
+  const stopped = goneLimitReached(s);
   // Waiting already: shown again only when another cancel read came back, so its outcome is visible.
   if (
     s.status === 'WAITING' &&
     s.wait?.detail.code === 'cancel_reconcile' &&
     canonicalJson(s.wait.detail['last_cancel_read'] ?? null) === canonicalJson(read) &&
-    s.wait.detail['cancel_reads'] === (s.cancellation?.reads ?? 0)
+    s.wait.detail['cancel_reads'] === (s.cancellation?.reads ?? 0) &&
+    (s.wait.detail['last_read_error'] ?? null) === failure &&
+    (s.wait.detail['auto_reads'] === 'stopped') === stopped
   )
     return;
   ctx.emit('TaskWaiting', {
@@ -187,6 +234,9 @@ function waitCancelReconcile(ctx: Ctx): void {
         requested_at: s.cancellation?.requested_at ?? null,
         last_cancel_read: read,
         cancel_reads: s.cancellation?.reads ?? 0,
+        ...(failure === null ? {} : { last_read_error: failure }),
+        // The PR kept coming back gone: only a recheck reads it now (#358).
+        ...(stopped ? { auto_reads: 'stopped' } : {}),
       },
     }),
   });

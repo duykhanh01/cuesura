@@ -272,7 +272,9 @@ function dispatch(ctx: Ctx, t: Trigger): void {
       onObservationDue(ctx, t);
       return;
     case 'cancel_read_failed':
-      onCancelReadFailed(ctx, t.read_token, t.detail);
+      onCancelReadFailed(ctx, t.read_token, t.detail, t.gone === true, t.read_id);
+      return;
+    case 'cancel_read_joined':
       return;
     case 'recheck':
       onRecheck(ctx, t);

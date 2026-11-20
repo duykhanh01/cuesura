@@ -15,15 +15,18 @@
  * the generation they were read under; the engine ignores a round of a generation that moved on.
  *
  * A cancel waiting for its read of the PR is read here too, under its own ref, with a backoff: the read
- * the cancel request made may have failed, been cut short by a restart, or found no PR yet (#267).
+ * the cancel request made may have failed, been cut short by a restart, or found no PR yet (#267). A PR
+ * that keeps coming back gone (404/410) is read only up to a limit; then the wait says so and only a
+ * recheck reads it (#358).
  */
+import { randomUUID } from 'node:crypto';
 import type { Clock } from '../adapters/ports.ts';
 import { recordCancelReadFailure } from '../application/cancel.ts';
 import { submit } from '../application/triage.ts';
 import { DEFAULT_RUNTIME_LIMITS, type Observation } from '../domain/runtime.ts';
 import { MAX_ENVELOPE_IDS } from '../domain/trigger.ts';
 import type { TaskState } from '../domain/state.ts';
-import { cancelReadEvidence } from '../engine/cancel.ts';
+import { cancelAutoReadsStopped, cancelReadEvidence } from '../engine/cancel.ts';
 import { claimable } from '../engine/claim.ts';
 import type { Trigger } from '../domain/trigger.ts';
 import type { Uuid } from '../shared/brand.ts';
@@ -32,34 +35,57 @@ import type { AcceptOutcome, Store } from '../store/index.ts';
 export type ObservedFacts = {
   readonly facts: readonly Trigger[];
   readonly failure: string | null;
+  /** GitHub answered 404 or 410 for the PR itself (#358). */
+  readonly gone?: true;
+  /** One ID per read, the same for every caller that shared it (#358). */
+  readonly read_id?: string;
 };
 
+/** `readId` is the read's own ID; an observation the read makes carries it as its `observation_id`. */
 export type ObserveFn = (
   taskId: string,
   evidenceRef: string,
   source: Observation['source'],
+  readId: string,
 ) => Promise<ObservedFacts>;
 
 /** One read per task at a time; a caller under another ref reads after the one in flight. */
 export class ObservationCoordinator {
-  readonly #inflight = new Map<string, { ref: string; read: Promise<ObservedFacts> }>();
+  readonly #inflight = new Map<
+    string,
+    { ref: string; read_id: string; read: Promise<ObservedFacts> }
+  >();
   readonly #observe: ObserveFn;
 
   constructor(observe: ObserveFn) {
     this.#observe = observe;
   }
 
+  /**
+   * The `read_id` an `observe` under `evidenceRef` made right now would have: the read in flight under
+   * that ref, or else a new one, started by passing this ID to `observe` (#358).
+   */
+  readIdFor(taskId: string, evidenceRef: string): string {
+    const last = this.#inflight.get(taskId);
+    return last !== undefined && last.ref === evidenceRef ? last.read_id : randomUUID();
+  }
+
+  /** `readId` (see `readIdFor`) is used only when this call starts a read; a caller that joins gets the one in flight. */
   observe(
     taskId: string,
     evidenceRef: string,
     source: Observation['source'],
+    readId?: string,
   ): Promise<ObservedFacts> {
     const last = this.#inflight.get(taskId);
     if (last !== undefined && last.ref === evidenceRef) return last.read;
     const settled = (): void => undefined;
     const before = last === undefined ? Promise.resolve() : last.read.then(settled, settled);
-    const read = before.then(() => this.#observe(taskId, evidenceRef, source));
-    const entry = { ref: evidenceRef, read };
+    const read_id = readId ?? randomUUID();
+    const read = before
+      .then(() => this.#observe(taskId, evidenceRef, source, read_id))
+      .then((r) => ({ ...r, read_id }));
+    const entry = { ref: evidenceRef, read_id, read };
     this.#inflight.set(taskId, entry);
     const done = (): void => {
       if (this.#inflight.get(taskId) === entry) this.#inflight.delete(taskId);
@@ -93,9 +119,13 @@ export function cancelReadDelay(reads: number): number {
   return Math.min(CANCEL_READ_BACKOFF.max_ms, CANCEL_READ_BACKOFF.base_ms * 2 ** reads);
 }
 
-/** When the daemon reads the PR for `s`'s cancel next; null when the cancel needs no read. */
+/**
+ * When the daemon reads the PR for `s`'s cancel next; null when the cancel needs no read, or when the
+ * PR kept coming back gone and only a recheck reads it now (#358).
+ */
 export function cancelReadDue(s: TaskState, lastTried: number | undefined): number | null {
-  if (s.terminal !== null || cancelReadEvidence(s) === null) return null;
+  if (s.terminal !== null || cancelReadEvidence(s) === null || cancelAutoReadsStopped(s))
+    return null;
   return lastTried === undefined ? 0 : lastTried + cancelReadDelay(s.cancellation?.reads ?? 0);
 }
 
@@ -165,9 +195,10 @@ export function dueTasks(
   for (const id of store.taskIdsByStatus(['RUNNING', 'WAITING'])) {
     const s = store.readTask(id as Uuid);
     if (s === null) continue;
-    const cancelDue = cancelReadDue(s, cancelReadAt.get(id));
-    if (cancelDue !== null) {
-      if (cancelDue <= now) out.push({ id, kind: 'cancel', due: cancelDue });
+    // A cancel waiting for its read is read under its own ref only, also once those reads stopped.
+    if (s.terminal === null && cancelReadEvidence(s) !== null) {
+      const cancelDue = cancelReadDue(s, cancelReadAt.get(id));
+      if (cancelDue !== null && cancelDue <= now) out.push({ id, kind: 'cancel', due: cancelDue });
       continue;
     }
     const kind = observationDue(s, now);
@@ -203,6 +234,8 @@ async function cancelRead(
     ref,
     facts: read.facts,
     failure: read.failure,
+    gone: read.gone === true,
+    ...(read.read_id === undefined ? {} : { read_id: read.read_id }),
     dedup_key: `cancel-read:${s.id}:${nonce}:failed`,
     now: deps.clock.now(),
     ids: ids(deps),
@@ -228,6 +261,10 @@ export async function observationRound(deps: ObservationDeps): Promise<Observati
       s.run.limits?.observation_round_ms ?? DEFAULT_RUNTIME_LIMITS.observation_round_ms;
     if (deps.clock.now() - started >= roundMs) break;
     if (d.kind === 'cancel') {
+      // The list was made before this round's reads; one of them (or a recheck) may have stopped this
+      // task's reads or settled its cancel since (#358).
+      const due = cancelReadDue(s, cancelReadAt.get(d.id));
+      if (due === null || due > started) continue;
       if (!deps.coordinator.busy(d.id)) reports.push(await cancelRead(deps, s, cancelReadAt));
       continue;
     }

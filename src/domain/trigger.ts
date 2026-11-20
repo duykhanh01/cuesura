@@ -627,6 +627,21 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
       kind: z.literal('cancel_read_failed'),
       read_token: z.string().min(1),
       detail: z.string().max(2048),
+      /** GitHub answered 404 or 410 for the PR itself (#358); additive. */
+      gone: z.literal(true).optional(),
+      /** The read it reports, the same for every caller that waited on that read (#358); additive. */
+      read_id: z.string().min(1).max(64).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      /**
+       * A request joined the read `read_id` for the cancel with `read_token`, before that read came back
+       * (#358). A note only: it records which read answers the request if another caller records it first.
+       */
+      kind: z.literal('cancel_read_joined'),
+      read_token: z.string().min(1),
+      read_id: z.string().min(1).max(64),
     })
     .strict(),
   z
@@ -751,6 +766,10 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
         .object({ ref: z.string().min(1), merged: z.boolean() })
         .strict()
         .optional(),
+      /** Why the read could not tell the PR's state, for an `unknown` observation (#358); additive. */
+      failure: z.string().min(1).max(2048).optional(),
+      /** GitHub answered 404 or 410 for the PR itself (#358); additive. */
+      gone: z.literal(true).optional(),
     })
     .strict(),
   z

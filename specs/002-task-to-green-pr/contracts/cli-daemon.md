@@ -372,6 +372,31 @@ lệnh cancel, thì daemon tự đọc lại trong vòng quan sát với backoff
 `cancel_read_failed` (event `CancelReadFailed`), nên vẫn được đếm. Wait `cancel_reconcile` có `detail.cancel_reads` là số lần đọc đã ghi; `needs_user` chỉ bật khi đã đọc từ 5 lần
 mà vẫn chưa kết thúc được cancel.
 
+Lý do lần đọc mang token gần nhất thất bại nằm ở `detail.last_read_error`: một dòng, tối đa 200 ký tự, bỏ chuỗi
+escape, ký tự điều khiển và ký tự điều khiển hướng chữ thay bằng `�` như `SafeText` của TUI; lần đọc thành công thì xoá
+nó. Fact `observation_result` trạng thái `unknown` mang lý do trong trường tuỳ chọn `failure` (event
+`ExternalStateObserved.failure`). Một trong hai lượt GET PR của lần đọc được GitHub trả 404 hoặc 410 thì fact (hoặc
+`cancel_read_failed` khi không có observation) mang `gone: true`; chỉ cờ này được đếm, không đọc từ chuỗi lỗi. Liên tiếp
+8 lần như vậy thì wait có `detail.auto_reads: "stopped"` và `needs_user` bật, rồi daemon mới thôi tự đọc lại (#358);
+daemon chỉ dừng khi wait đã ghi `auto_reads: "stopped"`. `recheck` và `cancel --force` vẫn đọc PR như thường; lối thoát
+vẫn là `recheck`, merge trên GitHub rồi `recheck`, hoặc `cancel --force`. Lỗi khác (mạng, 5xx, 429) đặt lại bộ đếm này và
+giữ backoff thường. Merge đã thấy vẫn giữ cancel như trên. Lý do được làm sạch trước khi vào fact, nên `failure` và
+`detail` trong event (`task history --full`) cũng là dòng đã làm sạch. Một lượt đọc mà daemon và `recheck` (hoặc
+`task cancel`) cùng chờ được đếm một lần: mỗi bên ghi kết quả dưới khoá chống trùng của chính request mình,
+`cancel_read_failed` mang `read_id` của lượt đọc và engine bỏ qua (`SignalIgnored: duplicate_cancel_read`) bản thứ hai;
+`observation_result` trùng `observation_id` vừa ghi cũng bị bỏ qua (`duplicate_observation`) thay vì bị từ chối. Vì
+khoá của request vẫn được ghi, gửi lại cùng request ID của `recheck` không đọc PR lần nữa (FR-046.01). Khi tham gia
+một lượt đọc cho cancel, `recheck` ghi ngay fact `cancel_read_joined {read_token, read_id}` dưới khoá
+`cmd:<request>:read_joined` (lần chạy lại thêm `:1`, `:2`, …) trước khi tham gia hay bắt đầu lượt đọc; observation
+của lượt đọc mang `observation_id` bằng `read_id`. Không ghi được fact đó (vd `write_failed`) thì `recheck` trả lỗi và
+không tham gia, không đọc gì. Crash sau khi bên kia ghi lượt đọc chung mà `recheck` chưa kịp ghi khoá của
+mình thì gửi lại thấy đúng `read_id` đó đã được ghi (`CancelReadFailed.read_id` hoặc `observation_id`) và trả
+`performed: false`, không đọc thêm. Chỉ lượt đọc request đã tham gia mới tính: lượt đọc khác của daemon, kể cả sau
+restart, không trả lời request; request chết trước khi tham gia lượt đọc nào, hoặc lượt đọc nó tham gia chưa được ghi,
+thì gửi lại vẫn đọc. Request cũ không có `cancel_read_joined` giữ hành vi chỉ xét khoá riêng. Vòng
+quan sát xét lại lịch đọc trên trạng thái mới nhất trước mỗi lần đọc, nên task vừa có `auto_reads: "stopped"` trong
+vòng không bị đọc thêm.
+
 `task cancel --force` (#179) là lối thoát cho cancel kẹt ở `cancel_reconcile` vì lần đọc PR không cho `open`
 hoặc `closed`. Lệnh vẫn ghi cancel (hoặc giữ cancel đã có) và đọc PR một lần như thường; lần đọc kết thúc được
 cancel thì `--force` không làm gì (`force_ignored: "nothing_to_force"`). Còn chờ thì ghi `CancelForced`, task kết

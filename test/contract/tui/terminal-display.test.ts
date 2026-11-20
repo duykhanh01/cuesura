@@ -185,9 +185,11 @@ describe('EC-014: a client with no way to the daemon', () => {
       chmodSync(join(base, 'locked'), 0);
       dataDir = join(base, 'locked', 'd');
     }
-    const s = tui.cusr(dataDir, { cols: 100, rows: 24 });
+    // Wide enough for the whole socket path on the Disconnected line, however long the temp dir is.
+    const sock = join(dataDir, 'control.sock');
+    const s = tui.cusr(dataDir, { cols: Math.max(100, sock.length + 60), rows: 24 });
     await s.waitForText(`Disconnected: ${code}`);
-    expect(s.screenText()).toContain(join(dataDir, 'control.sock'));
+    expect(s.screenText()).toContain(sock);
     expect(s.screenText()).toContain('No data for this view yet.');
     // Nothing is created to make the way work, and no action is on offer.
     s.send('a');

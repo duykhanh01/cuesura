@@ -304,7 +304,11 @@ export type EventPayloads = {
   /** `reason`: why this cancel was forced; the cancel's own reason stays the one it was requested with. */
   CancelForced: { by: string; at: number; reason?: string };
   /** A read for the cancel gave nothing to record; it counts as a cancel read all the same (#267). */
-  CancelReadFailed: { detail: string };
+  /**
+   * `gone`: GitHub answered 404 or 410 for the PR itself; `read_id`: the read it reports, counted once
+   * however many callers waited on it (#358).
+   */
+  CancelReadFailed: { detail: string; gone?: true; read_id?: string };
   CancelRecordedLate: { merge_effect_id: string | null };
 
   TaskCompleted: { reason: string };
@@ -387,6 +391,10 @@ export type EventPayloads = {
     remote_digest: string;
     /** The PR is on another base than the task's target (FR-041.05), merged there or not. */
     target?: { ref: string; merged: boolean };
+    /** Why the read could not tell the PR's state, for an `unknown` observation (#358). */
+    failure?: string;
+    /** GitHub answered 404 or 410 for the PR itself (#358). */
+    gone?: true;
   };
   ObservationExpired: { at: number; reason: 'deadline' | 'rounds' };
   /** The window ran out while the PR was open on the task's head: a fresh window replaces it (#248). */

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, readFileSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { GitHubPort, ProcessPort, StopOutcome } from '../../../src/adapters/ports.ts';
@@ -20,14 +20,26 @@ import { newLaunchNonce, unitName } from '../../../src/runner/identity.ts';
 import { SpawnExecutor } from '../../../src/runner/commands.ts';
 import {
   clearOperationMark,
+  findTagged,
   OPERATION_ENV,
   stopOperationProcesses,
   writeOperationMark,
+  type TaggedProbe,
 } from '../../../src/runner/process-tag.ts';
 import { Dispatcher } from '../../../src/daemon/dispatch.ts';
-import { ObservationCoordinator, observationRound } from '../../../src/daemon/observation.ts';
+import {
+  cancelReadDue,
+  ObservationCoordinator,
+  observationRound,
+} from '../../../src/daemon/observation.ts';
+import { evolve } from '../../../src/engine/evolve.ts';
+import { showSummary } from '../../../src/cli/summary.ts';
+import { renderHistory } from '../../../src/cli/render.ts';
+import { taskHistory } from '../../../src/application/queries.ts';
+import { stringify } from 'yaml';
 import { CANCEL_READS_BEFORE_ATTENTION, needsUser } from '../../../src/explain/needs-user.ts';
 import { isUnresolved } from '../../../src/engine/runtime.ts';
+import { CANCEL_GONE_READS_LIMIT } from '../../../src/engine/cancel.ts';
 import { reconcileOperations } from '../../../src/daemon/reconcile.ts';
 import { Redactor } from '../../../src/runner/redact.ts';
 import type { EpochMs, Uuid } from '../../../src/shared/brand.ts';
@@ -47,7 +59,84 @@ import { ExitCode } from '../../../src/cli/output.ts';
 // as a real process group, and the cancel service on a real Git worktree, bare remote and fake GitHub.
 
 const tempDir = useTempDir('cusr-cancel-');
+
+/**
+ * The real scan over a view of /proc that holds only this test's processes: descendants of the test
+ * process, and every member of a process group one of them led (so a child left behind by a killed
+ * leader stays in view), `pgid`'s group included. Over the whole of /proc, any process of the same user
+ * started meanwhile whose environment is unreadable (a non-dumpable one) makes the scan, rightly,
+ * `unknown`, and the outcome would depend on what else runs on the machine.
+ */
+function ownProcesses(pgid: number | null = null): TaggedProbe {
+  const groups = new Set<number>(pgid === null ? [] : [pgid]);
+  return (id, mark) => {
+    const procs = new Map<number, { ppid: number; pgrp: number }>();
+    for (const name of readdirSync('/proc')) {
+      if (!/^[1-9]\d*$/.test(name)) continue;
+      try {
+        const stat = readFileSync(`/proc/${name}/stat`, 'utf8');
+        const f = stat.slice(stat.lastIndexOf(')') + 2).split(' ');
+        procs.set(Number(name), { ppid: Number(f[1]), pgrp: Number(f[2]) });
+      } catch {
+        // Gone between the listing and the read.
+      }
+    }
+    const own = procs.get(process.pid)?.pgrp;
+    const descends = (pid: number): boolean => {
+      for (let p: number | undefined = pid, n = 0; p !== undefined && p > 1 && n < 64; n++) {
+        if (p === process.pid) return true;
+        p = procs.get(p)?.ppid;
+      }
+      return false;
+    };
+    const view = mkdtempSync(join(tempDir(), 'proc-'));
+    for (const [pid, p] of procs) {
+      if (pid === process.pid || !(descends(pid) || groups.has(p.pgrp))) continue;
+      if (p.pgrp !== own) groups.add(p.pgrp);
+      symlinkSync(`/proc/${pid}`, join(view, String(pid)));
+    }
+    return findTagged(id, mark, view);
+  };
+}
+
+/** `stopOperationProcesses` over this test's own processes only; see `ownProcesses`. */
+const stopOwn = (dataDir: string, id: string) =>
+  stopOperationProcesses(dataDir, id, { probe: ownProcesses() });
+
 const { g, setup } = flowEnv('cusr-cancel-flow-');
+
+/** A `task recheck` command for `t` as the client sends it, so a resend carries exactly the same one. */
+function recheckCommand(d: StoreDriver, t: CanonicalTask, requestId: string, newId: () => string) {
+  return {
+    request_id: requestId,
+    project: t.project,
+    task_id: t.id,
+    expected_version: d.task(t.id).version,
+    assigned_ids: Array.from({ length: 8 }, () => newId()),
+  };
+}
+
+/** `task recheck` reading through `coordinator`, like the daemon does. */
+function recheckVia(
+  d: StoreDriver,
+  coordinator: ObservationCoordinator,
+  cmd: ReturnType<typeof recheckCommand>,
+  newId: () => string,
+) {
+  return recheckTask(
+    {
+      store: d.store,
+      now: () => d.now,
+      newId,
+      observe: (id: string, ref: string, readId?: string) =>
+        coordinator.observe(id, ref, 'recheck', readId),
+      readIdFor: (id: string, ref: string) => coordinator.readIdFor(id, ref),
+      drain: () => Promise.resolve(null),
+    } as unknown as Parameters<typeof recheckTask>[0],
+    OWNER,
+    cmd,
+  );
+}
 
 const OWNER: Caller = {
   grant: {
@@ -321,7 +410,7 @@ describe('cancel stops setup and gate processes (US5.3, FR-025.02)', () => {
         // The in-flight setup handler gets the abort and returns; what it left is stopped by its tag.
         abort: () => true,
         settled: () => Promise.resolve(),
-        stopLocal: (id: string) => stopOperationProcesses(dataDir, id),
+        stopLocal: (id: string) => stopOwn(dataDir, id),
       } as unknown as HandlerDeps);
       const stopOp = uuidOf(94_200);
       const stopClaim = {
@@ -1067,7 +1156,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
             // Fault injection first: the scan cannot prove the gate's processes gone. With `while`, the
             // first check waits until recovery has recorded the operation lost meanwhile.
             stopLocal: async (id: string) => {
-              if (verifiable) return stopOperationProcesses(dataDir, id);
+              if (verifiable) return stopOwn(dataDir, id);
               checking();
               await released;
               return 'unknown' as const;
@@ -1083,6 +1172,7 @@ describe('a probe that cannot see processes gone is not the end of the road (Con
           reconcileOperations({
             store: d.store,
             dataDir,
+            tagged: ownProcesses(),
             redactor: new Redactor(),
             inspect: (id) =>
               Promise.resolve({
@@ -1231,9 +1321,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
         settled: (id: string) => disp?.settled(id) ?? Promise.resolve(),
         // The original gate operation has nothing alive; the rerun's processes cannot be checked yet.
         stopLocal: (id: string) =>
-          id === gateOp || verifiable
-            ? stopOperationProcesses(dataDir, id)
-            : Promise.resolve('unknown' as const),
+          id === gateOp || verifiable ? stopOwn(dataDir, id) : Promise.resolve('unknown' as const),
         // Fault injection: a stopped command's group is not seen gone; it keeps running.
         executor: {
           run: (plan, o) =>
@@ -1309,6 +1397,7 @@ describe('a probe left unknown holds the slot and every later probe of its effec
       const rep = await reconcileOperations({
         store: f.d.store,
         dataDir,
+        tagged: ownProcesses(),
         redactor: new Redactor(),
         inspect: (id) =>
           Promise.resolve({
@@ -1557,6 +1646,7 @@ describe('stopping local processes by their tag: TERM, grace, KILL (FR-009, FR-0
     const out = await stopOperationProcesses(t.dataDir, t.opId, {
       term_grace_ms: 3_000,
       kill_verify_ms: 2_000,
+      probe: ownProcesses(t.pgid),
     });
     expect(out).toBe('stopped');
     expect(readFileSync(mark, 'utf8')).toBe('cleaned\n');
@@ -1569,6 +1659,7 @@ describe('stopping local processes by their tag: TERM, grace, KILL (FR-009, FR-0
     const out = await stopOperationProcesses(t.dataDir, t.opId, {
       term_grace_ms: 300,
       kill_verify_ms: 2_000,
+      probe: ownProcesses(t.pgid),
     });
     expect(out).toBe('stopped');
     expect(Date.now() - started).toBeGreaterThanOrEqual(300);
@@ -1579,7 +1670,9 @@ describe('stopping local processes by their tag: TERM, grace, KILL (FR-009, FR-0
     const dataDir = tempDir();
     const opId = uuidOf(95_999);
     writeOperationMark(dataDir, opId);
-    expect(await stopOperationProcesses(dataDir, opId)).toBe('not_running');
+    expect(await stopOperationProcesses(dataDir, opId, { probe: ownProcesses() })).toBe(
+      'not_running',
+    );
   });
 });
 
@@ -1663,6 +1756,356 @@ describe('cancel while a publish is unknown (US5.4, FR-025.03/05)', () => {
       cancel_reads: CANCEL_READS_BEFORE_ATTENTION,
     });
     expect(needsUser(s)).toBe(true);
+  });
+
+  /** A cancelled task whose PR is known but has no observation subject yet: a failed read gives no fact. */
+  function cancelledWithoutSubject(d: StoreDriver, id = uuidOf(1)): CanonicalTask {
+    const t = buildTask({ id });
+    const head = 'a'.repeat(40);
+    createGrantStart(d, t, 'direct-pr');
+    toPublish(d, t, head);
+    d.complete(t.id, d.pendingOne(t.id, 'publish').id, 'succeeded', publishData(head));
+    const pr = d.pendingOne(t.id, 'create_pr');
+    d.complete(t.id, pr.id, 'unknown');
+    d.must(t.id, { kind: 'cancel', reason: 'stop' });
+    d.claim(d.pendingOne(t.id, 'reconcile').id);
+    d.must(t.id, {
+      kind: 'effect_reconciled',
+      effect_id: pr.id as Uuid,
+      finding: 'executed_succeeded',
+      data: { pr_ref: 'acme#7', head_sha: head },
+    });
+    expect(d.task(t.id).observation).toBeNull();
+    return t;
+  }
+
+  const GONE_READ = {
+    facts: [],
+    failure: 'observation unknown: pull unreadable: HTTP 404',
+    gone: true as const,
+  };
+
+  it('#358: one read the daemon and a recheck both waited on counts once', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = cancelledWithoutSubject(d);
+    let n = 98_000;
+    const newId = () => uuidOf(n++);
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    let reads = 0;
+    const coordinator = new ObservationCoordinator(async () => {
+      reads++;
+      await gate;
+      return GONE_READ;
+    });
+    const daemon = observationRound({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      coordinator,
+      newId,
+      cancelReadAt: new Map(),
+    });
+    const recheck = recheckTask(
+      {
+        store: d.store,
+        now: () => d.now,
+        newId,
+        observe: (id: string, ref: string) => coordinator.observe(id, ref, 'recheck'),
+        drain: () => Promise.resolve(null),
+      } as unknown as Parameters<typeof recheckTask>[0],
+      OWNER,
+      {
+        request_id: uuidOf(98_500),
+        project: t.project,
+        task_id: t.id,
+        expected_version: d.task(t.id).version,
+        assigned_ids: Array.from({ length: 8 }, (_, i) => uuidOf(98_600 + i)),
+      },
+    );
+    release();
+    await Promise.all([daemon, recheck]);
+    expect(reads).toBe(1);
+    expect(types(d, t).filter((x) => x === 'CancelReadFailed')).toHaveLength(1);
+    expect(d.task(t.id).cancellation).toMatchObject({ reads: 1, gone_reads: 1 });
+  });
+
+  it('#358: a recheck sent again after its shared read was recorded does not read the PR again', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = cancelledWithoutSubject(d);
+    let n = 99_300;
+    const newId = () => uuidOf(n++);
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const coordinator = new ObservationCoordinator(async () => {
+      await gate;
+      return GONE_READ;
+    });
+    // The daemon waits on the read first, so its report of it is recorded first.
+    const daemon = observationRound({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      coordinator,
+      newId,
+      cancelReadAt: new Map(),
+    });
+    const cmd = recheckCommand(d, t, uuidOf(99_290), newId);
+    const first = recheckVia(d, coordinator, cmd, newId);
+    release();
+    await Promise.all([daemon, first]);
+    expect(await first).toMatchObject({ ok: true, value: { performed: true } });
+    // The same request again, as after a crash before its reply: a fresh coordinator, nothing in flight.
+    let reads = 0;
+    const again = await recheckVia(
+      d,
+      new ObservationCoordinator(() => {
+        reads++;
+        return Promise.resolve(GONE_READ);
+      }),
+      cmd,
+      newId,
+    );
+    expect(again).toMatchObject({ ok: true, value: { performed: false } });
+    expect(reads).toBe(0);
+    expect(types(d, t).filter((x) => x === 'CancelReadFailed')).toHaveLength(1);
+    expect(d.task(t.id).cancellation).toMatchObject({ reads: 1, gone_reads: 1 });
+  });
+
+  it('#358: a recheck cut short after the daemon recorded their shared read replays it after a restart', async () => {
+    const path = dbPath(tempDir());
+    let crashAfterCommit = false;
+    const store = openFileStoreForTest(path, {
+      crash: (point) => {
+        if (point !== 'after_commit' || !crashAfterCommit) return;
+        crashAfterCommit = false;
+        store.close();
+        throw new Error('crash just after the daemon recorded the read');
+      },
+    });
+    const d = new StoreDriver(store);
+    const t = cancelledWithoutSubject(d);
+    let n = 99_500;
+    const newId = () => uuidOf(n++);
+    let calls = 0;
+    const counting = () =>
+      new ObservationCoordinator(() => {
+        calls++;
+        return Promise.resolve(GONE_READ);
+      });
+    const round = (coordinator: ObservationCoordinator) =>
+      observationRound({
+        store,
+        coordinator,
+        newId,
+        clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+        cancelReadAt: new Map(),
+      });
+    for (let i = 0; i < CANCEL_GONE_READS_LIMIT - 2; i++) await round(counting());
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const shared = new ObservationCoordinator(async () => {
+      calls++;
+      await gate;
+      return GONE_READ;
+    });
+    const daemon = round(shared);
+    const cmd = recheckCommand(d, t, uuidOf(99_490), newId);
+    const first = recheckVia(d, shared, cmd, newId);
+    crashAfterCommit = true;
+    release();
+    const settled = await Promise.allSettled([daemon, first]);
+    expect(settled.map((s) => s.status)).toEqual(['rejected', 'rejected']);
+
+    const reopened = new StoreDriver(openFileStoreForTest(path), d.now);
+    expect(reopened.store.triggerTime(`cmd:${cmd.request_id}:read_failed`)).toBeNull();
+    expect(reopened.task(t.id).cancellation?.gone_reads).toBe(CANCEL_GONE_READS_LIMIT - 1);
+    const again = await recheckVia(reopened, counting(), cmd, newId);
+    expect(again).toMatchObject({ ok: true, value: { performed: false } });
+    expect(calls).toBe(CANCEL_GONE_READS_LIMIT - 1);
+    const s = reopened.task(t.id);
+    expect(s.cancellation?.gone_reads).toBe(CANCEL_GONE_READS_LIMIT - 1);
+    expect(s.wait?.detail['auto_reads']).toBeUndefined();
+    reopened.store.close();
+  });
+
+  it('#358: a recheck that cannot note the read it would join reads nothing; sent again, it reads', async () => {
+    const path = dbPath(tempDir());
+    let commits = 0;
+    let busyAt = -1;
+    let crashAfterCommit = false;
+    const store = openFileStoreForTest(path, {
+      crash: (point) => {
+        if (point === 'before_commit' && ++commits === busyAt)
+          throw Object.assign(new Error('database is locked'), { code: 'SQLITE_BUSY' });
+        if (point === 'after_commit' && crashAfterCommit) {
+          crashAfterCommit = false;
+          store.close();
+          throw new Error('crash just after the daemon recorded the read');
+        }
+      },
+    });
+    const d = new StoreDriver(store);
+    const t = cancelledWithoutSubject(d);
+    let n = 99_800;
+    const newId = () => uuidOf(n++);
+    let calls = 0;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const shared = new ObservationCoordinator(async () => {
+      calls++;
+      await gate;
+      return GONE_READ;
+    });
+    const daemon = observationRound({
+      store,
+      coordinator: shared,
+      newId,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      cancelReadAt: new Map(),
+    });
+    const cmd = recheckCommand(d, t, uuidOf(99_790), newId);
+    // The recheck fact commits; the note of the read it would join does not.
+    busyAt = commits + 2;
+    const first = await recheckVia(d, shared, cmd, newId);
+    expect(first).toMatchObject({ ok: false, error: { code: 'write_failed', cause: 'busy' } });
+    expect(store.triggerTime(`cmd:${cmd.request_id}:recheck`)).not.toBeNull();
+    expect(store.triggerTime(`cmd:${cmd.request_id}:read_joined`)).toBeNull();
+    crashAfterCommit = true;
+    release();
+    await expect(daemon).rejects.toThrow('crash just after');
+    expect(calls).toBe(1);
+
+    const reopened = new StoreDriver(openFileStoreForTest(path), d.now);
+    expect(reopened.task(t.id).cancellation?.gone_reads).toBe(1);
+    // It never joined the daemon's read, so that read is not its answer.
+    const again = await recheckVia(
+      reopened,
+      new ObservationCoordinator(() => {
+        calls++;
+        return Promise.resolve(GONE_READ);
+      }),
+      cmd,
+      newId,
+    );
+    expect(again).toMatchObject({ ok: true, value: { performed: true } });
+    expect(calls).toBe(2);
+    expect(reopened.task(t.id).cancellation?.gone_reads).toBe(2);
+    reopened.store.close();
+  });
+
+  it('#358: a recheck cut short before its read was recorded reads again, also after an unrelated daemon read', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = cancelledWithoutSubject(d);
+    let n = 99_700;
+    const newId = () => uuidOf(n++);
+    let calls = 0;
+    const counting = () =>
+      new ObservationCoordinator(() => {
+        calls++;
+        return Promise.resolve(GONE_READ);
+      });
+    // `a` and `b` join one read that never comes back; `c` dies before it reads at all.
+    const hung = new ObservationCoordinator(() => new Promise<never>(() => undefined));
+    const a = recheckCommand(d, t, uuidOf(99_690), newId);
+    void recheckVia(d, hung, a, newId);
+    const b = recheckCommand(d, t, uuidOf(99_691), newId);
+    void recheckVia(d, hung, b, newId);
+    const c = recheckCommand(d, t, uuidOf(99_692), newId);
+    await expect(
+      recheckTask(
+        {
+          store: d.store,
+          now: () => d.now,
+          newId,
+          observe: () => Promise.reject(new Error('cut before any read')),
+          drain: () => Promise.resolve(null),
+        } as unknown as Parameters<typeof recheckTask>[0],
+        OWNER,
+        c,
+      ),
+    ).rejects.toThrow('cut before any read');
+    // After the restart the daemon reads by itself: a read none of them joined.
+    await observationRound({
+      store: d.store,
+      coordinator: counting(),
+      newId,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      cancelReadAt: new Map(),
+    });
+    expect(calls).toBe(1);
+    for (const [cmd, after] of [
+      [a, 2],
+      [b, 3],
+      [c, 4],
+    ] as const) {
+      expect(await recheckVia(d, counting(), cmd, newId)).toMatchObject({
+        ok: true,
+        value: { performed: true },
+      });
+      expect(calls).toBe(after);
+    }
+    // Its own read recorded now, `a` sent once more reads nothing.
+    expect(await recheckVia(d, counting(), a, newId)).toMatchObject({
+      ok: true,
+      value: { performed: false },
+    });
+    expect(calls).toBe(4);
+    expect(d.task(t.id).cancellation).toMatchObject({ reads: 4, gone_reads: 4 });
+  });
+
+  it('#358: a task whose reads stopped while the round ran is not read by that round', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    // Read in id order: `a` first, then `b`.
+    const a = cancelledWithoutSubject(d, uuidOf(1));
+    const b = cancelledWithoutSubject(d, uuidOf(2));
+    const goneFor = (t: CanonicalTask) => ({
+      kind: 'cancel_read_failed' as const,
+      read_token: d.task(t.id).cancellation?.read_token as string,
+      detail: GONE_READ.failure,
+      gone: true as const,
+    });
+    for (let i = 1; i < CANCEL_GONE_READS_LIMIT; i++) d.must(b.id, goneFor(b));
+    expect(d.task(b.id).wait?.detail['auto_reads']).toBeUndefined();
+    const calls: string[] = [];
+    let n = 98_700;
+    await observationRound({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      coordinator: new ObservationCoordinator((id) => {
+        calls.push(id);
+        // While `a` is read, a recheck of `b` records its last gone read: `b`'s reads stop.
+        if (id === a.id) d.must(b.id, goneFor(b));
+        return Promise.resolve(GONE_READ);
+      }),
+      newId: () => uuidOf(n++),
+      cancelReadAt: new Map(),
+    });
+    expect(d.task(b.id).wait?.detail['auto_reads']).toBe('stopped');
+    expect(calls).toEqual([a.id]);
+  });
+
+  it('#358: the stored read failure is one safe line, also in task history --full', async () => {
+    const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
+    const t = cancelledWithoutSubject(d);
+    let n = 98_900;
+    await observationRound({
+      store: d.store,
+      clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
+      coordinator: new ObservationCoordinator(() =>
+        Promise.resolve({
+          facts: [],
+          failure: 'gh: \u202eevil\u202c\u001b[31m red\u001b[0m\nnext line\u2066x\u2069',
+        }),
+      ),
+      newId: () => uuidOf(n++),
+      cancelReadAt: new Map(),
+    });
+    expect(d.task(t.id).cancellation?.reads).toBe(1);
+    const history = taskHistory(d.store, OWNER, { kind: 'task_history', task_id: t.id });
+    expect(history.ok).toBe(true);
+    const full = renderHistory(history.ok ? history.value : null);
+    expect(full).toContain('gh:');
+    // eslint-disable-next-line no-control-regex -- the escape is what this checks is gone.
+    expect(full).not.toMatch(/[\u202a-\u202e\u2066-\u2069\u001b]/u);
   });
 
   it('a forced cancel records its own reason; the task ends with the reason the cancel was requested with', () => {
@@ -1931,8 +2374,8 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     return observationRound({
       store: f.d.store,
       clock: { now: () => f.d.now as EpochMs, monotonic: () => f.d.now },
-      coordinator: new ObservationCoordinator((id, ref, source) =>
-        observeTaskPr(deps, id, ref, source),
+      coordinator: new ObservationCoordinator((id, ref, source, readId) =>
+        observeTaskPr(deps, id, ref, source, readId),
       ),
       newId: f.newId,
       cancelReadAt,
@@ -1990,6 +2433,429 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     await daemonRound(f, at);
     expect(waiting().status).toBe('CANCELLED');
     expect(types(f.d, f.task)).not.toContain('CancelForced');
+  });
+
+  const goneWith = (status: 404 | 410): GitHubPort & { calls: number } => {
+    const port = {
+      calls: 0,
+      request: () => {
+        port.calls++;
+        return Promise.resolve({
+          ok: false as const,
+          error: { reason: 'http_error', status, detail: `HTTP ${status}`, retry_after_ms: null },
+        });
+      },
+    };
+    return port as GitHubPort & { calls: number };
+  };
+
+  /** `task recheck` reading the PR through `github` (the fixture's GitHub when absent). */
+  function recheckWith(f: Awaited<ReturnType<typeof green>>, n: number, github?: GitHubPort) {
+    const deps = github === undefined ? f.deps : { ...f.deps, github: () => github };
+    return recheckTask(
+      {
+        store: f.d.store,
+        now: () => f.d.now,
+        newId: f.newId,
+        observe: (id: string, ref: string) =>
+          observeTaskPr(deps, id, ref, 'recheck').then((o) => ({
+            facts: o.facts,
+            failure: o.failure,
+          })),
+        drain: () => Promise.resolve(null),
+      } as unknown as Parameters<typeof recheckTask>[0],
+      OWNER,
+      {
+        request_id: uuidOf(97_000 + n),
+        project: f.task.project,
+        task_id: f.task.id,
+        expected_version: f.d.task(f.task.id).version,
+        assigned_ids: Array.from({ length: 8 }, (_, i) => uuidOf(97_100 + n * 10 + i)),
+      },
+    );
+  }
+
+  /** Daemon rounds far enough apart that each one is due, until `reads` cancel reads are recorded. */
+  async function readUntil(
+    f: Awaited<ReturnType<typeof green>>,
+    at: Map<string, number>,
+    reads: number,
+    github: GitHubPort,
+  ) {
+    for (let i = 0; i < 50 && (f.d.task(f.task.id).cancellation?.reads ?? 0) < reads; i++) {
+      f.d.now += 10 * 60_000;
+      await daemonRound(f, at, () => github);
+    }
+  }
+
+  for (const status of [404, 410] as const)
+    it(`#358: a PR GitHub keeps answering ${status} for is read a bounded number of times; the wait says why and that reads stopped`, async () => {
+      const f = await green();
+      const gone = goneWith(status);
+      await f.cancel({ github: gone });
+      const waiting = () => f.d.task(f.task.id);
+      expect(waiting().wait?.detail).toMatchObject({
+        code: 'cancel_reconcile',
+        last_read_error: expect.stringContaining(`pull unreadable: HTTP ${status}`) as unknown,
+      });
+      expect(waiting().wait?.detail['auto_reads']).toBeUndefined();
+      const at = new Map<string, number>();
+      await readUntil(f, at, CANCEL_GONE_READS_LIMIT, gone);
+      expect(waiting().cancellation?.gone_reads).toBe(CANCEL_GONE_READS_LIMIT);
+      expect(waiting().wait?.detail).toMatchObject({
+        code: 'cancel_reconcile',
+        cancel_reads: CANCEL_GONE_READS_LIMIT,
+        auto_reads: 'stopped',
+      });
+      expect(needsUser(waiting())).toBe(true);
+      // No more automatic reads, however long it waits.
+      const calls = gone.calls;
+      for (let i = 0; i < 5; i++) {
+        f.d.now += 60 * 60_000;
+        expect(await daemonRound(f, at, () => gone)).toEqual([]);
+      }
+      expect(gone.calls).toBe(calls);
+      expect(waiting().cancellation?.reads).toBe(CANCEL_GONE_READS_LIMIT);
+      expect(waiting().status).toBe('WAITING');
+      // A recheck still reads it; once GitHub answers, the cancel ends as usual.
+      expect((await recheckWith(f, 1)).ok).toBe(true);
+      expect(waiting().status).toBe('CANCELLED');
+      expect(types(f.d, f.task)).not.toContain('CancelForced');
+    });
+
+  it('#358: a transient read failure keeps the daemon reading past the limit; the wait shows its reason', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    const at = new Map<string, number>();
+    await readUntil(f, at, CANCEL_GONE_READS_LIMIT + 2, down);
+    const s = f.d.task(f.task.id);
+    expect(s.cancellation?.reads).toBe(CANCEL_GONE_READS_LIMIT + 2);
+    expect(s.cancellation?.gone_reads).toBeUndefined();
+    expect(s.wait?.detail['last_read_error']).toContain('GitHub unreachable');
+    expect(s.wait?.detail['auto_reads']).toBeUndefined();
+    // Still read by the daemon: the next due round reads again.
+    f.d.now += 10 * 60_000;
+    expect(await daemonRound(f, at, () => down)).toMatchObject([{ kind: 'cancel' }]);
+    // A transient failure in between starts the gone count again.
+    const gone = goneWith(404);
+    await readUntil(f, at, CANCEL_GONE_READS_LIMIT + 4, gone);
+    await readUntil(f, at, CANCEL_GONE_READS_LIMIT + 5, down);
+    await readUntil(f, at, CANCEL_GONE_READS_LIMIT + 6, gone);
+    expect(f.d.task(f.task.id).cancellation?.gone_reads).toBe(1);
+    // GitHub answers again: the next round ends the cancel and the reason is gone with the wait.
+    f.d.now += 10 * 60_000;
+    await daemonRound(f, at);
+    expect(f.d.task(f.task.id).status).toBe('CANCELLED');
+  });
+
+  it('#358: a merge seen before the reads stopped still wins: no force, and a recheck that proves the merge ends DONE', async () => {
+    const f = await green();
+    const gone = goneWith(404);
+    await f.cancel({ github: gone });
+    // A read shows the merge without its full proof: the cancel waits on it.
+    f.d.must(f.task.id, observation(f.d, f.task, 'merged', A, { source: 'recheck' }));
+    expect(f.d.task(f.task.id).cancellation?.merge_seen).toBeDefined();
+    const at = new Map<string, number>();
+    await readUntil(f, at, CANCEL_GONE_READS_LIMIT + 1, gone);
+    expect(f.d.task(f.task.id).wait?.detail['auto_reads']).toBe('stopped');
+    const forced = await f.cancel({ github: gone, force: true });
+    expect(forced).toMatchObject({ ok: true, value: { force_ignored: 'merge_seen' } });
+    expect(f.d.task(f.task.id).status).not.toBe('CANCELLED');
+    // GitHub answers again with the merge and its proof: DONE, the cancel recorded as late.
+    f.github.merge(7, 'e'.repeat(40));
+    expect((await recheckWith(f, 2)).ok).toBe(true);
+    let s = f.d.task(f.task.id);
+    expect(s.completion?.proof.merge_commit_sha).toBe('e'.repeat(40));
+    if (s.status !== 'DONE') {
+      expect(s.status).not.toBe('CANCELLED');
+      submit(f.d.store, {
+        task_id: f.task.id,
+        dedup_key: 'drain:test:358',
+        trigger: { kind: 'drain_result', pending_operations: [] },
+        now: f.d.now,
+        expected_version: s.version,
+      });
+      s = f.d.task(f.task.id);
+    }
+    expect(s.status).toBe('DONE');
+    expect(types(f.d, f.task)).not.toContain('TaskCancelled');
+    expect(types(f.d, f.task)).not.toContain('CancelForced');
+  });
+
+  /** The fixture's GitHub, but `answer` decides a request first; undefined passes it on. */
+  function wrapGitHub(
+    f: Awaited<ReturnType<typeof green>>,
+    answer: (path: string, n: number) => Awaited<ReturnType<GitHubPort['request']>> | undefined,
+  ): GitHubPort & { calls: number } {
+    const base = f.deps.github();
+    const port: GitHubPort & { calls: number } = {
+      calls: 0,
+      request: (req) => {
+        port.calls++;
+        const own = answer(req.path, port.calls);
+        return own === undefined ? base.request(req) : Promise.resolve(own);
+      },
+    };
+    return port;
+  }
+
+  it('#358: a PR that reads once but is gone on the second read of the same round counts as gone too', async () => {
+    const f = await green();
+    let pullReads = 0;
+    const flaky = wrapGitHub(f, (path) => {
+      if (!/\/pulls\/\d+$/.test(path)) return undefined;
+      pullReads++;
+      return pullReads % 2 === 0
+        ? {
+            ok: false,
+            error: { reason: 'http_error', status: 410, detail: 'HTTP 410', retry_after_ms: null },
+          }
+        : undefined;
+    });
+    await f.cancel({ github: flaky });
+    expect(f.d.task(f.task.id).wait?.detail['last_read_error']).toContain(
+      'second pull read failed: HTTP 410',
+    );
+    const at = new Map<string, number>();
+    await readUntil(f, at, CANCEL_GONE_READS_LIMIT, flaky);
+    expect(f.d.task(f.task.id).wait?.detail['auto_reads']).toBe('stopped');
+    const calls = flaky.calls;
+    f.d.now += 60 * 60_000;
+    expect(await daemonRound(f, at, () => flaky)).toEqual([]);
+    expect(flaky.calls).toBe(calls);
+  });
+
+  it('#358: a rate-limited checks read leaves its reason in the wait, and does not count as gone', async () => {
+    const f = await green();
+    const limited = wrapGitHub(f, (path) =>
+      /check-runs|statuses|check-suites/.test(path)
+        ? {
+            ok: false,
+            error: {
+              reason: 'http_error',
+              status: 429,
+              detail: 'HTTP 429',
+              retry_after_ms: 60_000,
+            },
+          }
+        : undefined,
+    );
+    await f.cancel({ github: limited });
+    const s = f.d.task(f.task.id);
+    expect(s.wait?.detail.code).toBe('cancel_reconcile');
+    expect(s.wait?.detail['last_read_error']).toContain('checks unreadable');
+    expect(s.wait?.detail['last_read_error']).toContain('HTTP 429');
+    expect(s.cancellation?.gone_reads).toBeUndefined();
+  });
+
+  it('#358: the reason is kept and shown as one safe line: no escapes, no bidi controls', async () => {
+    const f = await green();
+    const hostile: GitHubPort = {
+      request: () =>
+        Promise.resolve({
+          ok: false,
+          error: {
+            reason: 'unknown',
+            status: null,
+            detail: 'gh: \u202eevil\u202c\u001b[31m red\u001b[0m\nnext line\u2066x\u2069',
+            retry_after_ms: null,
+          },
+        }),
+    };
+    await f.cancel({ github: hostile });
+    const s = f.d.task(f.task.id);
+    const line = s.wait?.detail['last_read_error'] as string;
+    expect(line).toContain('gh:');
+    expect(line).toContain('red next line');
+    expect(line).not.toContain('\n');
+    // What `cusr task show` and `cusr task history --full` print carries none of them either; the
+    // history shows the observation fact's own `failure`.
+    const history = taskHistory(f.d.store, OWNER, { kind: 'task_history', task_id: f.task.id });
+    const full = renderHistory(history.ok ? history.value : null);
+    expect(full).toContain('failure: ');
+    for (const out of [line, stringify(showSummary({ task_id: f.task.id, wait: s.wait })), full])
+      // eslint-disable-next-line no-control-regex -- the escape is what this checks is gone.
+      expect(out).not.toMatch(/[\u202a-\u202e\u2066-\u2069\u001b]/u);
+  });
+
+  it('#358: a recheck that shared a read with the daemon, sent again, does not read the PR again', async () => {
+    const f = await green();
+    const gone = goneWith(404);
+    await f.cancel({ github: gone });
+    const at = new Map<string, number>();
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const shared = new ObservationCoordinator(async (id, ref, source) => {
+      await gate;
+      return observeTaskPr({ ...f.deps, github: () => gone }, id, ref, source);
+    });
+    f.d.now += 10 * 60_000;
+    // The daemon waits on the read first: its observation fact is recorded first.
+    const daemon = observationRound({
+      store: f.d.store,
+      clock: { now: () => f.d.now as EpochMs, monotonic: () => f.d.now },
+      coordinator: shared,
+      newId: f.newId,
+      cancelReadAt: at,
+    });
+    const cmd = recheckCommand(f.d, f.task, uuidOf(97_990), f.newId);
+    const first = recheckVia(f.d, shared, cmd, f.newId);
+    release();
+    await Promise.all([daemon, first]);
+    expect(await first).toMatchObject({ ok: true, value: { performed: true } });
+    const counted = f.d.task(f.task.id).cancellation;
+    const calls = gone.calls;
+    const again = await recheckVia(
+      f.d,
+      new ObservationCoordinator((id, ref, source) =>
+        observeTaskPr({ ...f.deps, github: () => gone }, id, ref, source),
+      ),
+      cmd,
+      f.newId,
+    );
+    expect(again).toMatchObject({ ok: true, value: { performed: false } });
+    expect(gone.calls).toBe(calls);
+    expect(f.d.task(f.task.id).cancellation).toMatchObject({
+      reads: counted?.reads,
+      gone_reads: counted?.gone_reads,
+    });
+  });
+
+  it('#358: a recheck that died after the daemon recorded their shared read of a known PR, sent again, does not read it again', async () => {
+    const f = await green();
+    const gone = goneWith(404);
+    await f.cancel({ github: gone });
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const shared = new ObservationCoordinator(async (id, ref, source, readId) => {
+      await gate;
+      return observeTaskPr({ ...f.deps, github: () => gone }, id, ref, source, readId);
+    });
+    f.d.now += 10 * 60_000;
+    const daemon = observationRound({
+      store: f.d.store,
+      clock: { now: () => f.d.now as EpochMs, monotonic: () => f.d.now },
+      coordinator: shared,
+      newId: f.newId,
+      cancelReadAt: new Map(),
+    });
+    const cmd = recheckCommand(f.d, f.task, uuidOf(97_980), f.newId);
+    // The recheck waits on the daemon's read, then dies before it records anything of its own.
+    void recheckTask(
+      {
+        store: f.d.store,
+        now: () => f.d.now,
+        newId: f.newId,
+        observe: (id: string, ref: string, readId?: string) =>
+          shared
+            .observe(id, ref, 'recheck', readId)
+            .then(() => new Promise<never>(() => undefined)),
+        readIdFor: (id: string, ref: string) => shared.readIdFor(id, ref),
+        drain: () => Promise.resolve(null),
+      } as unknown as Parameters<typeof recheckTask>[0],
+      OWNER,
+      cmd,
+    );
+    release();
+    await daemon;
+    expect(f.d.store.triggerTime(`cmd:${cmd.request_id}:fact:0`)).toBeNull();
+    const counted = f.d.task(f.task.id).cancellation;
+    const calls = gone.calls;
+    const again = await recheckVia(
+      f.d,
+      new ObservationCoordinator((id, ref, source) =>
+        observeTaskPr({ ...f.deps, github: () => gone }, id, ref, source),
+      ),
+      cmd,
+      f.newId,
+    );
+    expect(again).toMatchObject({ ok: true, value: { performed: false } });
+    expect(gone.calls).toBe(calls);
+    expect(f.d.task(f.task.id).cancellation).toMatchObject({
+      reads: counted?.reads,
+      gone_reads: counted?.gone_reads,
+    });
+  });
+
+  /** A recheck of `f` whose process dies after its recheck fact, before it reads anything. */
+  const cutBeforeRead = (
+    f: Awaited<ReturnType<typeof green>>,
+    cmd: ReturnType<typeof recheckCommand>,
+  ) =>
+    recheckTask(
+      {
+        store: f.d.store,
+        now: () => f.d.now,
+        newId: f.newId,
+        observe: () => Promise.reject(new Error('cut before any read')),
+        drain: () => Promise.resolve(null),
+      } as unknown as Parameters<typeof recheckTask>[0],
+      OWNER,
+      cmd,
+    );
+
+  const readsNow = (f: Awaited<ReturnType<typeof green>>) =>
+    new ObservationCoordinator((id, ref, source, readId) =>
+      observeTaskPr(f.deps, id, ref, source, readId),
+    );
+
+  it('#358: a recheck cut short before it read is not answered by a later daemon read of a known PR', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    const cmd = recheckCommand(f.d, f.task, uuidOf(97_970), f.newId);
+    await expect(cutBeforeRead(f, cmd)).rejects.toThrow('cut before any read');
+    const gone = goneWith(404);
+    f.d.now += 10 * 60_000;
+    await daemonRound(f, new Map(), () => gone);
+    expect(gone.calls).toBeGreaterThan(0);
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('cancel_reconcile');
+    // GitHub answers again: the request sent again reads the PR and ends the cancel.
+    const again = await recheckVia(f.d, readsNow(f), cmd, f.newId);
+    expect(again).toMatchObject({ ok: true, value: { performed: true, status: 'CANCELLED' } });
+  });
+
+  it('#358: a recheck cut short before a cancel was requested reads for that cancel when sent again', async () => {
+    const f = await green();
+    const cmd = recheckCommand(f.d, f.task, uuidOf(97_971), f.newId);
+    await expect(cutBeforeRead(f, cmd)).rejects.toThrow('cut before any read');
+    await f.cancel({ github: goneWith(404) });
+    expect(f.d.task(f.task.id).wait?.detail.code).toBe('cancel_reconcile');
+    const again = await recheckVia(f.d, readsNow(f), cmd, f.newId);
+    expect(again).toMatchObject({ ok: true, value: { performed: true, status: 'CANCELLED' } });
+  });
+
+  it('#358: old CancelReadFailed events with a 404 text replay without a gone count; the daemon keeps reading', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    let s = f.d.task(f.task.id);
+    // Recorded before `gone` existed: only the text says 404.
+    for (let i = 0; i < CANCEL_GONE_READS_LIMIT + 1; i++)
+      s = evolve(s, {
+        type: 'CancelReadFailed',
+        revision: s.revision,
+        actor: 'daemon',
+        payload: { detail: 'observation unknown: pull unreadable: HTTP 404' },
+      });
+    expect(s.cancellation?.gone_reads).toBeUndefined();
+    expect(cancelReadDue(s, undefined)).toBe(0);
+  });
+
+  it('#358: the daemon stops reading only once the wait says so', async () => {
+    const f = await green();
+    await f.cancel({ github: down });
+    const s = f.d.task(f.task.id);
+    const counted = {
+      ...s,
+      cancellation: { ...s.cancellation!, gone_reads: CANCEL_GONE_READS_LIMIT },
+    };
+    // The count alone, with a wait that does not say reads stopped, does not stop them.
+    expect(counted.wait?.detail['auto_reads']).toBeUndefined();
+    expect(cancelReadDue(counted, undefined)).toBe(0);
+    const told = {
+      ...counted,
+      wait: { ...counted.wait!, detail: { ...counted.wait!.detail, auto_reads: 'stopped' } },
+    };
+    expect(cancelReadDue(told, undefined)).toBeNull();
   });
 
   it('#267: after a restart the daemon reads the PR for a cancel left waiting, at once', async () => {

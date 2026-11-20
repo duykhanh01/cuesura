@@ -19,7 +19,8 @@
  *
  * The engine first accepts a `recheck` fact under the request's dedup key, so a different payload under
  * the same request ID is a conflict. The same request run again (after a crash cut its first run short)
- * does the check only if the first run recorded nothing of it (#267). The service only
+ * does the check only if the first run recorded nothing of it (#267), nor did another caller record the
+ * read for the waiting cancel that the first run joined (#358). The service only
  * enqueues facts; whether work resumes is the scheduler's decision. No agent, merge or new head.
  */
 import type { TaskState, Wait } from '../domain/state.ts';
@@ -54,10 +55,21 @@ export type RecheckDeps = ConfirmDeps & {
   readonly observe: (
     taskId: string,
     evidenceRef: string,
+    /** From `readIdFor`; used only when this call starts the read. */
+    readId?: string,
   ) => Promise<{
     readonly facts: readonly Trigger[];
     readonly failure: string | null;
+    /** GitHub answered 404 or 410 for the PR itself (#358). */
+    readonly gone?: true;
+    /** Set when the read may be shared with other callers; see `recordCancelReadFailure`. */
+    readonly read_id?: string;
   }>;
+  /**
+   * The ID of the read `observe` would join or start under that ref right now
+   * (`ObservationCoordinator.readIdFor`); absent, a retry finds only this request's own records.
+   */
+  readonly readIdFor?: (taskId: string, evidenceRef: string) => string;
   /** One bounded drain round; null when the task has no drain to run. */
   readonly drain: (
     taskId: string,
@@ -123,13 +135,50 @@ export function recheckTarget(s: TaskState): RecheckTarget | 'terminal' | null {
 }
 
 /** Whether an earlier run of request `requestId` already recorded the outcome of its check. */
-function checkRecorded(deps: RecheckDeps, requestId: string, target: RecheckTarget): boolean {
+function checkRecorded(
+  deps: RecheckDeps,
+  taskId: string,
+  requestId: string,
+  target: RecheckTarget,
+): boolean {
   const key = (k: string) => deps.store.triggerTime(`cmd:${requestId}:${k}`) !== null;
-  if (target === 'observation') return key('fact:0') || key('read_failed');
+  if (target === 'observation')
+    return key('fact:0') || key('read_failed') || joinedReadRecorded(deps, taskId, requestId);
   if (target === 'config') return key('config');
   // A drain round has no record of its own and the daemon runs drains by itself; the rest happened in
   // the accept of the recheck fact.
   return true;
+}
+
+/** Dedup key of the `n`th cancel read run `requestId` joined; each run that reads notes its own. */
+const joinedKey = (requestId: string, n: number): string =>
+  `cmd:${requestId}:read_joined${n === 0 ? '' : `:${n}`}`;
+
+/** The cancel reads earlier runs of `requestId` joined, by `read_id`, oldest first. */
+function joinedReads(deps: RecheckDeps, requestId: string): string[] {
+  const out: string[] = [];
+  for (let n = 0; ; n++) {
+    const t = deps.store.priorTrigger(joinedKey(requestId, n))?.envelope.trigger;
+    if (t?.kind !== 'cancel_read_joined') return out;
+    out.push(t.read_id);
+  }
+}
+
+/**
+ * A read an earlier run joined (`cancel_read_joined`) that some caller recorded: the request's answer,
+ * though a crash cut that run short before its own report. Only the read the run joined counts, never
+ * another one recorded later (#358).
+ */
+function joinedReadRecorded(deps: RecheckDeps, taskId: string, requestId: string): boolean {
+  const ids = new Set(joinedReads(deps, requestId));
+  if (ids.size === 0) return false;
+  return deps.store
+    .readEvents(taskId as Uuid)
+    .some(
+      (e) =>
+        (e.type === 'CancelReadFailed' && ids.has(e.payload.read_id ?? '')) ||
+        (e.type === 'ExternalStateObserved' && ids.has(e.payload.observation.observation_id)),
+    );
 }
 
 export async function recheckTask(
@@ -183,7 +232,7 @@ export async function recheckTask(
     };
   const performed =
     target !== 'terminal' &&
-    (!accepted.value.duplicate || !checkRecorded(deps, cmd.request_id, target));
+    (!accepted.value.duplicate || !checkRecorded(deps, cmd.task_id, cmd.request_id, target));
   const facts: { kind: Trigger['kind']; accepted: boolean; reason?: string }[] = [];
   let configCheck: ConfigCheckStatus | null = null;
   let unavailable: string | null = null;
@@ -199,7 +248,34 @@ export async function recheckTask(
   } else if (performed && target === 'observation') {
     // While a cancel waits for its read, this read is the one that counts for it (FR-025.03).
     const cancelRef = cancelReadEvidence(before);
-    const r = await deps.observe(cmd.task_id, cancelRef ?? `recheck:${cmd.request_id}`);
+    // The read is noted before it is joined, so a retry knows it is this request's answer even if another
+    // caller that shared it records it and a crash comes before this run's own report (#358). No note, no
+    // read: nothing may run between the note and the join, or the read in flight could change.
+    const token = before.cancellation?.read_token;
+    let readId: string | undefined;
+    if (cancelRef !== null && token !== undefined && deps.readIdFor !== undefined) {
+      readId = deps.readIdFor(cmd.task_id, cancelRef);
+      const noted = submit(deps.store, {
+        task_id: cmd.task_id,
+        dedup_key: joinedKey(cmd.request_id, joinedReads(deps, cmd.request_id).length),
+        trigger: { kind: 'cancel_read_joined', read_token: token, read_id: readId },
+        now: deps.now(),
+        ids: [],
+      });
+      if (!noted.ok) return noted;
+      if (noted.value.decision.kind === 'rejected')
+        return {
+          ok: false,
+          error: {
+            code: 'rejected',
+            reason: noted.value.decision.code,
+            ...(noted.value.decision.detail === undefined
+              ? {}
+              : { detail: noted.value.decision.detail }),
+          },
+        };
+    }
+    const r = await deps.observe(cmd.task_id, cancelRef ?? `recheck:${cmd.request_id}`, readId);
     unavailable = r.failure;
     r.facts.forEach((fact, i) => {
       const cur = deps.store.readTask(cmd.task_id as Uuid);
@@ -229,6 +305,8 @@ export async function recheckTask(
         ref: cancelRef,
         facts: r.facts,
         failure: r.failure,
+        gone: r.gone === true,
+        ...(r.read_id === undefined ? {} : { read_id: r.read_id }),
         dedup_key: `cmd:${cmd.request_id}:read_failed`,
         now: deps.now(),
         ids: Array.from({ length: MAX_ENVELOPE_IDS }, () => deps.newId()),

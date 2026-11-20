@@ -126,6 +126,7 @@ function forceCancelBlocks(e: TaskExplain | null): Block[] {
       ]),
       WARN,
     ),
+    ...readFailureBlocks(e),
     text('What force cancelling does:', { bold: true }),
     text(
       '• The pull request is read once more. If that read shows it open or closed, the cancel ends as usual; a merge ends the task DONE.',
@@ -142,6 +143,22 @@ function forceCancelBlocks(e: TaskExplain | null): Block[] {
     text('If GitHub may answer again soon, press Esc and use Recheck instead.', NOTICE),
   ];
   return rows;
+}
+
+/** Why the newest read of the PR failed, and whether the daemon still reads it by itself (#358). */
+function readFailureBlocks(e: TaskExplain | null): Block[] {
+  const failure: unknown = e?.wait?.detail['last_read_error'];
+  const out: Block[] = [];
+  if (typeof failure === 'string' && failure !== '')
+    out.push(text(joinSafe([uiText('Last read failed: '), sanitize(failure)]), WARN));
+  if (e?.wait?.detail['auto_reads'] === 'stopped')
+    out.push(
+      text(
+        'GitHub keeps answering that the pull request is gone, so the daemon stopped reading it on its own; use Recheck to try again.',
+        WARN,
+      ),
+    );
+  return out;
 }
 
 /**

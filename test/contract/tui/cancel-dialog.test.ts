@@ -101,6 +101,38 @@ describe('Cancel dialog below the PTY', () => {
     });
   });
 
+  it('#358: the force dialog shows why the last read failed, safely, and that the daemon stopped reading', () => {
+    const stuck = {
+      ...RECONCILING,
+      wait: {
+        ...RECONCILING.wait,
+        detail: {
+          ...RECONCILING.wait.detail,
+          last_read_error: 'observation unknown: pull unreadable: HTTP 404\u001b[31m',
+          auto_reads: 'stopped',
+        },
+      },
+    };
+    const open = run(
+      menu(OWNER, explainOf(stuck, ['recheck', 'cancel'])),
+      key('down'),
+      key('enter'),
+    ).state;
+    const screen = flat(text(open));
+    expect(screen).toContain('Last read failed: observation unknown: pull unreadable: HTTP 404');
+    expect(screen).not.toContain('\u001b');
+    expect(screen).toContain('the daemon stopped reading it on its own; use Recheck to try again');
+    // Without them the dialog says neither.
+    const plain = flat(
+      text(
+        run(menu(OWNER, explainOf(RECONCILING, ['recheck', 'cancel'])), key('down'), key('enter'))
+          .state,
+      ),
+    );
+    expect(plain).not.toContain('Last read failed');
+    expect(plain).not.toContain('stopped reading');
+  });
+
   it('a cancel waiting on an unreadable PR is offered as Force cancel, warns, and sends force', () => {
     const m = menu(OWNER, explainOf(RECONCILING, ['recheck', 'cancel']));
     expect(text(m)).toContain('Force cancel (PR unread)');
