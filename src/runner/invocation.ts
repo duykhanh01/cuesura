@@ -225,7 +225,7 @@ const LaunchStateSchema = z.strictObject({
   collect_before: z.array(z.string()),
   /** A native session: it ends at its Stop hook, not with a result. */
   interactive: z.strictObject({ session_ref: z.string().nullable() }).optional(),
-  /** Session files already in the home at the spawn, a resumed session's among them. */
+  /** Session files already in the home at spawn; null when the inventory was incomplete. */
   session_marks: z
     .array(
       z.strictObject({
@@ -234,6 +234,7 @@ const LaunchStateSchema = z.strictObject({
         size: z.number().int().nonnegative(),
       }),
     )
+    .nullable()
     .optional(),
   auth: z.strictObject({
     home: z.string().min(1),

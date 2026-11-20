@@ -166,6 +166,24 @@ describe('a resumed session carries the earlier attempt records; only this launc
     expect(fresh.diagnose()).toMatchObject({ kind: 'auth' });
   });
 
+  it('does not misread an unmarked old error after the pre-launch file limit was exceeded', () => {
+    const h = home('claude', []);
+    const dir = join(h, '.claude', 'projects', '-wt');
+    for (let i = 0; i < 31; i++) {
+      writeFileSync(join(dir, `a-${String(i).padStart(2, '0')}.jsonl`), '');
+    }
+    expect(sessionMarks('claude', h)).toHaveLength(32);
+
+    writeFileSync(join(dir, 'z-old.jsonl'), line(login));
+    const marks = sessionMarks('claude', h);
+    expect(marks).toBeNull();
+    rmSync(join(dir, 'a-00.jsonl'));
+
+    expect(
+      startupDiagnosis({ vendor: 'claude', home: h, marks, sandboxed: false, toolchain: [] }),
+    ).toBeNull();
+  });
+
   it('a session file replaced or truncated since the launch, or a launch without marks, is not read', () => {
     const replaced = resumed('claude', { type: 'user' });
     writeFileSync(`${replaced.file}.new`, line(login).repeat(3));

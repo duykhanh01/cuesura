@@ -28,22 +28,30 @@ export type StartupCause = {
 const TAIL_BYTES = 64 * 1024;
 const MAX_FILES = 32;
 
-function jsonlFiles(dir: string, out: string[] = []): string[] {
+function jsonlFiles(dir: string, out?: string[]): string[] | null {
   let names: string[];
   try {
     names = readdirSync(dir);
+  } catch (e) {
+    return out === undefined && (e as NodeJS.ErrnoException).code === 'ENOENT' ? [] : null;
+  }
+  const files = out ?? [];
+  try {
+    for (const name of names) {
+      const path = join(dir, name);
+      // lstat: directory entries that are symlinks are not traversed.
+      const st = lstatSync(path);
+      if (st.isDirectory()) {
+        if (jsonlFiles(path, files) === null) return null;
+      } else if (st.isFile() && name.endsWith('.jsonl')) {
+        if (files.length === MAX_FILES) return null;
+        files.push(path);
+      }
+    }
+    return files;
   } catch {
-    return out;
+    return null;
   }
-  for (const name of names) {
-    if (out.length >= MAX_FILES) break;
-    const path = join(dir, name);
-    // lstat: nothing outside the private home is followed.
-    const st = lstatSync(path, { throwIfNoEntry: false });
-    if (st?.isDirectory() === true) jsonlFiles(path, out);
-    else if (st?.isFile() === true && name.endsWith('.jsonl')) out.push(path);
-  }
-  return out;
 }
 
 /** A session file already in the home at launch, by its path under the home. */
@@ -53,11 +61,17 @@ const sessionRoot = (vendor: string, home: string): string =>
   vendor === 'claude' ? join(home, '.claude', 'projects') : join(home, '.codex', 'sessions');
 
 /** Taken before the spawn, after a resumed session was copied in. */
-export function sessionMarks(vendor: string, home: string): SessionMark[] {
-  return jsonlFiles(sessionRoot(vendor, home)).flatMap((f) => {
-    const st = lstatSync(f, { throwIfNoEntry: false });
-    return st === undefined ? [] : [{ path: relative(home, f), ino: st.ino, size: st.size }];
-  });
+export function sessionMarks(vendor: string, home: string): SessionMark[] | null {
+  const files = jsonlFiles(sessionRoot(vendor, home));
+  if (files === null) return null;
+  try {
+    return files.map((f) => {
+      const st = lstatSync(f);
+      return { path: relative(home, f), ino: st.ino, size: st.size };
+    });
+  } catch {
+    return null;
+  }
 }
 
 /** What this launch appended to a file; null when its history cannot be told apart. */
@@ -112,7 +126,7 @@ function errorText(line: string): string | null {
 
 function sessionErrors(vendor: string, home: string, marks: readonly SessionMark[]): string[] {
   const at = new Map(marks.map((m) => [m.path, m]));
-  return jsonlFiles(sessionRoot(vendor, home)).flatMap((f) => {
+  return (jsonlFiles(sessionRoot(vendor, home)) ?? []).flatMap((f) => {
     try {
       return (tail(f, at.get(relative(home, f))) ?? '')
         .split('\n')
