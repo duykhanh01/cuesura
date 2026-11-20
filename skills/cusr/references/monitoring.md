@@ -36,12 +36,16 @@ the stream is a JSON envelope. Handle `end` as follows.
 Use the Stop hook or `assistant wait` to wait without spending model turns on repeated status checks.
 Use `task logs --follow` when the user wants live output from one task.
 
+For a `goal_*` notification or a JSON item with `goal: true`, use `goal show` with the goal ID
+from the notification (the `task_id` field in JSON). Follow the [goal approval steps](goals.md)
+for a plan or amendment awaiting approval.
+For a task wait, read `inbox` and `task explain`. For `done`, `failed`, or `cancelled`, read
+`task show`. A harness launch failure may include a suggested fix. Relay the finding to the user.
+
 **With hooks from `cusr init`.** Take the lease with `assistant register --take` only when the user
 asks. Relay the returned `items` and check `warnings` for a missing hook. The installed hook parks
 after each turn and surfaces later events in messages starting with `cusr:`.
 
-- For a wait, read `inbox` and `task explain`, then relay the finding. For `done`, `failed`, or
-  `cancelled`, read `task show`. A harness launch failure may include a suggested fix.
 - If another session takes the lease, general task updates go there. This session can still receive
   harness launch failures for tasks it added. Take the lease back only on request. Use
   `assistant unregister` when the user wants to stop notifications.
@@ -58,7 +62,8 @@ is retried after `details.retry_after_ms` without `--lease`. For another session
 ## Answer or message
 
 Use `inbox` to see blocking questions and waits. Read their `next` and `task_version`. When
-`deputy: true`, the deputy is handling the item. If it hands off, relay the cause and decision.
+`deputy: true`, let the deputy handle the item unless the user explicitly asks you to intervene.
+If the deputy hands off, relay the cause and decision.
 Answer with the user's direction or established facts. Present any unresolved decision to the user.
 
 ```sh

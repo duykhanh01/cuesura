@@ -22,7 +22,10 @@ printf '%s\n' "$NOTE" | cusr goal note "$GOAL_ID" --file - \
   the goal is waiting for a plan via `goal propose`.
 - Show the whole plan from `goal show`, including summary, scope, non-goals, each unit's acceptance,
   scope and dependencies, and parallel groups. Confirm only the hash the user approved. If the
-  hash changes, show the new plan for approval. Use the same procedure for `amendment_pending`.
+  hash changes, show the new plan for approval.
+- For `amendment_pending`, show `pending_amendment.plan` and `pending_amendment.parallel_groups`.
+  After the user approves that amendment, pass `pending_amendment.plan_hash` to `--plan-hash` with
+  the current goal `version`.
 - `goal note` records the user's directive for the deputy. Run `goal revise` or `goal cancel` only
   on request. Cancel also stops every unfinished unit task.
 - A multi-unit plan needs `ci.required_checks` in `cusr.yaml`. Report `no_required_checks` to

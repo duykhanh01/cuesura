@@ -47,12 +47,14 @@ and check the envelope's `ok` and `error`. Use `cusr help <command>` for flags, 
    Otherwise confirm the approved settings yourself when `project list` reports
    `data.caller.trusted_confirmer: true`. If it is false, the user confirms the run config.
 
+Use the approved `MODE` below. Add `--reviewer "$REVIEWER"` to the proposal for `full-review`.
+
 ```sh
 cusr task add --project "$PROJECT" --title "$TITLE" --base "$BASE" \
   --description "$DESCRIPTION" --acceptance "$ACCEPTANCE" --request-id "$ADD_ID" --json
 cusr task options "$TASK_ID" --json
 cusr task show "$TASK_ID" --json
-cusr task propose "$TASK_ID" --profile "$PROFILE" --mode direct-pr --worker "$WORKER" \
+cusr task propose "$TASK_ID" --profile "$PROFILE" --mode "$MODE" --worker "$WORKER" \
   --reason "$REASON" --expected-version "$VERSION" --request-id "$PROPOSE_ID" --json
 cusr task show "$TASK_ID" --json
 cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" \
@@ -62,8 +64,8 @@ cusr task confirm "$TASK_ID" --run-config "$RUN_DIGEST" \
 - Use one acceptance criterion per line. With `--file`, use the JSON fields from `cusr help task add`
   and a stable `source_key` for a known issue or request. On `conflict` with `task_exists`, use the
   existing ID in `error.details.detail.task_id`.
-- Bindings are `harness/model/effort`. Use `--reviewer` with `full-review` only, and name the dispatch
-  rule in `--reason`. Omitted fallback flags use the available ladder rungs. An explicit empty
+- Bindings are `harness/model/effort`. Name the dispatch rule in `--reason`.
+  Omitted fallback flags use the available ladder rungs. An explicit empty
   `--fallback ''` or `--reviewer-fallback ''` disables that ladder. The daemon validates the proposal
   and rechecks it at start.
 - If both the task and `cusr.yaml` omit a profile, `task options` can fail. Select a configured profile

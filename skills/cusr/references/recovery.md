@@ -57,8 +57,8 @@ On `worker_refused`, stop using `cusr`.
 - `task pause` lets the current attempt finish and holds the next step. `--now` also stops
   the running attempt. `task resume` continues with the same revision, worktree, and PR.
 - `queue pause` holds new starts. Ask the user before `queue resume`.
-- Before `task cancel`, show affected dependents from `task explain` and get the user's approval
-  for the cascade. While `cancel_reconcile` runs, wait for the outcome. If it needs the user,
+- Before `task cancel` or `task fail`, show affected dependents from `task explain` and get the user's
+  approval for any cascade. While `cancel_reconcile` runs, wait for the outcome. If it needs the user,
   use `--force` only on explicit request. Check the resulting state because a merge may have landed.
 - Use `task fail` only when the user asks. It ends a waiting task and may create a draft PR for
   unpublished work. To start over on a separate task, use a fresh `task add` with the user's approval.
@@ -76,4 +76,5 @@ On `worker_refused`, stop using `cusr`.
   the action is offered. The owner confirms the PR, target, head, method, and commit message. The
   daemon checks readiness, CI, and the head again. GitHub's merge UI is also available to the user.
 - With yolo enabled, the daemon can merge eligible PRs automatically. The CLI has no merge
-  command. Report the resulting state from `task show` after the daemon observes the actual merge.
+  command. After a user merges on GitHub, run `task recheck` if `task explain` offers it and says no
+  observation is scheduled. Report the resulting state from `task show`.
