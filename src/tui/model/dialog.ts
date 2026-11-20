@@ -32,6 +32,7 @@ export type TaskDialogKind =
   | 'cancel'
   | 'recheck'
   | 'approve'
+  | 'merge'
   | 'pause'
   | 'resume'
   | 'continue';
@@ -43,13 +44,19 @@ export const DIALOG_ACTIONS: Readonly<Record<string, TaskDialogKind>> = {
   cancel: 'cancel',
   recheck: 'recheck',
   approve: 'approve',
+  merge_pr: 'merge',
   pause: 'pause',
   resume: 'resume',
   continue: 'continue',
 };
 
 /** The words the contract asks for, by dialog; the others send with `Ctrl-S`. */
-export const CONFIRM_WORDS = { cancel: 'Y', approve: 'approve', worktree: 'accept' } as const;
+export const CONFIRM_WORDS = {
+  cancel: 'Y',
+  approve: 'approve',
+  worktree: 'accept',
+  merge: 'merge',
+} as const;
 
 /** Mirror `COMMAND_PAYLOADS` of `src/application/commands.ts`. */
 export const ANSWER_MAX = 65_536;
@@ -123,6 +130,8 @@ export function confirmWord(d: Dialog): string | null {
       return CONFIRM_WORDS.cancel;
     case 'approve':
       return CONFIRM_WORDS.approve;
+    case 'merge':
+      return CONFIRM_WORDS.merge;
     case 'recheck':
       return d.worktree ? CONFIRM_WORDS.worktree : null;
     default:
@@ -135,6 +144,7 @@ const COMMAND_KIND: Readonly<Record<DialogKind, string>> = {
   cancel: 'task_cancel',
   recheck: 'task_recheck',
   approve: 'approve_escalation',
+  merge: 'task_merge',
   pause: 'task_pause',
   resume: 'task_resume',
   continue: 'task_continue',
@@ -169,6 +179,57 @@ export function adoptTarget(
   return {
     prRef: typeof ref === 'string' && ref !== '' ? ref : null,
     headSha: typeof sha === 'string' && /^[0-9a-f]{40}$/.test(sha) ? sha : null,
+  };
+}
+
+/** The PR as a merge would take it: everything the dialog shows and the daemon checks again. */
+export type MergeTarget = {
+  readonly prRef: string;
+  readonly target: string;
+  readonly headSha: string;
+  readonly method: 'squash' | 'merge' | 'rebase';
+  readonly title: SafeText;
+  readonly message: SafeText;
+  readonly digest: string;
+};
+
+const METHODS: readonly string[] = ['squash', 'merge', 'rebase'];
+const HEX_40 = /^[0-9a-f]{40}$/;
+
+/**
+ * What a Merge PR would merge, from the daemon's explanation of a task waiting for its merge; null when
+ * the task is not waiting for it or the daemon did not name something the owner must see first.
+ */
+export function mergeTarget(explain: TaskExplain): MergeTarget | null {
+  const detail = explain.wait?.detail;
+  const m = explain.merge;
+  if (detail === undefined || detail.code !== 'merge' || m === null || m === undefined) return null;
+  const method: unknown = m.send_method;
+  const digest: unknown = m.proposed?.digest;
+  const head: unknown = m.head_sha;
+  const waitHead: unknown = detail['head_sha'];
+  if (
+    m.proposed === null ||
+    typeof m.pr_ref !== 'string' ||
+    typeof m.target !== 'string' ||
+    m.target === '' ||
+    typeof head !== 'string' ||
+    !HEX_40.test(head) ||
+    head !== waitHead ||
+    typeof method !== 'string' ||
+    !METHODS.includes(method) ||
+    typeof digest !== 'string' ||
+    digest === ''
+  )
+    return null;
+  return {
+    prRef: m.pr_ref,
+    target: m.target,
+    headSha: head,
+    method: method as MergeTarget['method'],
+    title: m.proposed.title,
+    message: m.proposed.message,
+    digest,
   };
 }
 
@@ -256,7 +317,7 @@ function newDialog(
     focus:
       field !== null
         ? 'text'
-        : o.kind === 'approve' || (o.kind === 'recheck' && o.worktree)
+        : o.kind === 'approve' || o.kind === 'merge' || (o.kind === 'recheck' && o.worktree)
           ? 'confirm'
           : 'none',
     typed: '',
@@ -651,6 +712,23 @@ function taskPayload(
         };
       return { payload: target };
     }
+    case 'merge': {
+      const merge = mergeTarget(explain);
+      if (merge === null)
+        return {
+          problem:
+            'This task is not waiting for its merge, or the daemon did not name the PR, head, method and message. Nothing was sent; press Esc to read it again.',
+        };
+      return {
+        payload: {
+          pr_ref: merge.prRef,
+          target: merge.target,
+          head_sha: merge.headSha,
+          merge_method: merge.method,
+          content_digest: merge.digest,
+        },
+      };
+    }
     case 'pause': {
       const reason = reasonOf(d);
       if (reason === '') return { problem: 'Nothing was sent: give a reason first.' };
@@ -741,6 +819,8 @@ function closedElsewhere(d: Dialog, result: NonNullable<Mutation['result']>): bo
 /** What the daemon's refusal means for this dialog, in words. */
 function rejection(d: Dialog, result: Mutation['result']): string {
   if (result === null || result.ok) return 'The daemon did not accept it.';
+  if (d.kind === 'merge' && result.code === 'conflict')
+    return `Nothing was merged: ${result.message}. Nothing was sent again; press Esc and open Merge PR again to read the PR as it is now.`;
   if (result.code === 'conflict' && d.taskId !== null)
     return closedElsewhere(d, result)
       ? 'Nothing was sent again: the question was already answered or withdrawn. What the daemon holds is below; your text is kept.'

@@ -574,6 +574,7 @@ export async function productionControl(opts: {
         (await currentConfig('intake auto_confirm'))?.intakeAutoConfirm.includes(requester) ??
         false,
       confirm: { store, ports, configInputs, now },
+      merge: { github: yolo.github, content: yolo.content },
       logs: { dataDir: opts.dataDir, redactor: opts.redactor },
       redact: (text) => opts.redactor.text(text),
       doctor: {

@@ -45,6 +45,38 @@ describe('cancel --force while a cancel waits for the PR read (#179)', () => {
   });
 });
 
+describe('merge_pr, the explicit merge from the terminal UI', () => {
+  const ready = {
+    runtime_ref: { revision: 1 },
+    head_sha: 'a'.repeat(40),
+    task: { base_branch: 'main' },
+    pause: null,
+  } as unknown as Partial<TaskState>;
+
+  it('is offered first, with no CLI command, only while the daemon waits for the merge', () => {
+    const out = allowedActions(state('merge', ready), { recheckable: true });
+    expect(out.map((a) => a.action)).toEqual(['merge_pr', 'merge_manually', 'recheck', 'cancel']);
+    expect(out[0]).toMatchObject({ command: null, requires: null });
+    for (const code of ['checks_incomplete', 'head_changed', 'observation_expired'] as const)
+      expect(actions(code, ready)).not.toContain('merge_pr');
+  });
+
+  it.each([
+    ['a task without a runtime', { runtime_ref: null }],
+    ['no known head', { head_sha: null }],
+    ['a cancel in progress', { cancellation: { merge_seen: undefined } }],
+    ['a paused task', { pause: { reason: 'x' } }],
+    [
+      'a goal unit merging into its goal branch',
+      { task: { base_branch: 'goal/x', goal: { role: 'unit', branch: 'goal/x' } } },
+    ],
+  ])('is not offered for %s', (_name, over) => {
+    expect(actions('merge', { ...ready, ...(over as Partial<TaskState>) })).not.toContain(
+      'merge_pr',
+    );
+  });
+});
+
 describe('allowed actions for every wait detail (T111, FR-029)', () => {
   it.each(DETAIL_CODES)('%s has a way out and promises nothing out of scope', (code) => {
     const out = allowedActions(state(code), { recheckable: true });

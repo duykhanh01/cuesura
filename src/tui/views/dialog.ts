@@ -8,6 +8,7 @@ import {
   adoptTarget,
   approvalTarget,
   confirmWord,
+  mergeTarget,
   questionView,
   type Dialog,
   type QuestionView,
@@ -202,6 +203,45 @@ function adoptBlocks(e: TaskExplain | null, s: TuiState): Block[] {
   ];
 }
 
+function mergeBlocks(e: TaskExplain | null, s: TuiState, cols: number): Block[] {
+  const target = e === null ? null : mergeTarget(e);
+  if (target === null)
+    return [
+      text(
+        'This task is not waiting for its merge now, or the daemon did not name the PR, head, method and message.',
+        WARN,
+      ),
+    ];
+  const roles = s.caller === null ? 'not read yet' : s.caller.roles.join(', ') || 'no role';
+  const field = (label: string, value: SafeText | string, style: Style = {}): Block =>
+    text(
+      joinSafe([uiText(`${label}: `), typeof value === 'string' ? sanitize(value) : value]),
+      style,
+    );
+  return [
+    field('Pull request', target.prRef, { bold: true }),
+    field('Into', target.target, { bold: true }),
+    field('Head', target.headSha, { bold: true }),
+    field('Method', target.method, { bold: true }),
+    field('Title', target.title),
+    text('Message:'),
+    {
+      kind: 'text',
+      rows: whole(target.message, cols - 2).map((r) => joinSafe([uiText('  '), r])),
+      style: {},
+    },
+    blank,
+    text(
+      'This merges the pull request now. The daemon checks again that it is open, ready, green on required checks and still this exact head and target, and refuses otherwise. GitHub may still refuse.',
+    ),
+    text(
+      'The task is DONE only when the daemon sees the merge; nothing here marks it done. Merge on GitHub stays available in Actions.',
+      NOTICE,
+    ),
+    text(joinSafe([uiText('Needs the admin role. You have: '), sanitize(roles)])),
+  ];
+}
+
 function recheckBlocks(d: Dialog): Block[] {
   if (!d.worktree)
     return [text(d.note ?? uiText('Reads the task again and goes on if nothing blocks it.'))];
@@ -277,6 +317,8 @@ export function dialogTitle(d: Dialog): string {
       return d.worktree ? 'Recheck: accept the worktree as it is' : 'Recheck';
     case 'approve':
       return d.adopt ? 'Approve adopting the pull request' : 'Approve escalation';
+    case 'merge':
+      return 'Merge pull request';
     case 'pause':
       return 'Pause task';
     case 'resume':
@@ -296,6 +338,7 @@ const SEND_WORDS: Readonly<Record<Dialog['kind'], string>> = {
   cancel: 'Ctrl-S sends',
   recheck: 'Ctrl-S sends the recheck',
   approve: 'Ctrl-S sends',
+  merge: 'Ctrl-S sends',
   pause: 'Ctrl-S pauses the task',
   resume: 'Ctrl-S resumes the task',
   continue: 'Ctrl-S lets the task go on',
@@ -358,6 +401,9 @@ function layout(s: TuiState, d: Dialog) {
       break;
     case 'approve':
       head.push(...(d.adopt ? adoptBlocks(explain, s) : approveBlocks(explain, s)));
+      break;
+    case 'merge':
+      head.push(...mergeBlocks(explain, s, cols));
       break;
     default:
       head.push(...pauseBlocks(s, d));

@@ -25,7 +25,8 @@ Danh sách thao tác của Actions lấy từ `allowed_actions` của `task_expl
 | `action` | Trên giao diện |
 | --- | --- |
 | `answer`, `confirm`, `propose`, `approve`, `cancel`, `recheck`, `pause`, `resume`, `continue` | Hộp thoại tương ứng; làm mờ kèm lý do nếu token không đủ quyền |
-| `merge_manually` | Hướng dẫn merge trên GitHub, method và nội dung đề xuất; không có thao tác gửi |
+| `merge_pr` | Hộp thoại Merge PR (chỉ owner/admin); xem [Merge PR](#merge-pr) |
+| `merge_manually` | Hướng dẫn merge trên GitHub, method và nội dung đề xuất; không có thao tác gửi; vẫn có cạnh `merge_pr` |
 | `fix_external`, `wait` | Dòng thông tin từ `note` |
 | `task_add` | Mở New task, là task độc lập |
 
@@ -137,6 +138,24 @@ Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tụ
   head thì không gửi và chỉ sang dòng CLI trong Actions.
 - Answer ghim câu hỏi task đang chờ lúc mở hộp thoại (hoặc câu đầu tiên inbox còn mở), không đổi sang câu hỏi
   khác task hỏi sau.
+
+## Merge PR
+
+- `merge_pr` chỉ xuất hiện khi task đang chờ `merge` (daemon đã xác nhận head xanh), có PR và không đang hủy, tạm
+  dừng hay là đơn vị goal merge vào nhánh goal. Cần role `admin` (owner); assistant và deputy không có, mục mờ kèm
+  lý do. Action không có lệnh CLI: CLI vẫn không có merge approval (`merge_approve` exit 2).
+- Hộp thoại hiện PR, target, head SHA đầy đủ, method sẽ dùng và title/message của commit. Gõ `merge` rồi `Enter` mới
+  gửi `task_merge` mang đúng các giá trị đó cùng digest nội dung và `expected_version`; paste, `Ctrl-S` hay từ khác
+  không gửi. Daemon không nêu đủ PR, head, method hoặc message thì hộp thoại không gửi.
+- Daemon kiểm lại hết lúc gửi, không dựa vào hộp thoại: task còn chờ merge ở đúng version, PR/target/head/method/nội
+  dung còn đúng như đã hiện, PR mở, không draft, `mergeable_state` sạch và compare với tip target, required checks
+  hiện tại xanh như yolo (rỗng thì từ chối), xác nhận PR bằng GraphQL ngay trước khi ghi approval `user:merge`.
+  Không cần bật yolo và không đổi cấu hình yolo. Lệnh lặp cùng request ID trả lại kết quả cũ; gửi lại sau khi kết quả
+  mất thì daemon đọc PR trước: đang mở thì gửi lại đúng merge gắn head, đã merge thì không gửi và trả `already_merged`, đóng mà không merge thì từ chối `pr_closed_unmerged`. Target tip phải đọc được và trùng tip đã so với head, lệch thì từ chối.
+- Kết quả `sent`, `unknown` (GitHub không trả lời, PR có thể đã merge) hay `already_merged` đều chưa phải DONE: menu
+  Actions nói `not DONE until the daemon sees the merge`, task chỉ DONE khi quan sát PR chứng minh merge (`recheck`
+  ghi ngay). GitHub từ chối hoặc kiểm tra lại thất bại thì daemon trả `conflict` (`not_ready`, `checks_not_ready`,
+  `merge_changed`, `github_refused`…), hộp thoại báo `Nothing was merged: <lý do>` và không gửi lại.
 
 ## Tạm dừng và tiếp tục
 

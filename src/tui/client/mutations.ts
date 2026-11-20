@@ -12,6 +12,8 @@ export const MAX_CHECKS = 60;
 export const MAX_RESENDS = 5;
 export const COMMAND_TIMEOUT_MS = 10_000;
 export const CHECK_TIMEOUT_MS = 5_000;
+/** A merge reads GitHub several times before it sends; a cut answer is still found again by its request ID. */
+export const MERGE_TIMEOUT_MS = 120_000;
 
 /**
  * The whole body sent to the daemon, minus the request ID; never changes on a resend. A command on the
@@ -253,7 +255,7 @@ export class MutationTracker {
   async #send(m: Mutation, resend = false): Promise<Mutation> {
     const r = await this.#deps.port.command(
       { ...m.command, request_id: m.requestId },
-      COMMAND_TIMEOUT_MS,
+      m.command.kind === 'task_merge' ? MERGE_TIMEOUT_MS : COMMAND_TIMEOUT_MS,
     );
     if (r.ok)
       return this.#set({

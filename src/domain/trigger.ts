@@ -732,8 +732,11 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
     .object({
       kind: z.literal('yolo_merge_approve'),
       head_sha: z.string().regex(/^[0-9a-f]{40}$/),
-      /** A unit merging into its goal branch (007, R-23); absent for the owner's yolo. */
-      by: z.literal('policy:goal').optional(),
+      /**
+       * A unit merging into its goal branch (007, R-23), or the owner's explicit Merge PR action;
+       * absent for the owner's yolo.
+       */
+      by: z.enum(['policy:goal', 'user:merge']).optional(),
     })
     .strict(),
   z

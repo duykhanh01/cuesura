@@ -11,6 +11,6 @@ export const UNSUPPORTED_GUIDANCE: Readonly<Record<(typeof UNSUPPORTED_COMMANDS)
   {
     task_retry: 'task retry is not part of this version; use task add for an independent task',
     merge_approve:
-      'merge approval is not part of this version; merge the PR on GitHub, then wait for the observation or run task recheck',
+      'merge approval has no CLI command; the owner can use Merge PR in the terminal UI, or merge the PR on GitHub, then wait for the observation or run task recheck',
     yolo: 'yolo has no command: set yolo: true in the user config, or merge the PR on GitHub, then wait for the observation or run task recheck',
   };

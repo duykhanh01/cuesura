@@ -96,7 +96,7 @@ function mergeWait(s: TaskState | null): s is TaskState {
 }
 
 /** Whether the checks GitHub reports for `head` now meet the frozen policy; a reason when they do not. */
-async function currentChecksProblem(
+export async function currentChecksProblem(
   port: GitHubPort,
   policy: FrozenPolicy,
   t: MergeTarget,
