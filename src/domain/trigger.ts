@@ -514,6 +514,8 @@ export const TriggerSchema = z.discriminatedUnion('kind', [
           unverified_reason: z.string().min(1).nullable(),
           // Additive (#249): why a FAILED/CANCELLED prerequisite ended, so a cascade names the root task.
           terminal_reason: z.string().min(1).optional(),
+          // Additive (#357): the root task of the cascade, so a dependent never reads it from reason text.
+          root: UuidSchema.optional(),
         })
         .strict()
         .optional(),

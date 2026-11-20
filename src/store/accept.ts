@@ -246,6 +246,33 @@ function versionHolds(db: Database, env: TriggerEnvelope, state: TaskState | nul
 }
 
 /**
+ * `TaskCancelled` copies the reason the cancel was requested with, which a daemon from before reasons were
+ * masked (#357) stored as typed. The copy is masked; the stored request stays as it is. Only a reason the
+ * engine builds in this accept from a notification's recorded root (task IDs) is kept: a cascade reason
+ * stored earlier may hold text an earlier release copied from a person's reason.
+ */
+function maskCancelReason(
+  decision: Decision,
+  trigger: TriggerEnvelope['trigger'],
+  redact: (text: string) => string,
+): Decision {
+  if (decision.kind !== 'accepted') return decision;
+  const built =
+    trigger.kind === 'dependency_status' &&
+    trigger.provenance?.root !== undefined &&
+    decision.events.some((e) => e.type === 'CancelRequested');
+  if (built) return decision;
+  return {
+    ...decision,
+    events: decision.events.map((e) =>
+      e.type === 'TaskCancelled'
+        ? { ...e, payload: { ...e.payload, reason: redact(e.payload.reason) } }
+        : e,
+    ),
+  };
+}
+
+/**
  * One synchronous BEGIN IMMEDIATE transaction: deduplicate, read, decide, append, project, commit.
  * Write failures roll back everything. Colliding IDs conflict; missing IDs must not record
  * deduplication.
@@ -254,11 +281,12 @@ export function accept(
   db: Database,
   input: TriggerEnvelope,
   crash: CrashHook,
+  redact?: (text: string) => string,
 ): Result<AcceptOutcome, AcceptError> {
   let r: { result: Result<AcceptOutcome, AcceptError>; wrote: boolean };
   try {
     db.exec('BEGIN IMMEDIATE');
-    r = acceptWithin(db, input, crash);
+    r = acceptWithin(db, input, crash, redact);
     if (!r.wrote) {
       rollback(db);
       return r.result;
@@ -286,6 +314,7 @@ export function acceptWithin(
   db: Database,
   input: TriggerEnvelope,
   crash: CrashHook,
+  redact?: (text: string) => string,
 ): { result: Result<AcceptOutcome, AcceptError>; wrote: boolean } {
   const parsed = TriggerEnvelopeSchema.safeParse(input);
   if (!parsed.success) {
@@ -349,6 +378,7 @@ export function acceptWithin(
       related: relatedFacts(db, env, state),
     });
   }
+  if (redact !== undefined) decision = maskCancelReason(decision, env.trigger, redact);
 
   // ids is outside request_hash. Do not record deduplication on exhaustion so the same request can retry with enough IDs.
   if (decision.kind === 'rejected' && decision.code === 'id_pool_exhausted')

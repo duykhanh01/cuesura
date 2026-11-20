@@ -102,7 +102,7 @@ export function useTui() {
               drain: () => Promise.resolve(null),
               newId: () => uuidOf(9_000 + ids++),
             }),
-        logs: { dataDir: sd.dataDir, redactor: new Redactor() },
+        logs: { dataDir: sd.dataDir, redactor: new Redactor({ env: process.env }) },
         confirm: {
           store,
           ports: { git: fakeGit(o.runnable), github: fakeGitHub(), host: fakeHost() },

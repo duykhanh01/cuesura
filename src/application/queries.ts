@@ -84,6 +84,31 @@ export const NewTaskSchema = z
   .strict();
 
 /** What a caller sees of a task: status, wait, version and the PR/head/completion facts. */
+/**
+ * A cancelled task's reason as a read shows it: one stored before reasons were masked (#357) may hold a
+ * secret. The stored state keeps it as written; any other terminal reason is shown as is.
+ */
+export function shownTerminal(t: TaskState['terminal'], redact?: Redact): TaskState['terminal'] {
+  return t === null || redact === undefined || t.kind !== 'CANCELLED'
+    ? t
+    : { ...t, reason: redact(t.reason) };
+}
+
+/** Events that carry a cancel's reason, as typed or as a cascade wrote it. */
+const CANCEL_REASON_EVENTS: ReadonlySet<string> = new Set([
+  'CancelRequested',
+  'CancelForced',
+  'TaskCancelled',
+]);
+
+/** An event's payload as `task_history` shows it: a cancel's reason masked, as {@link shownTerminal}. */
+function shownPayload(type: string, payload: unknown, redact: Redact): unknown {
+  if (!CANCEL_REASON_EVENTS.has(type) || typeof payload !== 'object' || payload === null)
+    return payload;
+  const p = payload as Record<string, unknown>;
+  return typeof p['reason'] === 'string' ? { ...p, reason: redact(p['reason']) } : payload;
+}
+
 export function taskView(
   s: TaskState,
   merge: Record<string, unknown> | null = null,
@@ -625,6 +650,7 @@ export function taskShow(
   const history = store.readEvents(s.value.id as Uuid);
   return ok({
     ...taskView(s.value, mergeOf(store, s.value)),
+    terminal: shownTerminal(s.value.terminal, redact),
     step: s.value.current_step,
     provenance: provenance(s.value, attemptModelIds(history)),
     review_policy: reviewPolicy(
@@ -767,6 +793,7 @@ export function taskList(
   store: Store,
   caller: Caller,
   body: Readonly<Record<string, unknown>>,
+  redact?: Redact,
 ): Result<unknown, AppError> {
   const q = TaskListSchema.safeParse(body);
   if (!q.success) return err(invalidQuery('task_list', q.error));
@@ -805,7 +832,7 @@ export function taskList(
       priority: s.task.priority,
       pr_ref: s.pr_ref,
       head_sha: s.head_sha,
-      terminal: s.terminal,
+      terminal: shownTerminal(s.terminal, redact),
       unverified: s.completion?.unverified ?? null,
     });
   }
@@ -873,7 +900,7 @@ export function taskHistory(
     actor: e.actor,
     at: at === null ? null : new Date(at).toISOString(),
     dedup_key: e.causation.dedup_key,
-    payload: e.payload,
+    payload: shownPayload(e.type, e.payload, redact),
     ...commandFields(commandOf(e.causation.dedup_key), redact),
   }));
   const last = events.at(-1);
@@ -971,6 +998,7 @@ export function taskExplain(
           : { last_output_at: (id: string) => live.lastOutputAt?.(s, id) ?? null }),
       },
     ),
+    terminal: shownTerminal(s.terminal, live.redact),
     ...liveTurn(store, s.id),
     ...loopView(store, s, live.redact),
     deputy_decisions: taskDecisions(store, s, live.redact),

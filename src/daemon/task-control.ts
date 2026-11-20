@@ -329,10 +329,10 @@ export function taskControl(deps: TaskControlDeps): {
       assistant_unregister: (caller, body) => reply(attention.unregister(caller, body)),
       assistant_moved_ack: (caller, body) => reply(attention.movedAck(caller, body)),
       assistant_origin: (caller, body) => reply(attention.origin(caller, body)),
-      task_show: (caller, body) => reply(taskShow(store, caller, body, deps.redact)),
+      task_show: (caller, body) => reply(taskShow(store, caller, body, redactText)),
       task_list: async (caller, body) =>
-        reply(await withListScope(scope, taskList(store, caller, body))),
-      task_history: (caller, body) => reply(taskHistory(store, caller, body, deps.redact)),
+        reply(await withListScope(scope, taskList(store, caller, body, redactText))),
+      task_history: (caller, body) => reply(taskHistory(store, caller, body, redactText)),
       task_explain: async (caller, body) =>
         reply(
           await withScope(
@@ -340,7 +340,7 @@ export function taskControl(deps: TaskControlDeps): {
             taskExplain(store, caller, body, deps.now(), {
               statusSince,
               queuePause,
-              ...(deps.redact === undefined ? {} : { redact: deps.redact }),
+              ...(redactText === undefined ? {} : { redact: redactText }),
               ...(logs === undefined
                 ? {}
                 : {
@@ -351,7 +351,7 @@ export function taskControl(deps: TaskControlDeps): {
           ),
         ),
       question_show: (caller, body) => reply(questionShow(store, caller, body)),
-      goal_show: (caller, body) => reply(goalShow(store, caller, body, undefined, deps.redact)),
+      goal_show: (caller, body) => reply(goalShow(store, caller, body, undefined, redactText)),
       goal_list: (caller, body) => reply(goalList(store, caller, body)),
       task_board: (caller, body) =>
         reply(taskBoard({ store, statusSince, now: deps.now, queuePause }, caller, body)),

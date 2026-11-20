@@ -25,6 +25,7 @@ import {
   type CommandInput,
   type CommandKind,
 } from '../application/commands.ts';
+import { maskStoredOutcome } from '../application/cancel.ts';
 import { requestShow } from '../application/requests.ts';
 import {
   forbiddenGuidance,
@@ -273,6 +274,7 @@ export async function startDaemon(
   const redactor = new Redactor({ env: process.env });
   // Every daemon log line (request failures, handler errors) passes here: secrets are masked before output.
   const log = (msg: string): void => rawLog(redactor.text(msg));
+  const redact = (text: string): string => redactor.text(text);
   const insecure = prepareDataDir(opts.dataDir);
   if (insecure !== null)
     return {
@@ -465,7 +467,12 @@ export async function startDaemon(
     // Here because only this scope knows which requests are running.
     request_show: (caller, body) => {
       const r = requestShow(
-        { store, inFlight: (id) => inFlight.has(id), failed: (id) => failed.has(id) },
+        {
+          store,
+          inFlight: (id) => inFlight.has(id),
+          failed: (id) => failed.has(id),
+          redact,
+        },
         caller,
         body,
       );
@@ -563,7 +570,7 @@ export async function startDaemon(
       if (record.status === 'completed')
         return outcomeReply(
           record.request_id,
-          record.result as CommandOutcome,
+          maskStoredOutcome(record.kind, record.result, redact) as CommandOutcome,
           true,
           guidanceContext(record.task_id),
         );

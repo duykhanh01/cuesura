@@ -20,14 +20,14 @@ import { cancelReadRef, readFailureLine } from '../domain/runtime.ts';
 import { cancelReadEvidence } from '../engine/cancel.ts';
 import type { Uuid } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
-import type { Store } from '../store/index.ts';
+import type { AcceptError, AcceptOutcome, Store } from '../store/index.ts';
 import { acceptError, taskInProject } from './answer.ts';
 import { authzContext, type Caller } from './authz.ts';
 import type { Admitted, CommandInput } from './commands.ts';
 import { engineRejection } from './engine-verdict.ts';
 import { taskView, type AppError } from './queries.ts';
 import type { RecheckDeps } from './recheck.ts';
-import { submit } from './triage.ts';
+import { submit, type EnvelopeInput } from './triage.ts';
 
 export type CancelDeps = {
   readonly store: Store;
@@ -112,6 +112,59 @@ export function recordCancelReadFailure(
   });
 }
 
+/**
+ * Submits this request's cancel or force once. A trigger already stored under the request's key is its own
+ * only when admission found this request ID in the ledger with the same command hash: the stored outcome
+ * stands whatever the task's version or the redactor is now (#357), so a force accepted at an earlier
+ * version, or with a reason masked by another redactor, is not built again. Any other is a conflict.
+ */
+function submitOnce(
+  store: Store,
+  admitted: Admitted,
+  e: EnvelopeInput,
+): Result<AcceptOutcome, AcceptError> {
+  const prior = store.priorTrigger(e.dedup_key);
+  if (prior === null) return submit(store, e);
+  const was = prior.envelope.trigger;
+  const own =
+    admitted.kind === 'existing' &&
+    was.kind === 'cancel' &&
+    prior.envelope.task_id === e.task_id &&
+    prior.envelope.authz?.actor === e.authz?.actor &&
+    (was.force === true) === ((e.trigger as Extract<Trigger, { kind: 'cancel' }>).force === true);
+  return own ? ok(prior.outcome) : err({ code: 'conflict', reason: 'request_hash_mismatch' });
+}
+
+/**
+ * A cancel's reply with its reasons masked, as the daemon sends it and as it is shown again from the
+ * ledger: a reason stored before reasons were masked (#357) stays as stored in the task and the ledger.
+ */
+export function maskCancelReply(value: unknown, redact: (text: string) => string): unknown {
+  if (typeof value !== 'object' || value === null) return value;
+  const v = value as Record<string, unknown>;
+  const masked = (x: unknown): unknown => {
+    if (typeof x !== 'object' || x === null) return x;
+    const o = x as Record<string, unknown>;
+    return typeof o['reason'] === 'string' ? { ...o, reason: redact(o['reason']) } : o;
+  };
+  return {
+    ...v,
+    ...('terminal' in v ? { terminal: masked(v['terminal']) } : {}),
+    ...('cancellation' in v ? { cancellation: masked(v['cancellation']) } : {}),
+  };
+}
+
+/** A stored command outcome as shown again: a `task_cancel` reply masked, any other as stored. */
+export function maskStoredOutcome(
+  kind: string,
+  outcome: unknown,
+  redact: ((text: string) => string) | undefined,
+): unknown {
+  if (redact === undefined || kind !== 'task_cancel') return outcome;
+  const o = outcome as { ok?: unknown; value?: unknown } | null;
+  return o?.ok === true ? { ...o, value: maskCancelReply(o.value, redact) } : outcome;
+}
+
 export async function cancelTask(
   deps: CancelDeps,
   admitted: Admitted,
@@ -123,7 +176,7 @@ export async function cancelTask(
   const id = found.value.id;
   const { reason: typed, force } = input.payload as { reason: string; force?: true };
   const reason = deps.redact?.(typed) ?? typed;
-  const r = submit(deps.store, {
+  const r = submitOnce(deps.store, admitted, {
     task_id: id,
     dedup_key: `cmd:${admitted.record.request_id}:cancel`,
     trigger: { kind: 'cancel', reason },
@@ -181,11 +234,15 @@ export async function cancelTask(
 
   let forceIgnored: string | null = null;
   const cur = read();
-  if (force === true && (cur === null || isTerminal(cur.status))) forceIgnored = 'nothing_to_force';
-  else if (force === true && cur !== null && cur.cancellation !== null) {
-    const f = submit(deps.store, {
+  const forceKey = `cmd:${admitted.record.request_id}:force`;
+  // A force this request already sent decides, before the task's state now is looked at.
+  const forceSent = force === true && deps.store.priorTrigger(forceKey) !== null;
+  if (force === true && !forceSent && (cur === null || isTerminal(cur.status)))
+    forceIgnored = 'nothing_to_force';
+  else if (force === true && cur !== null && (forceSent || cur.cancellation !== null)) {
+    const f = submitOnce(deps.store, admitted, {
       task_id: id,
-      dedup_key: `cmd:${admitted.record.request_id}:force`,
+      dedup_key: forceKey,
       trigger: { kind: 'cancel', reason, force: true },
       now: deps.now(),
       ids: deps.newId === undefined ? [] : Array.from({ length: MAX_ENVELOPE_IDS }, deps.newId),
@@ -202,7 +259,7 @@ export async function cancelTask(
   }
   const s = read() as TaskState;
   const forced = s.cancellation?.forced !== undefined;
-  return ok({
+  const reply = {
     ...taskView(s),
     cancellation: s.cancellation,
     // `terminal` (nothing reopens) or `already_cancelling` (the first request stands).
@@ -220,5 +277,7 @@ export async function cancelTask(
             : {}),
         }
       : {}),
-  });
+  };
+  // A reason stored before reasons were masked (#357) is masked in the reply the request ledger keeps.
+  return ok(deps.redact === undefined ? reply : maskCancelReply(reply, deps.redact));
 }

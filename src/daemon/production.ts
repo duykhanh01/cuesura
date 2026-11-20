@@ -524,6 +524,7 @@ export async function productionControl(opts: {
       concurrency: runtime?.concurrency ?? 1,
       reservationMs: (runtime?.slot_reservation_hours ?? 24) * 60 * 60 * 1000,
       scopes: (taskIds) => effectiveScopes(scopeDeps, taskIds),
+      redact: (text) => opts.redactor.text(text),
       start: (taskId) =>
         startTask(
           {

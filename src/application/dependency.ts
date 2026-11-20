@@ -11,6 +11,7 @@
  * loses one; the dedup key makes a repeat a no-op.
  */
 import { isGoalTerminal, unitPrerequisites } from '../domain/goal.ts';
+import { isCascadeCancel } from '../engine/intake.ts';
 import type { TaskState, TaskStatus } from '../domain/state.ts';
 import type { Uuid } from '../shared/brand.ts';
 import type { AcceptOutcome, Store } from '../store/index.ts';
@@ -34,8 +35,52 @@ function waitingOnDependencies(s: TaskState): boolean {
   );
 }
 
+/**
+ * The root task of the cascade that cancelled `dep`, walked through the dependency notifications that
+ * cancelled each task down the chain, never read from a reason's text: a reason a person typed, or one an
+ * earlier release copied from such text (#357), may name any ID. A notification that records its root
+ * ends the walk; anything else unknown stops at the task reached.
+ */
+function cascadeRoot(store: Store, dep: string): Uuid {
+  const seen = new Set<string>();
+  let id = dep;
+  for (;;) {
+    if (seen.has(id)) return dep as Uuid;
+    seen.add(id);
+    const s = store.readTask(id as Uuid);
+    if (s === null || s.status !== 'CANCELLED' || !isCascadeCancel(s.cancellation))
+      return id as Uuid;
+    const key = store.readEvents(id as Uuid).find((e) => e.type === 'CancelRequested')
+      ?.causation.dedup_key;
+    const t = key === null || key === undefined ? null : store.priorTrigger(key)?.envelope.trigger;
+    if (t?.kind !== 'dependency_status') return id as Uuid;
+    if (t.provenance?.root !== undefined) return t.provenance.root;
+    id = t.depends_on;
+  }
+}
+
+/**
+ * What a dependent's notification records of a prerequisite that did not end DONE: the cascade's root, and
+ * the prerequisite's reason masked, since one stored before reasons were masked (#357) may hold a secret.
+ */
+function endedPrerequisite(
+  store: Store,
+  dep: string,
+  prereq: TaskState,
+  redact: ((text: string) => string) | undefined,
+): { terminal_reason?: string; root: Uuid } {
+  const root = cascadeRoot(store, dep);
+  const reason = prereq.terminal?.reason;
+  if (reason === undefined || reason === '') return { root };
+  return { terminal_reason: redact?.(reason) ?? reason, root };
+}
+
 /** Sends `dependency_status` for every prerequisite that ended since its dependent last saw it. */
-export function notifyDependents(store: Store, now: number): DependencyNotice[] {
+export function notifyDependents(
+  store: Store,
+  now: number,
+  redact?: (text: string) => string,
+): DependencyNotice[] {
   const out: DependencyNotice[] = [];
   for (const id of store.taskIdsByStatus(['PENDING'])) {
     const s = store.readTask(id as Uuid);
@@ -68,9 +113,7 @@ export function notifyDependents(store: Store, now: number): DependencyNotice[] 
           provenance: {
             prerequisite_version: prereq.version,
             unverified_reason: prereq.completion?.unverified?.reason ?? null,
-            ...(prereq.status !== 'DONE' && prereq.terminal?.reason
-              ? { terminal_reason: prereq.terminal.reason }
-              : {}),
+            ...(prereq.status !== 'DONE' ? endedPrerequisite(store, dep, prereq, redact) : {}),
           },
           ...(replan ? { replan: true as const } : {}),
         },

@@ -21,11 +21,11 @@ export function openMemoryStore(opts: { crash?: CrashHook } = {}): SqliteStore {
 
 export function openFileStoreForTest(
   path: string,
-  opts: { busyTimeoutMs?: number; crash?: CrashHook } = {},
+  opts: { busyTimeoutMs?: number; crash?: CrashHook; redact?: (text: string) => string } = {},
 ): SqliteStore {
   const db = openDatabase(path, opts);
   if (!db.ok) throw new Error(`openFileStoreForTest: ${db.error.code} ${db.error.detail}`);
-  return new SqliteStore(db.value, opts.crash ?? NO_CRASH);
+  return new SqliteStore(db.value, opts.crash ?? NO_CRASH, opts.redact);
 }
 
 /** Inject through append/projection without decide to construct otherwise unreachable test states. */

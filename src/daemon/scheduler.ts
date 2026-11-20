@@ -48,6 +48,8 @@ export type SchedulerDeps = {
    * for its scope.
    */
   readonly scopes?: (taskIds: readonly string[]) => Promise<ReadonlyMap<string, ProjectScope>>;
+  /** Masks secrets in a prerequisite's reason before a dependent's notification stores it. */
+  readonly redact?: (text: string) => string;
 };
 
 export type SchedulerReport = {
@@ -78,7 +80,7 @@ export class Scheduler {
   async tick(): Promise<SchedulerReport> {
     const { store, clock } = this.#deps;
     const now = clock.now();
-    const dependencies = notifyDependents(store, now);
+    const dependencies = notifyDependents(store, now, this.#deps.redact);
 
     const paused = this.#deps.queuePaused?.() ?? false;
     const queued: string[] = [];

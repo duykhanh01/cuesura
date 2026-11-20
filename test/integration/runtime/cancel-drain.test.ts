@@ -168,6 +168,9 @@ function admitted(): Admitted {
   } as unknown as Admitted;
 }
 
+/** The same request ID sent again: admission finds it in the ledger with the same command. */
+const replay = (a: Admitted): Admitted => ({ ...a, kind: 'existing' });
+
 function cancelInput(d: StoreDriver, t: CanonicalTask, reason = 'not needed') {
   return {
     request_id: uuidOf(1),
@@ -2885,7 +2888,7 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     expect(f.d.task(f.task.id).cancellation).not.toBeNull();
     const again = await cancelTask(
       { store: f.d.store, now: () => f.d.now, newId: f.newId, observe: f.observeWith(f.deps) },
-      a,
+      replay(a),
       input,
       OWNER,
     );
@@ -2984,7 +2987,7 @@ describe('the cancel service reads the PR before it ends (US5.4/US5.6, FR-025.03
     };
     await cancelTask(deps, a, input, OWNER);
     const calls = f.github.calls.length;
-    const again = await cancelTask(deps, a, input, OWNER);
+    const again = await cancelTask(deps, replay(a), input, OWNER);
     expect(again).toMatchObject({
       ok: true,
       value: { status: 'CANCELLED', pr_read: null },

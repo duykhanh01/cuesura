@@ -50,3 +50,48 @@ describe('goal cancel masks its reason before the goal records it', () => {
     expect(text).toContain('stop, token [REDACTED]');
   });
 });
+
+describe('a goal an earlier release cancelled with the reason as typed (#357)', () => {
+  it('goal_show masks ended.reason and the GoalCancelled ledger line; stored rows and the plan stay', async () => {
+    const redactor = new Redactor();
+    let masking = false;
+    const sd = new SeededDaemon({}, () =>
+      masking ? { redact: (t: string) => redactor.text(t) } : {},
+    );
+    live.push(sd);
+    await sd.start();
+    const g = await confirmedGoal(sd, goalPlan([planUnit('a'), planUnit('b')]));
+    const secret = `ghp_${'g'.repeat(36)}`;
+    // The release before #354: no redactor for a reason a person writes.
+    await goalCommand(sd, 'goal_cancel', g.goal_id, g.version, { reason: `stop, token ${secret}` });
+    const before = await sd.query('owner', { kind: 'goal_show', goal_id: g.goal_id });
+    expect(JSON.stringify(before.envelope.data)).toContain(secret);
+    await sd.stop();
+
+    masking = true;
+    await sd.start();
+    const db = storeDb(sd.daemon?.store as NonNullable<SeededDaemon['daemon']>['store']);
+    const rows = () => ({
+      goals: db.prepare('SELECT * FROM goals').all(),
+      events: db.prepare('SELECT * FROM events WHERE task_id = ?').all(g.goal_id),
+    });
+    const stored = rows();
+    expect(JSON.stringify(stored)).toContain(secret);
+
+    const shown = await sd.query('owner', { kind: 'goal_show', goal_id: g.goal_id });
+    const data = shown.envelope.data as Record<string, unknown>;
+    expect(JSON.stringify(data)).not.toContain(secret);
+    expect(data['ended']).toMatchObject({ reason: 'stop, token [REDACTED]' });
+    const ledger = data['ledger'] as { text: string }[];
+    expect(ledger.map((l) => l.text)).toContain('goal cancelled: stop, token [REDACTED]');
+    // Everything but the cancel's reason is shown as before.
+    const old = before.envelope.data as Record<string, unknown>;
+    for (const key of Object.keys(old).filter((k) => !['ended', 'ledger'].includes(k)))
+      expect(data[key], key).toEqual(old[key]);
+    const oldLedger = old['ledger'] as { text: string }[];
+    expect(ledger.filter((l) => !l.text.startsWith('goal cancelled:'))).toEqual(
+      oldLedger.filter((l) => !l.text.startsWith('goal cancelled:')),
+    );
+    expect(rows()).toEqual(stored);
+  });
+});

@@ -93,7 +93,7 @@ export function onDependencyStatus(ctx: Ctx, t: DependencyStatus): void {
   // R-29: read from the goal in this transaction, not from the trigger, so a goal that ended since cascades.
   const replan = goalDeps?.replan.includes(t.depends_on) === true;
   if ((t.status === 'FAILED' && !replan) || t.status === 'CANCELLED') {
-    requestCancel(ctx, cascadeReason(t.depends_on, t.status, t.provenance?.terminal_reason));
+    requestCancel(ctx, cascadeReason(t.depends_on, t.status, t.provenance?.root));
     return;
   }
   retriage(ctx, { ...ctx.related.deps, [t.depends_on]: t.status });
@@ -112,15 +112,20 @@ export function onGoalBranchReady(ctx: Ctx): void {
   retriage(ctx, ctx.related.deps);
 }
 
-const CASCADE = /^dependency_failed:root=([0-9a-f-]{36})\b/;
+/** The actor of a cancel the engine requests for a dependency: a person's command never carries it. */
+export const CASCADE_ACTOR = 'system:dependency_status';
 
 /**
- * `dependency_failed:root=<task> via=<prerequisite> (<status>)`: a prerequisite cancelled by this same
- * cascade passes its root on, so every task down the chain names the task that actually ended.
+ * `dependency_failed:root=<task> via=<prerequisite> (<status>)`. The root comes from the notification's
+ * structured provenance, never from a reason's text, which a person may have typed in that shape.
  */
-export function cascadeReason(dep: string, status: string, depReason: string | undefined): string {
-  const root = (depReason === undefined ? undefined : CASCADE.exec(depReason)?.[1]) ?? dep;
-  return `dependency_failed:root=${root} via=${dep} (${status})`;
+export function cascadeReason(dep: string, status: string, root: string | undefined): string {
+  return `dependency_failed:root=${root ?? dep} via=${dep} (${status})`;
+}
+
+/** Whether a cancel was requested by the engine for a dependency, so its reason is the engine's own text. */
+export function isCascadeCancel(c: { readonly by: string } | null | undefined): boolean {
+  return c?.by === CASCADE_ACTOR;
 }
 
 type ConfigChecked = Extract<Trigger, { kind: 'config_checked' }>;

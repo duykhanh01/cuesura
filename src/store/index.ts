@@ -140,8 +140,10 @@ export class SqliteStore implements Store {
   readonly goals: GoalRecords;
   readonly conflicts: BranchConflicts;
   private readonly crash: CrashHook;
+  private readonly redact: ((text: string) => string) | undefined;
 
-  constructor(db: Database, crash: CrashHook) {
+  constructor(db: Database, crash: CrashHook, redact?: (text: string) => string) {
+    this.redact = redact;
     this.db = db;
     this.deputy = new DeputyTurns(db);
     this.goals = new GoalRecords(db, crash);
@@ -150,7 +152,7 @@ export class SqliteStore implements Store {
   }
 
   accept(envelope: TriggerEnvelope): Result<AcceptOutcome, AcceptError> {
-    return accept(this.db, envelope, this.crash);
+    return accept(this.db, envelope, this.crash, this.redact);
   }
   claimEffect(effectId: Uuid, now: EpochMs, req: ClaimRequest = {}): Result<Effect, ClaimError> {
     return claimEffect(this.db, effectId, now, this.crash, req);
@@ -307,10 +309,10 @@ export class SqliteStore implements Store {
 
 export function openStore(
   path: string,
-  opts: { busyTimeoutMs?: number } = {},
+  opts: { busyTimeoutMs?: number; redact?: (text: string) => string } = {},
 ): Result<Store, StoreOpenError> {
   const crash = crashHookFromEnv();
   const db = openDatabase(path, opts);
   if (!db.ok) return db;
-  return { ok: true, value: new SqliteStore(db.value, crash) };
+  return { ok: true, value: new SqliteStore(db.value, crash, opts.redact) };
 }

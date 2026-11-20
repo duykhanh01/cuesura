@@ -9,6 +9,7 @@ import { z } from 'zod';
 import type { Uuid } from '../shared/brand.ts';
 import { UuidSchema } from '../shared/brand.ts';
 import { err, ok, type Result } from '../shared/result.ts';
+import { maskStoredOutcome } from './cancel.ts';
 import type { CommandRecord, Store } from '../store/index.ts';
 import type { Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
@@ -21,6 +22,8 @@ export type RequestsDeps = {
   readonly inFlight: (requestId: string) => boolean;
   /** Whether the request's handler failed in this daemon process, which kept running. */
   readonly failed?: (requestId: string) => boolean;
+  /** Masks a reason a stored reply copies (#357); the ledger keeps what it stored. */
+  readonly redact?: (text: string) => string;
 };
 
 const QuerySchema = z.object({ kind: z.literal('request_show'), request_id: UuidSchema }).strict();
@@ -97,7 +100,7 @@ export function requestShow(
     task_id: taskId,
     admitted_at: r.admitted_at,
     completed_at: r.completed_at,
-    ...(state === 'completed' ? { outcome: r.result } : {}),
+    ...(state === 'completed' ? { outcome: maskStoredOutcome(r.kind, r.result, deps.redact) } : {}),
     next_step: nextStep(
       state,
       r.kind,

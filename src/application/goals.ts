@@ -1189,7 +1189,11 @@ export function goalShow(
     units,
     incidents: units.filter((u) => u.status === 'WAITING' && u.wait !== null),
     plans: g.plans,
-    ended: g.ended,
+    // A cancel's reason stored before reasons were masked (#357) may hold a secret; the goal keeps it.
+    ended:
+      g.ended !== null && g.status === 'cancelled' && redact !== undefined
+        ? { ...g.ended, reason: redact(g.ended.reason) }
+        : g.ended,
     turns: store.deputy
       .turnsOf({ goal_id: g.id })
       .filter((t) => t.state === 'running' || t.state === 'retry_wait')
@@ -1200,7 +1204,7 @@ export function goalShow(
         state: t.state,
         started_at: t.started_at,
       })),
-    ledger: goalLedger(store, g).slice(-LEDGER_SHOWN),
+    ledger: goalLedger(store, g, redact).slice(-LEDGER_SHOWN),
     // FR-110, FR-046: every decision on the goal's tasks, and their waivers as waived.
     ...goalDecisions(store, g, redact),
     branch_conflicts: store.conflicts.among([

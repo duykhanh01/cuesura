@@ -176,10 +176,10 @@ function committedState(
 export async function recoverStore(
   deps: StartupDeps,
 ): Promise<Result<{ store: Store; report: StartupReport }, StoreOpenError>> {
-  const opened = openStore(
-    deps.path,
-    deps.busyTimeoutMs === undefined ? {} : { busyTimeoutMs: deps.busyTimeoutMs },
-  );
+  const opened = openStore(deps.path, {
+    ...(deps.busyTimeoutMs === undefined ? {} : { busyTimeoutMs: deps.busyTimeoutMs }),
+    redact: (text) => deps.redactor.text(text),
+  });
   if (!opened.ok) return opened;
   const store = opened.value;
   const steps: StartupStep[] = [

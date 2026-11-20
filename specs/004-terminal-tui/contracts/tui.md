@@ -118,6 +118,23 @@ chưa đủ) thì không mời force nữa, merge quyết định; task có th�
 engine chuyển sang `merge_cleanup_pending` trước DONE), nên dòng "Needs you" chỉ chỉ sang Actions
 (`recheck, or force cancel when it is offered`) chứ không hứa có mục Force cancel.
 
+Biên của việc che lý do (#357): dòng đã ghi trước khi daemon che lý do (sự kiện, `accepted_triggers`, request ledger) giữ
+nguyên, không được viết lại. Request gửi lại cùng request ID sau nâng cấp, khi daemon cũ đã ghi cancel hoặc force của nó
+với lý do nguyên văn (hoặc che bằng redactor khác redactor hiện tại), được nhận là của chính nó nhờ admission đã thấy request
+ID trong ledger với cùng command hash, trước khi xét trạng thái task hiện tại (kể cả khi version đã đổi hoặc task đã kết
+thúc): dùng kết quả đã ghi, không ghi lại trigger; request vẫn có thể đọc PR và hoàn tất request ledger. Cùng request ID
+với nội dung khác vẫn là conflict ở admission. Mọi bản sao mới của lý do cũ đều được che: `TaskCancelled`, kết quả trigger
+mới, phản hồi lệnh và `result` trong request ledger, cùng lý do chép sang task phụ thuộc; phản hồi dựng lại từ ledger đã
+`completed` (replay cùng request ID, `request_show`) che lý do khi trả ra, còn dòng ledger giữ nguyên. Các lệnh đọc
+(`task_show`, `task_explain`, `task_list`: `terminal.reason` của task CANCELLED; `task_history`: `reason` của
+`CancelRequested`, `CancelForced`, `TaskCancelled`; `goal_show`: `ended.reason` của goal đã hủy và dòng ledger
+`goal cancelled: …`) cũng che khi trả ra; event, plan và metadata khác hiện như đã lưu. Chữ lý do
+luôn được che, kể cả lý do cascade cũ (bản trước có thể đã chép root từ chữ người gõ); chỉ lý do cascade engine vừa dựng
+từ `provenance.root` trong cùng lần accept được giữ nguyên. Task gốc của cascade không bao giờ đọc từ chữ: nó là
+`provenance.root` của thông báo đã hủy task tiên quyết, hoặc đi lần theo các thông báo `dependency_status` đã hủy từng task
+trong chuỗi; không xác định được thì dừng ở task đã tới. Shell history và bản nháp in ra
+stderr khi thoát lúc đang gửi nằm ngoài daemon nên không được che.
+
 Mọi hộp thoại (Answer, Cancel, Recheck, Approve, tạm dừng, tiếp tục, hàng đợi) dùng chung một khung và một quy ước:
 
 - Đầu hộp thoại: tên thao tác và task; hộp thoại của task ghi version sẽ gửi kèm (`Sent with version N`), hoặc báo

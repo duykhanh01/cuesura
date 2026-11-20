@@ -31,7 +31,7 @@ function writeKind(actor: string): LedgerKind {
   return k === 'observation' ? 'decision' : k;
 }
 
-function fromEvent(e: GoalEvent): LedgerEntry | null {
+function fromEvent(e: GoalEvent, redact?: (text: string) => string): LedgerEntry | null {
   const base = { task_id: null, turn_id: null, reason: null, trial: null } as const;
   switch (e.type) {
     case 'GoalAdded':
@@ -110,17 +110,22 @@ function fromEvent(e: GoalEvent): LedgerEntry | null {
         at: e.payload.at,
         actor: e.actor,
         kind: writeKind(e.actor),
-        text: `goal cancelled: ${e.payload.reason}`,
+        // A reason stored before reasons were masked (#357) may hold a secret; the event keeps it.
+        text: `goal cancelled: ${redact?.(e.payload.reason) ?? e.payload.reason}`,
       };
   }
 }
 
 /** Every entry of the goal, oldest first. An implicit goal has no events of its own. */
-export function goalLedger(store: Store, goal: GoalState): LedgerEntry[] {
+export function goalLedger(
+  store: Store,
+  goal: GoalState,
+  redact?: (text: string) => string,
+): LedgerEntry[] {
   const out: LedgerEntry[] = [];
   if (!goal.implicit)
     for (const e of store.goals.events(goal.id)) {
-      const entry = fromEvent(e);
+      const entry = fromEvent(e, redact);
       if (entry !== null) out.push(entry);
     }
   const tasks = Object.values(goal.units).flatMap((u) => [u.task_id, ...u.previous]);
