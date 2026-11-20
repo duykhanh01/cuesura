@@ -65,7 +65,7 @@ function schema8() {
   spool(dataDir, PLAN_RUN, 'plan run');
 
   const raw = new Database(path);
-  raw.exec('DROP TABLE deputy_turn_runs');
+  raw.exec('DROP TABLE operation_log_published; DROP TABLE deputy_turn_runs');
   raw.prepare('UPDATE schema_meta SET version = 8').run();
   raw.close();
   return { dataDir, path, taskId: t.id, lastSeq };
@@ -122,7 +122,7 @@ describe('migration 009: the runs of deputy turns recorded before it', () => {
     ok(turns.resumeTurn(TASK_TURN, SECOND));
     d.store.close();
     const raw = new Database(path);
-    raw.exec('DROP TABLE deputy_turn_runs');
+    raw.exec('DROP TABLE operation_log_published; DROP TABLE deputy_turn_runs');
     raw.prepare('UPDATE schema_meta SET version = 8').run();
     raw.close();
 

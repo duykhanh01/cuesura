@@ -52,7 +52,7 @@ describe('migration 008: deputy and goal tables', () => {
       ALTER TABLE command_ledger DROP COLUMN turn_id;
       ALTER TABLE command_ledger DROP COLUMN trial_json;
       ALTER TABLE command_ledger DROP COLUMN lease;
-      DROP TABLE deputy_turn_runs; DROP TABLE goals; DROP TABLE goal_tasks; DROP TABLE deputy_turns;
+      DROP TABLE operation_log_published; DROP TABLE deputy_turn_runs; DROP TABLE goals; DROP TABLE goal_tasks; DROP TABLE deputy_turns;
       DROP TABLE branch_conflicts;
       ALTER TABLE events DROP COLUMN stream;`);
     raw.prepare('UPDATE schema_meta SET version = 7').run();

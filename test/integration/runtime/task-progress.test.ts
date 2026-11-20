@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Caller } from '../../../src/application/authz.ts';
 import { taskProgress } from '../../../src/application/progress.ts';
 import type { ExecutionMode } from '../../../src/domain/run-config.ts';
+import type { TaskState } from '../../../src/domain/state.ts';
 import { openFileStoreForTest } from '../../../src/store/testing.ts';
 import { buildTask } from '../../support/builders.ts';
 import { createGrantStart } from '../../support/runtime.ts';
@@ -25,16 +26,22 @@ type Progress = {
   steps: Step[] | null;
   reason: string | null;
   needs_user: boolean;
+  deputy_handles: boolean;
+  deputy_stamp: string;
   worktree_path: string | null;
 };
 
-function setup() {
+function setup(holds?: (s: TaskState) => boolean) {
   const d = new StoreDriver(openFileStoreForTest(dbPath(tempDir())));
   const read = (id: string, caller: Caller = OWNER): Progress => {
-    const r = taskProgress(d.store, caller, {
-      kind: 'task_progress',
-      task_id: id,
-    });
+    const r = taskProgress(
+      d.store,
+      caller,
+      { kind: 'task_progress', task_id: id },
+      undefined,
+      undefined,
+      holds,
+    );
     if (!r.ok) throw new Error(JSON.stringify(r.error));
     return r.value as Progress;
   };
@@ -66,6 +73,8 @@ describe('task_progress', () => {
       steps: null,
       reason: 'not_frozen',
       needs_user: true,
+      deputy_handles: false,
+      deputy_stamp: expect.any(String) as unknown,
       worktree_path: null,
     });
   });
@@ -137,6 +146,22 @@ describe('task_progress', () => {
       worktree: { known: 'a'.repeat(40), observed: 'b'.repeat(40) },
     });
     expect(read(t.id).needs_user).toBe(true);
+  });
+
+  it("a wait the deputy still holds is not the user's until it hands it over", () => {
+    let held = true;
+    const { d, read } = setup(() => held);
+    const t = prepared(d, 'direct-pr');
+    expect(read(t.id)).toMatchObject({ needs_user: false, deputy_handles: false });
+    d.complete(t.id, d.pendingOne(t.id, 'start_agent').id, 'failed', {
+      failure_class: 'unknown',
+      message: 'the worktree changed outside the task since its last step',
+      invoked: false,
+      worktree: { known: 'a'.repeat(40), observed: 'b'.repeat(40) },
+    });
+    expect(read(t.id)).toMatchObject({ needs_user: false, deputy_handles: true });
+    held = false;
+    expect(read(t.id)).toMatchObject({ needs_user: true, deputy_handles: false });
   });
 
   it('names the worktree only while waiting on worktree_changed', () => {

@@ -4,7 +4,7 @@
  * position, because the daemon's cursor does not change through rotation or restart. The place being read is kept by record, not by row, so
  * neither a resize nor new records can move it.
  */
-import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_WAITS } from '../../domain/deputy.ts';
+import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_SKIPS, DEPUTY_WAITS } from '../../domain/deputy.ts';
 import { LOG_POLL_INTERVAL_MS } from '../client/refresh.ts';
 import type { TaskLogs } from '../client/schemas.ts';
 import { joinSafe, sanitize, sanitizeLines, uiText, type SafeText } from '../terminal/safe-text.ts';
@@ -72,6 +72,11 @@ export type LogEntry = {
   /** Everything the entry says, on one line: what a search or a test compares. */
   readonly text: SafeText;
   readonly bytes: number;
+  /**
+   * A zero-record gap's identity: the same notice comes again with a page that overlaps one read
+   * before (a tail page, then the older one before it), and is kept once.
+   */
+  readonly notice?: string;
 };
 
 type Older = {
@@ -194,7 +199,7 @@ function capped(whole: string): SafeText {
   ]);
 }
 
-/** What a gap says while deputy output only waits its turn: nothing is wrong, and it comes by itself. */
+/** What a zero-record gap about deputy output says: it waits its turn, or it goes on past what cannot be read. */
 function waitingText(reason: string): SafeText | null {
   if (reason.startsWith(DEPUTY_RETRY))
     return joinSafe([
@@ -209,6 +214,11 @@ function waitingText(reason: string): SafeText | null {
     return uiText(
       'Waiting for the deputy turn to end. Later output will appear here automatically.',
     );
+  if (reason.startsWith(DEPUTY_SKIPS))
+    return joinSafe([
+      uiText("The rest of the previous worker's output cannot be read and is skipped — "),
+      sanitize(reason.slice(DEPUTY_SKIPS.length).replace(/^: /, '')),
+    ]);
   return null;
 }
 
@@ -244,6 +254,11 @@ export function toEntry(record: TaskLogs['records'][number]): LogEntry | null {
       step: null,
       model: null,
       gap: true,
+      ...(records === 0
+        ? {
+            notice: JSON.stringify([record.seq, record.operation_id, record.attempt_id, reason]),
+          }
+        : {}),
       time: uiText(''),
       lines: [{ label: uiText(''), body: text, tone: 'warn' }],
       text,
@@ -344,7 +359,9 @@ const wouldOverflow = (s: LogState, entries: readonly LogEntry[]): boolean =>
   s.bufferBytes + sumBytes(entries) > LOG_BUFFER_BYTES;
 
 /** Earlier records at the start; when that overflows, the newest leave and forward reading goes back to them. */
-function prependEntries(s: LogState, entries: readonly LogEntry[]): LogState {
+function prependEntries(s: LogState, given: readonly LogEntry[]): LogState {
+  const held = new Set(s.buffer.flatMap((e) => (e.notice === undefined ? [] : [e.notice])));
+  const entries = given.filter((e) => e.notice === undefined || !held.has(e.notice));
   const all = [...entries, ...s.buffer];
   const bytes = s.bufferBytes + sumBytes(entries);
   const reversed = all.toReversed();

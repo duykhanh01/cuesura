@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import type { TaskLogs, TaskShow } from '../../../src/tui/client/schemas.ts';
 import { initialDetail, onDetailRead, type DetailMessage } from '../../../src/tui/model/detail.ts';
 import { onLogsRead, type LogsMessage } from '../../../src/tui/model/detail-keys.ts';
-import { initialLogs } from '../../../src/tui/model/logs.ts';
+import { applyLogPage, initialLogs } from '../../../src/tui/model/logs.ts';
 import { initialState, type TuiState } from '../../../src/tui/model/state.ts';
-import { uiText } from '../../../src/tui/terminal/safe-text.ts';
+import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 import { Frame } from '../../../src/tui/terminal/screen.ts';
 import { logsBody } from '../../../src/tui/views/logs.ts';
 
@@ -124,6 +124,43 @@ describe('the deputy beside the log, read again when its stamp changes', () => {
     expect(onLogsRead(read, logsPage(read, 300, 'second')).detail?.showWanted).toBe(true);
   });
 
+  it('a complete page that came before the first task_show reads it again when that snapshot is behind', () => {
+    // The task was just opened: its task_show (asked at 100) is on its way when the last page of the
+    // finished log, which is no longer polled, already sees the turn's end.
+    const base = opened();
+    const first: TuiState = {
+      ...base,
+      detail:
+        base.detail === null ? null : { ...base.detail, show: { ...base.detail.show, data: null } },
+      logs: base.logs === null ? null : { ...base.logs, deputyStamp: null },
+    };
+    const page = logsPage(first, 200, 'turn ended');
+    const done = onLogsRead(first, {
+      ...page,
+      result: page.result.ok
+        ? { ok: true, value: { ...page.result.value, complete: true } }
+        : page.result,
+    });
+    expect(done.logs?.complete).toBe(true);
+    expect(done.detail?.showWanted).toBe(false);
+
+    const old = onDetailRead(
+      done,
+      showRead(100, { ...show('interactive'), deputy_stamp: 'running' }),
+    );
+    expect(old.detail?.showWanted).toBe(true);
+    const fresh = onDetailRead(old, showRead(300, { ...show(null), deputy_stamp: 'turn ended' }));
+    expect(fresh.detail?.showWanted).toBe(false);
+    expect(fresh.detail?.show.data?.deputy).toBeUndefined();
+
+    // A snapshot asked after the page is newer than it, whatever its stamp: no read is asked for it.
+    const newer = onDetailRead(
+      done,
+      showRead(300, { ...show('interactive'), deputy_stamp: 'later' }),
+    );
+    expect(newer.detail?.showWanted).toBe(false);
+  });
+
   it('an answer asked in the same tick as the page with the new stamp leaves the read wanted', () => {
     const changed = onLogsRead(opened(), logsPage(opened(), 200, 'after'));
     const same = onDetailRead(changed, showRead(200, show('interactive')));
@@ -153,5 +190,78 @@ describe('the deputy beside the log, read again when its stamp changes', () => {
     );
     expect(text).toContain('The deputy is working on this task.');
     expect(text).not.toContain('terminal window');
+  });
+});
+
+describe('the mode line over a deputy segment', () => {
+  const WORKER = '00000000-0000-7000-8000-00000000ffff';
+  const DEPUTY = '00000000-0000-7000-8000-000000000901';
+  const screen = (s: TuiState): string => {
+    const frame = new Frame(120, 10, { color: false });
+    logsBody(s)(frame, 0, 10);
+    return stripVTControlCharacters(
+      Array.from({ length: 10 }, (_, y) => frame.rowBytes(y)).join('\n'),
+    );
+  };
+
+  it("names the deputy run's model, not that of the worker the task runs next", () => {
+    // The deputy retried the task: a new worker attempt is active, and has written nothing yet.
+    const base = opened();
+    const deputyLine = {
+      seq: 1,
+      cursor: 1,
+      operation_id: 'op',
+      attempt_id: DEPUTY,
+      step: sanitize('deputy'),
+      model: { id: null, binding: null, effort: sanitize('high') },
+      at: sanitize('2026-11-01T10:20:30.000Z'),
+      kind: sanitize('progress'),
+      data: 'deputy line 1',
+    };
+    const logs = applyLogPage(
+      { ...initialLogs(TASK, uiText('A task'), 2), tailing: false },
+      { kind: 'forward', after: 0 },
+      {
+        task_id: TASK,
+        records: [deputyLine],
+        next_cursor: 1,
+        complete: false,
+      } as unknown as TaskLogs,
+      1_000,
+    );
+    const s: TuiState = {
+      ...base,
+      detail:
+        base.detail === null
+          ? null
+          : {
+              ...base.detail,
+              show: {
+                ...base.detail.show,
+                data: {
+                  status: 'RUNNING',
+                  version: 6,
+                  provenance: {
+                    active_attempt_id: WORKER,
+                    usage: [
+                      {
+                        attempt_id: WORKER,
+                        step: 'code',
+                        binding: 'sonnet/medium',
+                        model_id: null,
+                        usage: null,
+                      },
+                    ],
+                  },
+                } as unknown as TaskShow,
+              },
+            },
+      logs,
+    };
+    const text = screen(s);
+    expect(text).toContain('deputy line 1');
+    const mode = text.split('\n').find((l) => l.includes('Live · latest step')) ?? '';
+    expect(mode).not.toContain('sonnet');
+    expect(mode).toContain('high');
   });
 });

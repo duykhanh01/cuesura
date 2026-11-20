@@ -19,6 +19,9 @@ export const DEPUTY_RETRY = 'deputy output waits until the output before it can 
 /** How a log gap starts while a running deputy run holds back the output after it. */
 export const DEPUTY_HOLDS = 'a deputy turn is running; later output waits for it';
 
+/** How a log notice starts where output before a deputy run is corrupt for good and the run goes on past it. */
+export const DEPUTY_SKIPS = 'output before the deputy run is corrupt and is skipped';
+
 /**
  * What the command ledger keeps with a deputy's `task fail` sent once every action ran out on the
  * failure signature (FR-075): retrying that unit is then a scope amendment, as after the loop guard.

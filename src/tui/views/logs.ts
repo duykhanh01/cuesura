@@ -2,6 +2,7 @@
  * Logs: the task's log one step at a time, the latest live or an earlier attempt (FR-014, EC-011). What the reader is looking at stays while new
  * records come: this only says that they came. Only the rows on screen are worked out, however long the buffer.
  */
+import { DEPUTY_STEP } from '../../domain/deputy.ts';
 import { activity, duration, todo } from '../model/activity.ts';
 import {
   cursorIndex,
@@ -108,6 +109,9 @@ function modeAttemptId(logs: LogState, t: TuiState, seen: string | null): string
   if (logs.attemptFilter !== null) return logs.attemptFilter;
   if (seen !== null) return seen;
   const buffered = latestAttempt(logs);
+  // The deputy's segment heads the live log: the worker's model above its head would read as the deputy's.
+  if (logs.buffer.findLast((e) => !e.gap && e.attemptId === buffered)?.step === DEPUTY_STEP)
+    return buffered;
   const show = t.detail?.show.data;
   const active = show?.provenance.active_attempt_id;
   const explainedVersion = t.detail?.explain.data?.version;
@@ -356,6 +360,14 @@ function progressPane(frame: Frame, s: TuiState, top: number, height: number, wi
     if (action !== null) {
       tail.push([], [ui('▲ Needs you', WARN)]);
       tail.push(...wrapSegs([seg(joinSafe([uiText('→ '), action]), WARN)], width - 1, 2));
+    } else if (d?.progress.data?.deputy_handles === true && !over) {
+      tail.push([], [ui('Deputy', BOLD)]);
+      tail.push(
+        ...wrapSegs(
+          [ui('The deputy is handling this. You will be asked if it hands it to you.', DIM)],
+          width - 1,
+        ),
+      );
     }
   }
 

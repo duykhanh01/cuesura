@@ -371,7 +371,16 @@ export function taskControl(deps: TaskControlDeps): {
         ),
       task_content: (caller, body) => reply(taskContent(store, caller, body)),
       task_progress: (caller, body) =>
-        reply(taskProgress(store, caller, body, deps.now(), statusSince)),
+        reply(
+          taskProgress(
+            store,
+            caller,
+            body,
+            deps.now(),
+            statusSince,
+            deputy === undefined ? undefined : (s) => deputy.holds(s),
+          ),
+        ),
       project_list: async (caller, body) =>
         reply(
           await projectList(

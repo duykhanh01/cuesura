@@ -431,11 +431,22 @@ export function onLogsRead(state: TuiState, m: LogsMessage): TuiState {
     (shown === undefined
       ? logs.deputyStamp !== null && stamp !== logs.deputyStamp
       : stamp !== shown && (stamp !== logs.deputyStamp || !d.showWanted));
-  if (!stale) return { ...state, logs: logsNext };
+  // `task_progress` is checked on its own: it is read apart from task_show and can be behind when task_show
+  // is not. A daemon that sends no stamp with it has it read again whenever task_show is.
+  const progressStamp = d?.progress.data?.deputy_stamp;
+  const progressStale =
+    d !== null &&
+    stamp !== null &&
+    (progressStamp === undefined ? stale : d.progress.data !== null && progressStamp !== stamp);
+  if (!stale && !progressStale) return { ...state, logs: logsNext };
   return {
     ...state,
     logs: logsNext,
     // Only a read asked after this page was asked can show what the new stamp stands for.
-    detail: { ...d, showWanted: true, showWantedAt: m.at },
+    detail: {
+      ...d,
+      ...(stale ? { showWanted: true, showWantedAt: m.at } : {}),
+      ...(progressStale ? { progressWantedAt: Math.max(d.progressWantedAt ?? 0, m.at) } : {}),
+    },
   };
 }

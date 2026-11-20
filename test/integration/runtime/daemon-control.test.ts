@@ -410,7 +410,7 @@ describe('daemon control socket (T026)', () => {
       .prepare(`UPDATE command_ledger SET result_json = '{"cancelled":true}' WHERE request_id = ?`)
       .run(cancel()['request_id']);
     // Undo migrations 009 and 008 too, so the store migrates up from schema 2 again.
-    raw.exec(`DROP TABLE deputy_turn_runs;
+    raw.exec(`DROP TABLE operation_log_published; DROP TABLE deputy_turn_runs;
       DROP INDEX command_ledger_turn;
       ALTER TABLE command_ledger DROP COLUMN reason;
       ALTER TABLE command_ledger DROP COLUMN turn_id;

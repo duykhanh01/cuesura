@@ -13,6 +13,7 @@ import { err, ok, type Result } from '../shared/result.ts';
 import type { Store } from '../store/index.ts';
 import { authorize, type Caller } from './authz.ts';
 import type { AppError } from './queries.ts';
+import { deputyStamp } from './logs.ts';
 import { badTaskId } from './task-id.ts';
 
 const QuerySchema = z.object({ kind: z.literal('task_progress'), task_id: UuidSchema }).strict();
@@ -80,6 +81,8 @@ export function taskProgress(
   body: Readonly<Record<string, unknown>>,
   now?: number,
   statusSince?: (s: TaskState) => number | null,
+  /** A question the deputy may still answer itself is not the user's yet (`DeputyWatch.holds`). */
+  holds?: (s: TaskState) => boolean,
 ): Result<unknown, AppError> {
   const q = QuerySchema.safeParse(body);
   if (!q.success) return err(badTaskId(body));
@@ -92,13 +95,19 @@ export function taskProgress(
     });
   const policy =
     s.policy_ref === null ? null : store.readPolicy(s.id as Uuid, s.policy_ref.revision);
+  const needs = needsUser(s, now, statusSince && (() => statusSince(s)));
+  const held = needs && holds?.(s) === true;
   return ok({
     task_id: s.id,
     version: s.version,
     mode: s.run.mode,
     steps: policy === null ? null : stepsOf(s, policy.workflow),
     reason: policy === null ? 'not_frozen' : null,
-    needs_user: needsUser(s, now, statusSince && (() => statusSince(s))),
+    needs_user: needs && !held,
+    // What would need the user is the deputy's for now; it comes back as `needs_user` if handed over.
+    deputy_handles: held,
+    // As `task_logs` carries it: a reader whose log page has another stamp reads this again.
+    deputy_stamp: deputyStamp(store, s.id),
     worktree_path: worktreePath(store, s),
   });
 }

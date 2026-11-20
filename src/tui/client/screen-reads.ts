@@ -382,6 +382,7 @@ export function planScreenReads(
           (p) => p !== 'history' || over,
         );
         if (s.detail.showWanted && !due.includes('show')) due.push('show');
+        if (s.detail.progressWantedAt !== null && !due.includes('progress')) due.push('progress');
         for (const part of due) reads.push(detailRead(s, port, clock, part, now));
       }
       break;

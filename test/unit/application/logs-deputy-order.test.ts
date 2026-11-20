@@ -122,7 +122,13 @@ function scenario() {
   const store = {
     readTask: () => task,
     readEvents: () => events,
-    deputy: { runsOf: () => [run], runningTurn: () => null },
+    deputy: {
+      runsOf: () => [run],
+      runningTurn: () => null,
+      publishedOutput: () => new Map(),
+      publishOutput: () => undefined,
+      sealOutput: () => undefined,
+    },
   } as unknown as Store;
   const logs = (body: Record<string, unknown> = {}) => {
     const r = taskLogs({ store, dataDir, redactor }, callerFor('assistant') as Caller, {

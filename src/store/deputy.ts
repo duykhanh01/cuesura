@@ -56,6 +56,9 @@ export type FinishTurn = {
   readonly run?: RunCount;
 };
 
+/** Records of an operation handed out positions in its task's log, and the places it keeps for good. */
+export type PublishedOutput = { readonly records: number; readonly sealed: number | null };
+
 /** The records a run wrote, kept once it ends so its place in the log survives losing its spool. */
 export type RunCount = { readonly records: number; readonly digest: string | null };
 
@@ -233,6 +236,38 @@ export class DeputyTurns {
    * Records that `task_logs` handed out positions for this many records of a running run: what its count
    * may never fall below, whatever becomes of its spool.
    */
+  /** What `task_logs` has handed out for each operation of the task (`operation_log_published`). */
+  publishedOutput(taskId: string): ReadonlyMap<string, PublishedOutput> {
+    const rows = this.#db
+      .prepare(
+        'SELECT operation_id, records, sealed FROM operation_log_published WHERE task_id = ?',
+      )
+      .all(taskId) as { operation_id: string; records: number; sealed: number | null }[];
+    return new Map(rows.map((r) => [r.operation_id, { records: r.records, sealed: r.sealed }]));
+  }
+
+  /** Raises the count of an operation's records handed out; never lowers it. */
+  publishOutput(taskId: string, operationId: string, records: number): void {
+    this.#db
+      .prepare(
+        `INSERT INTO operation_log_published (task_id, operation_id, records) VALUES (?, ?, ?)
+         ON CONFLICT (operation_id) DO UPDATE SET records = excluded.records
+         WHERE excluded.records > operation_log_published.records`,
+      )
+      .run(taskId, operationId, records);
+  }
+
+  /** Fixes the places an operation keeps in its task's log; the first seal holds. */
+  sealOutput(taskId: string, operationId: string, records: number): void {
+    this.#db
+      .prepare(
+        `INSERT INTO operation_log_published (task_id, operation_id, records, sealed) VALUES (?, ?, ?, ?)
+         ON CONFLICT (operation_id) DO UPDATE SET sealed = excluded.sealed
+         WHERE operation_log_published.sealed IS NULL`,
+      )
+      .run(taskId, operationId, records, records);
+  }
+
   publishRun(turnId: string, attemptId: string, records: number): void {
     this.#db
       .prepare(

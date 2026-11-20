@@ -25,6 +25,7 @@ const MIGRATIONS: readonly {
   { version: 8, file: '008_deputy_goal.sql' },
   { version: 9, file: '009_deputy_turn_runs.sql' },
   { version: 10, file: '010_deputy_run_model.sql' },
+  { version: 11, file: '011_operation_log_published.sql' },
 ];
 
 /**

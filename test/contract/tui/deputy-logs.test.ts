@@ -8,7 +8,13 @@ import { createGrantStart } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import type { Store } from '../../../src/store/index.ts';
 import type { StoreDriver } from '../../support/store-driver.ts';
-import { daemonSocket, LogFeed, openTask, useTui } from '../../support/tui-fixtures.ts';
+import {
+  daemonSocket,
+  LogFeed,
+  openTask,
+  seedQuestion,
+  useTui,
+} from '../../support/tui-fixtures.ts';
 
 // A deputy turn's run writes its spool outside the task's operations; the Logs screen still shows it.
 const tui = useTui();
@@ -232,6 +238,121 @@ describe('Logs of a task the deputy acted on', () => {
     await s.waitForText('coder line 1');
     await s.waitForText('The deputy is working in its own terminal window', 5_000);
     expect(store.readTask(uuidOf(1))?.version).toBe(version);
+    await quit(s);
+  });
+
+  it('Needs you says the deputy handles the question, and asks the user again once it is handed over', async () => {
+    let held = true;
+    const sd = tui.daemon({ deputy: { holds: () => held, version: () => 0 } });
+    const t = buildTask({ id: uuidOf(1), title: 'Asks the deputy' });
+    sd.seed((d) => seedQuestion(d, t));
+    const running = await sd.start();
+    const turns = running.store.deputy;
+    expect(
+      turns.startTurn({
+        turn_id: TURN,
+        goal_id: t.id,
+        task_id: t.id,
+        kind: 'incident',
+        incident: `${t.id}:1:agent_question:1`,
+        signature: null,
+        harness: 'fake',
+        attempt_id: RUN_1.attempt,
+        operation_id: RUN_1.op,
+        mode: 'headless',
+        context_bytes: 0,
+        now: Date.now(),
+      }).ok,
+    ).toBe(true);
+    const s = tui.cusr(sd.dataDir, { cols: 120, rows: 30 });
+    await openTask(s, 'Asks the deputy');
+    s.send('l');
+    await s.waitForText('Logs:');
+    await s.waitForText('The deputy is handling this.');
+    expect(s.screenText()).not.toContain('Needs you');
+
+    // The turn hands the question over: no task version moves, the log's deputy stamp does.
+    const version = running.store.readTask(t.id)?.version;
+    held = false;
+    expect(
+      turns.finishTurn(TURN, {
+        state: 'handed_off',
+        now: Date.now(),
+        handoff_reason: 'still_waiting',
+      }).ok,
+    ).toBe(true);
+    expect(running.store.readTask(t.id)?.version).toBe(version);
+    await s.waitForText('Needs you', 10_000);
+    await s.waitForText('Answer the question');
+    expect(s.screenText()).not.toContain('The deputy is handling this.');
+    await quit(s);
+  });
+
+  it('a handover after task_progress answered, before task_show and the first log page did, brings Needs you back', async () => {
+    let held = true;
+    const sd = tui.daemon({ deputy: { holds: () => held, version: () => 0 } });
+    const t = buildTask({ id: uuidOf(1), title: 'Asks the deputy' });
+    sd.seed((d) => seedQuestion(d, t));
+    const running = await sd.start();
+    const turns = running.store.deputy;
+    expect(
+      turns.startTurn({
+        turn_id: TURN,
+        goal_id: t.id,
+        task_id: t.id,
+        kind: 'incident',
+        incident: `${t.id}:1:agent_question:1`,
+        signature: null,
+        harness: 'fake',
+        attempt_id: RUN_1.attempt,
+        operation_id: RUN_1.op,
+        mode: 'headless',
+        context_bytes: 0,
+        now: Date.now(),
+      }).ok,
+    ).toBe(true);
+    // The first task_show and task_logs wait at a proxy until task_progress has answered; the turn
+    // hands the question over in between, so both of them see it and task_progress does not.
+    const proxy = await tui.proxy(daemonSocket(sd));
+    let release = (): void => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const first = { show: true, logs: true };
+    let progressed = false;
+    proxy.tap = (direction, data) => {
+      if (direction === 'response' && data.toString('utf8').includes('"deputy_handles"'))
+        progressed = true;
+    };
+    proxy.beforeForward = (request) => {
+      if (first.show && request.includes('"task_show"')) {
+        first.show = false;
+        return gate;
+      }
+      if (first.logs && request.includes('"task_logs"')) {
+        first.logs = false;
+        return gate;
+      }
+      return undefined;
+    };
+    const s = tui.cusr(proxy.dataDir, { cols: 120, rows: 30 });
+    await s.waitForText('Asks the deputy');
+    s.send(KEY.enter);
+    await s.waitFor(() => progressed, 10_000);
+    held = false;
+    expect(
+      turns.finishTurn(TURN, {
+        state: 'handed_off',
+        now: Date.now(),
+        handoff_reason: 'still_waiting',
+      }).ok,
+    ).toBe(true);
+    release();
+    if (!s.screenText().includes('Logs:')) {
+      await s.waitForText('Asks the deputy');
+      s.send('l');
+    }
+    await s.waitForText('Logs:');
+    await s.waitForText('Needs you', 10_000);
+    expect(s.screenText()).not.toContain('The deputy is handling this.');
     await quit(s);
   });
 });

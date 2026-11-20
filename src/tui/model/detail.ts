@@ -78,6 +78,12 @@ export type TaskDetail = {
    * leaves the read wanted. Null: any answer will do.
    */
   readonly showWantedAt: number | null;
+  /**
+   * `task_progress` is wanted again for the same reason (whether the deputy holds what would need the
+   * user), since that moves no version either: an answer asked by this time does not settle it. Null:
+   * not wanted.
+   */
+  readonly progressWantedAt: number | null;
   /** First row on screen. */
   readonly top: number;
 };
@@ -104,6 +110,7 @@ export function initialDetail(taskId: string, title: SafeText, session: number):
     },
     showWanted: false,
     showWantedAt: null,
+    progressWantedAt: null,
     top: 0,
   };
 }
@@ -277,16 +284,52 @@ export function onDetailRead(state: TuiState, m: DetailMessage): TuiState {
         // Asked in the same tick as the page that brought the new stamp counts as before it: at worst one
         // read more, never the stale answer taken for the new one.
         const early = d.showWantedAt !== null && m.askedAt <= d.showWantedAt;
+        // Asked before the last log page came back and behind its stamp: a page that arrived first (the
+        // last one, say, of a complete log no longer polled) found nothing to compare with, so ask again.
+        const logs = state.logs;
+        const stamp = m.result.ok ? m.result.value.deputy_stamp : undefined;
+        const behind =
+          logs !== null &&
+          logs.taskId === d.taskId &&
+          logs.deputyStamp !== null &&
+          logs.lastReadAt !== null &&
+          stamp !== undefined &&
+          stamp !== logs.deputyStamp &&
+          m.askedAt <= logs.lastReadAt;
         next = {
           ...d,
           show: answered(d.show, m.result, m),
-          showWanted: !fresh || early,
+          showWanted: !fresh || early || behind,
           showWantedAt: early ? d.showWantedAt : null,
+          ...(behind
+            ? { progressWantedAt: Math.max(d.progressWantedAt ?? 0, logs.lastReadAt) }
+            : {}),
         };
       }
       break;
     case 'progress':
-      next = { ...d, progress: answered(d.progress, m.result, m) };
+      {
+        // As for task_show: asked before the last log page came back and behind its stamp, it is read again.
+        const logs = state.logs;
+        const stamp = m.result.ok ? m.result.value.deputy_stamp : undefined;
+        const behind =
+          logs !== null &&
+          logs.taskId === d.taskId &&
+          logs.deputyStamp !== null &&
+          logs.lastReadAt !== null &&
+          stamp !== undefined &&
+          stamp !== logs.deputyStamp &&
+          m.askedAt <= logs.lastReadAt;
+        const wanted =
+          d.progressWantedAt !== null && m.askedAt <= d.progressWantedAt
+            ? d.progressWantedAt
+            : null;
+        next = {
+          ...d,
+          progress: answered(d.progress, m.result, m),
+          progressWantedAt: behind ? Math.max(wanted ?? 0, logs.lastReadAt) : wanted,
+        };
+      }
       break;
     case 'explain':
       next = {

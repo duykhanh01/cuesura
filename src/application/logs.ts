@@ -7,8 +7,16 @@
  * outside the event log, are read from their spools and placed among the operations' output by when they
  * were recorded (`deputy_turn_runs`).
  */
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { z } from 'zod';
-import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_STEP, DEPUTY_WAITS } from '../domain/deputy.ts';
+import {
+  DEPUTY_HOLDS,
+  DEPUTY_RETRY,
+  DEPUTY_SKIPS,
+  DEPUTY_STEP,
+  DEPUTY_WAITS,
+} from '../domain/deputy.ts';
 import type { TaskState } from '../domain/state.ts';
 import {
   listSegments,
@@ -23,7 +31,8 @@ import {
   type ReadError,
 } from '../runner/files.ts';
 import { attemptModelIds } from './attempt-models.ts';
-import { runLocation } from '../daemon/retention.ts';
+import { DEFAULT_INGEST_BATCH } from '../daemon/ingest.ts';
+import { runLocation, TOMBSTONE_FILE } from '../daemon/retention.ts';
 import { readLaunchMarker } from '../runner/operation-lock.ts';
 import type { Redactor } from '../runner/redact.ts';
 import { UuidSchema, type Uuid } from '../shared/brand.ts';
@@ -230,9 +239,22 @@ type Batch = {
   readonly records: number;
   /** Null for a deputy run, whose records no event commits. */
   readonly digest: string | null;
+  /** A zero-record notice in place of records: output that will never be read. */
+  readonly notice?: string;
+  /** Records handed out from this batch raise the operation's published count, from `base` on. */
+  readonly handsOp?: { readonly op: string; readonly base: number };
+  /** Records handed out from this batch raise the unconfirmed deputy run's published count. */
+  readonly handsRun?: DeputyRun;
+  /** A zero-record mark: once a position past it is handed out, the operation keeps `count` places. */
+  readonly seal?: { readonly op: string; readonly count: number };
 };
 
-type Placed = { readonly batch: Batch; readonly operation_id: string };
+type Placed = {
+  readonly batch: Batch;
+  readonly operation_id: string;
+  /** The `OutputIngested` event of a committed batch; none for a live tail. */
+  readonly seq?: number;
+};
 
 type Diagnostic = {
   readonly operation_id: string;
@@ -273,8 +295,29 @@ function operationBatch(
  * Why an operation may still add committed records. `pending`: its ingestion is still to come. `retry`: its
  * spool cannot be read now, and the daemon tries it again (an `unreadable` ingest), so more may come once it
  * can. `gone`: its run directory is gone, which the ingester never retries (`no_run_dir`): nothing more comes.
+ * `broken`: its ended spool holds a record that does not parse as one of its own; the ingester reads the same
+ * batch from the same cursor and fails the same way every time, so nothing more is committed. `readable` is
+ * what precedes that record past the committed cursor: a live reader may already hold positions for it.
  */
-type Unsettled = { readonly reason: string; readonly kind: 'pending' | 'retry' | 'gone' };
+type Unsettled =
+  | { readonly reason: string; readonly kind: 'pending' | 'retry' | 'gone' }
+  | { readonly reason: string; readonly kind: 'broken'; readonly readable: readonly LogRecord[] };
+
+/** Nothing more will ever be committed for the operation. */
+const final = (u: Unsettled | null): boolean =>
+  u === null || u.kind === 'gone' || u.kind === 'broken';
+
+/** The records from `from` up to the first one that cannot be read, one read at a time. */
+function readableBefore(run: RunDir, id: string, from: IngestPosition | null): LogRecord[] {
+  const out: LogRecord[] = [];
+  let at = from;
+  for (;;) {
+    const one = readRecords(run, id, at, { maxRecords: 1, final: true });
+    if (!one.ok || one.value.records.length === 0 || one.value.cursor === null) return out;
+    out.push(...one.value.records);
+    at = one.value.cursor;
+  }
+}
 
 /**
  * Why an operation may still add committed records, or null when it never will. One that ended before it
@@ -302,17 +345,30 @@ function unsettled(
     // and that run's records are never its own.
     const marker = readLaunchMarker(run);
     if (marker.state === 'valid' && marker.value.operation_id !== op.id) return null;
-    const tail = readRecords(
-      run,
-      op.id,
-      op.cursor === null ? null : { operation_id: op.id, ...op.cursor },
-      { maxRecords: 1, final: true },
-    );
-    if (!tail.ok)
+    // The batch the ingester reads next, as it reads it: records it can commit, or the error it hits.
+    const from = op.cursor === null ? null : { operation_id: op.id, ...op.cursor };
+    // No segment at all, yet a committed cursor names one, and retention left no tombstone: the spool
+    // was moved away, and may come back.
+    if (
+      from !== null &&
+      listSegments(run).length === 0 &&
+      !existsSync(join(run.dir, TOMBSTONE_FILE))
+    )
+      return { reason: 'earlier spool has no segment left', kind: 'retry' };
+    const tail = readRecords(run, op.id, from, { maxRecords: DEFAULT_INGEST_BATCH, final: true });
+    if (!tail.ok) {
+      // A missing segment or offset may come back (a file moved away and restored): the daemon retries.
+      if (tail.error.code !== 'corrupt_record')
+        return {
+          reason: `earlier spool is unreadable: ${JSON.stringify(tail.error)}`,
+          kind: 'retry',
+        };
       return {
-        reason: `earlier spool is unreadable: ${JSON.stringify(tail.error)}`,
-        kind: 'retry',
+        reason: `earlier spool is corrupt: ${JSON.stringify(tail.error)}`,
+        kind: 'broken',
+        readable: readableBefore(run, op.id, from),
       };
+    }
     return tail.value.records.length > 0
       ? {
           reason: 'earlier worker has uncommitted output; later live output waits',
@@ -483,12 +539,22 @@ export function taskLogs(
     if (e.type === 'OperationRegistered') registeredAt.set(e.payload.operation_id, e.seq);
     else if (e.type === 'OutputIngested') {
       const { operation_id: id, records, digest } = e.payload;
-      committed.push({ batch: operationBatch(s, models, id, records, digest), operation_id: id });
+      committed.push({
+        batch: operationBatch(s, models, id, records, digest),
+        operation_id: id,
+        seq: e.seq,
+      });
     }
   }
   const regOf = (id: string): number => registeredAt.get(id) ?? 0;
   const hasCommitted = (id: string): boolean => committed.some((c) => c.operation_id === id);
   const items = [...committed];
+  const committedOf = (id: string): number =>
+    committed.filter((c) => c.operation_id === id).reduce((n, c) => n + c.batch.records, 0);
+  /** What each operation already has handed out, committed or not, and the places it keeps for good. */
+  const issued = deps.store.deputy.publishedOutput(s.id);
+  const issuedOf = (id: string): number => issued.get(id)?.records ?? 0;
+  const sealOf = (id: string): number | null => issued.get(id)?.sealed ?? null;
   let diagnostic: Diagnostic | null = null;
   const workers = Object.values(s.operations).filter((o) => o.kind === 'agent');
   const active = workers.at(-1);
@@ -519,11 +585,15 @@ export function taskLogs(
             .filter((c) => c.operation_id === active.id)
             .reduce((n, c) => n + c.batch.records, 0);
           const tail = live.value.records.slice(done);
-          if (tail.length > 0 && live.value.cursor !== null)
+          if (tail.length > 0 && live.value.cursor !== null) {
             items.push({
-              batch: operationBatch(s, models, active.id, tail.length, hashCanonical(tail)),
+              batch: {
+                ...operationBatch(s, models, active.id, tail.length, hashCanonical(tail)),
+                handsOp: { op: active.id, base: done },
+              },
               operation_id: active.id,
             });
+          }
         }
       } catch (e) {
         if (!(e instanceof RunnerFileError && e.code === 'not_found'))
@@ -540,14 +610,35 @@ export function taskLogs(
   // group of output per stretch between two runs, each in ingestion order. Until every operation before
   // a run is settled, or while the run itself may still write, what follows it waits.
   const runs = deps.store.deputy.runsOf(s.id);
-  /** Counts to keep before the page that hands out their positions is returned. */
-  const publish: { readonly run: DeputyRun; readonly records: number }[] = [];
   const groups: Batch[][] = runs.map(() => []);
   groups.push([]);
+  /** The stretch between two runs an event falls in: before the first run recorded after it. */
+  const groupAt = (seq: number): number => {
+    const g = runs.findIndex((r) => seq <= r.after_seq);
+    return g < 0 ? runs.length : g;
+  };
+  const groupOf = (id: string): number => groupAt(regOf(id));
+  // An operation the log went on past keeps its sealed places; what it commits beyond them (its spool came
+  // back) goes where it was committed, among the runs by when they were recorded, as output of an
+  // operation registered then would: never under positions already handed out.
+  const placed = new Map<string, number>();
   for (const item of items) {
-    const reg = regOf(item.operation_id);
-    const g = runs.findIndex((r) => reg <= r.after_seq);
-    (groups[g < 0 ? runs.length : g] as Batch[]).push(item.batch);
+    const id = item.operation_id;
+    const seal = sealOf(id);
+    const before = placed.get(id) ?? 0;
+    placed.set(id, before + item.batch.records);
+    const inside =
+      seal === null ? item.batch.records : Math.max(0, Math.min(item.batch.records, seal - before));
+    const g = groupOf(id);
+    if (inside === item.batch.records) (groups[g] as Batch[]).push(item.batch);
+    else {
+      if (inside > 0) (groups[g] as Batch[]).push({ ...item.batch, records: inside, digest: null });
+      (groups[groupAt(item.seq ?? Number.MAX_SAFE_INTEGER)] as Batch[]).push({
+        ...item.batch,
+        records: item.batch.records - inside,
+        digest: null,
+      });
+    }
   }
   const settled = new Map<string, Unsettled | null>();
   const unsettledOf = (op: TaskState['operations'][string]): Unsettled | null => {
@@ -558,21 +649,118 @@ export function taskLogs(
     }
     return held;
   };
+  /** After the operation's last batch in its group, or at the group's end when it has none there. */
+  const placeAfter = (id: string, ...extra: Batch[]): void => {
+    const group = groups[groupOf(id)] as Batch[];
+    const last = group.findLastIndex((b) => b.operation_id === id);
+    group.splice(last < 0 ? group.length : last + 1, 0, ...extra);
+  };
+  /** An operation's records past what was committed, read from its spool where they still are. */
+  const tailBatches = (
+    op: TaskState['operations'][string],
+    readable: readonly LogRecord[],
+    count: number,
+    base: number,
+  ): Batch[] => {
+    const out: Batch[] = [];
+    const shown = readable.slice(0, count);
+    if (shown.length > 0) {
+      cache.set(`${op.id}#tail`, shown);
+      out.push({
+        ...operationBatch(s, models, op.id, shown.length, hashCanonical(shown)),
+        key: `${op.id}#tail`,
+        handsOp: { op: op.id, base },
+      });
+    }
+    if (count > shown.length) {
+      cache.set(`${op.id}#lost`, 'output handed out before it was ingested can no longer be read');
+      out.push({
+        ...operationBatch(s, models, op.id, count - shown.length, ''),
+        key: `${op.id}#lost`,
+        digest: null,
+        handsOp: { op: op.id, base: base + shown.length },
+      });
+    }
+    return out;
+  };
+  /**
+   * The places an operation keeps past its committed records where a deputy run goes on past it without
+   * waiting for it: those a reader already holds (its live tail, or a seal), filled with what its spool
+   * still holds; and while it ends its group, the rest of what its corrupt spool can still be read for.
+   * Null for an operation the log waits for, or one with nothing past its committed records.
+   */
+  const keeps = new Map<string, { readonly count: number; readonly h: Unsettled | null }>();
+  for (const op of Object.values(s.operations)) {
+    if (op.id === active?.id && LIVE_STATUSES.includes(op.status)) continue;
+    const g = groupOf(op.id);
+    // Elsewhere the log waits for the operation, and a repaired spool is read where it is.
+    if (g >= runs.length) continue;
+    const done = committedOf(op.id);
+    const seal = sealOf(op.id);
+    const h = unsettledOf(op);
+    let count: number;
+    if (seal !== null) count = seal - done;
+    else if (final(h)) {
+      count = issuedOf(op.id) - done;
+      const group = groups[g] as Batch[];
+      const last = group.findLastIndex((b) => b.operation_id === op.id);
+      // Records no reader holds a place for go only where nothing already placed comes after them.
+      if (h?.kind === 'broken' && (last < 0 || last === group.length - 1))
+        count = Math.max(count, h.readable.length);
+    } else continue;
+    if (count <= 0) continue;
+    keeps.set(op.id, { count, h });
+    placeAfter(op.id, ...tailBatches(op, h?.kind === 'broken' ? h.readable : [], count, done));
+  }
   const batches: Batch[] = [];
+  const skipped = new Set<string>();
   for (const [g, group] of groups.entries()) {
     batches.push(...group);
     const run = runs[g];
     if (run === undefined) break;
     const where = { operation_id: run.operation_id ?? run.attempt_id, attempt_id: run.attempt_id };
     let held: Unsettled | null = null;
+    const passed: TaskState['operations'][string][] = [];
     for (const op of Object.values(s.operations)) {
       if (regOf(op.id) > run.after_seq) continue;
-      // An operation whose run directory is gone will never be ingested further: its committed records
-      // read as a gap, and the run keeps its place after them. One the daemon may still read waits.
+      // An operation that will never be ingested further (run directory gone, or spool corrupt for good)
+      // does not hold the run: its records keep their places, and the run follows them. Nor does one that
+      // keeps sealed places. One the daemon may still read waits.
       const h = unsettledOf(op);
-      held = h?.kind === 'gone' ? null : h;
+      if (h?.kind === 'broken' || h?.kind === 'gone' || keeps.has(op.id)) passed.push(op);
+      held = sealOf(op.id) !== null || final(h) ? null : h;
       if (held !== null) break;
     }
+    if (held === null)
+      for (const op of passed) {
+        if (skipped.has(op.id)) continue;
+        skipped.add(op.id);
+        // Its places are fixed once the run, after them, is handed out.
+        if (sealOf(op.id) === null)
+          batches.push({
+            key: op.id,
+            operation_id: op.id,
+            attempt_id: run.attempt_id,
+            step: null,
+            model: null,
+            records: 0,
+            digest: null,
+            seal: { op: op.id, count: committedOf(op.id) + (keeps.get(op.id)?.count ?? 0) },
+          });
+        const h = unsettledOf(op);
+        if (h?.kind !== 'broken') continue;
+        // Under the run, so a reader sees it with the run's output; it moves no cursor.
+        batches.push({
+          key: op.id,
+          operation_id: op.id,
+          attempt_id: run.attempt_id,
+          step: null,
+          model: null,
+          records: 0,
+          digest: null,
+          notice: `${DEPUTY_SKIPS}: ${h.reason}`,
+        });
+      }
     if (held !== null) {
       diagnostic ??= {
         ...where,
@@ -591,7 +779,6 @@ export function taskLogs(
       }
       if (loaded !== null) cache.set(run.attempt_id, loaded);
       records = Math.max(loaded?.length ?? 0, run.published ?? 0);
-      if (records > (run.published ?? 0)) publish.push({ run, records });
     }
     if (records > 0)
       batches.push({
@@ -602,6 +789,7 @@ export function taskLogs(
         model: { id: run.model_id, binding: null, effort: run.effort },
         records,
         digest: run.digest,
+        ...(run.records === null ? { handsRun: run } : {}),
       });
     if (run.live) {
       // Its count still grows: nothing after it has a place yet.
@@ -639,15 +827,54 @@ export function taskLogs(
     ? tailStart(batches, q.data.limit, q.data.attempt_id, load)
     : q.data.after;
   let cursor = after;
+  // Notices move no cursor and so take no room of the page: else a page of one could hold only them.
+  let notices = 0;
+  const full = (): boolean => out.length - notices >= q.data.limit || bytes >= LOG_PAGE_BYTES;
+  const notice = (b: Batch, at: number): void => {
+    if (q.data.attempt_id !== undefined && b.attempt_id !== q.data.attempt_id) return;
+    notices += 1;
+    out.push({
+      seq: at + 1,
+      cursor: at,
+      operation_id: b.operation_id,
+      attempt_id: b.attempt_id,
+      gap: { records: 0, reason: b.notice ?? '' },
+    });
+  };
+  /** Where each batch the page reached starts, and where each seal mark stands. */
+  const reached: { readonly b: Batch; readonly start: number }[] = [];
+  /** A tail page that starts inside a run still says what the run went on past, before its records. */
+  const owed = new Map<string, { readonly b: Batch; readonly at: number }[]>();
 
   for (const b of batches) {
     const { key, operation_id: id, attempt_id: attemptId, step, model, records: count, digest } = b;
+    if (b.seal !== undefined) {
+      reached.push({ b, start: position });
+      continue;
+    }
+    if (b.notice !== undefined) {
+      // Holds no place, like a wait: a reader at or before it is told, and its cursor stays put.
+      if (position < after) {
+        if (q.data.tail && attemptId !== null)
+          owed.set(attemptId, [...(owed.get(attemptId) ?? []), { b, at: position }]);
+        continue;
+      }
+      if (full()) break;
+      notice(b, position);
+      continue;
+    }
     const from = offsets.get(key) ?? 0;
     offsets.set(key, from + count);
     const first = position + 1;
+    reached.push({ b, start: position });
     position += count;
     if (position <= after) continue;
-    if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
+    const due = attemptId === null ? undefined : owed.get(attemptId);
+    if (due !== undefined && attemptId !== null) {
+      owed.delete(attemptId);
+      for (const d of due) notice(d.b, d.at);
+    }
+    if (full()) break;
     // Another attempt's records are passed over, not hidden: the cursor still counts them, so it stays the
     // task's cursor and a reader can drop the filter and resume from the same place.
     if (q.data.attempt_id !== undefined && attemptId !== q.data.attempt_id) {
@@ -697,7 +924,7 @@ export function taskLogs(
         i = end;
         const last = first + end;
         if (last <= after) continue;
-        if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
+        if (full()) break;
         out.push({
           seq: last,
           cursor: last,
@@ -712,7 +939,7 @@ export function taskLogs(
         continue;
       }
       if (seq <= after) continue;
-      if (out.length >= q.data.limit || bytes >= LOG_PAGE_BYTES) break;
+      if (full()) break;
       out.push({
         seq,
         cursor: seq,
@@ -732,8 +959,7 @@ export function taskLogs(
     diagnostic !== null &&
     (q.data.attempt_id === undefined || diagnostic.attempt_id === q.data.attempt_id) &&
     cursor >= total &&
-    out.length < q.data.limit &&
-    bytes < LOG_PAGE_BYTES
+    !full()
   ) {
     // A transient gap has no known record count and must not consume/rewind the cursor. Once repaired,
     // the same --after resumes real records at their original positions.
@@ -746,8 +972,25 @@ export function taskLogs(
     });
   }
   try {
-    for (const p of publish)
-      deps.store.deputy.publishRun(p.run.turn_id, p.run.attempt_id, p.records);
+    // Only what this page handed out: the positions up to its cursor.
+    const handed = (start: number, count: number): number =>
+      Math.max(0, Math.min(count, cursor - start));
+    const ops = new Map<string, number>();
+    for (const { b, start } of reached) {
+      if (b.seal !== undefined) {
+        if (cursor > start && sealOf(b.seal.op) === null)
+          deps.store.deputy.sealOutput(s.id, b.seal.op, b.seal.count);
+        continue;
+      }
+      const n = handed(start, b.records);
+      if (n === 0) continue;
+      if (b.handsRun !== undefined && n > (b.handsRun.published ?? 0))
+        deps.store.deputy.publishRun(b.handsRun.turn_id, b.handsRun.attempt_id, n);
+      if (b.handsOp !== undefined)
+        ops.set(b.handsOp.op, Math.max(ops.get(b.handsOp.op) ?? 0, b.handsOp.base + n));
+    }
+    for (const [id, records] of ops)
+      if (records > issuedOf(id)) deps.store.deputy.publishOutput(s.id, id, records);
   } catch (e) {
     // A cursor into a run whose count is not kept could be lost with its spool: no page without it.
     return err({

@@ -194,6 +194,9 @@ export const TaskProgressSchema = z.looseObject({
     .nullable(),
   reason: safe.nullable(),
   needs_user: z.boolean(),
+  /** Absent from an older daemon. */
+  deputy_handles: z.boolean().optional(),
+  deputy_stamp: z.string().optional(),
   worktree_path: safe.nullable(),
 });
 export type TaskProgress = z.infer<typeof TaskProgressSchema>;

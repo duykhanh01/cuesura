@@ -6,6 +6,7 @@ import { afterEach } from 'vitest';
 import { CUSR_COMMANDS } from '../../src/cli/commands.ts';
 import { CONTROL_SOCKET } from '../../src/cli/output.ts';
 import { runCli } from '../../src/cli/program.ts';
+import type { DeputyWatch } from '../../src/application/attention.ts';
 import type { CanonicalTask } from '../../src/domain/task.ts';
 import { buildTask, freezeOk, uuidOf } from './builders.ts';
 import { FileContentStore } from '../../src/adapters/publish-content.ts';
@@ -50,6 +51,8 @@ type DaemonOptions = {
   readonly projects?: readonly string[];
   /** Serves `task_recheck`; `observed` is called once for each time the PR is really read. */
   readonly recheck?: { readonly observed: () => void | Promise<void> };
+  /** What the deputy may still handle itself, as the daemon's deputy watch says. */
+  readonly deputy?: DeputyWatch;
 };
 
 type CusrOptions = {
@@ -102,6 +105,7 @@ export function useTui() {
               drain: () => Promise.resolve(null),
               newId: () => uuidOf(9_000 + ids++),
             }),
+        ...(o.deputy === undefined ? {} : { deputy: o.deputy }),
         logs: { dataDir: sd.dataDir, redactor: new Redactor({ env: process.env }) },
         confirm: {
           store,

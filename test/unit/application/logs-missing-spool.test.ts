@@ -64,7 +64,13 @@ function scenario(old: OperationMirror, events: DomainEvent[] = []) {
   const store = {
     readTask: () => task,
     readEvents: () => events,
-    deputy: { runsOf: () => [], runningTurn: () => null },
+    deputy: {
+      runsOf: () => [],
+      runningTurn: () => null,
+      publishedOutput: () => new Map(),
+      publishOutput: () => undefined,
+      sealOutput: () => undefined,
+    },
   } as unknown as Store;
   return (body: Record<string, unknown> = {}): Page => {
     const r = taskLogs({ store, dataDir, redactor }, callerFor('assistant') as Caller, {

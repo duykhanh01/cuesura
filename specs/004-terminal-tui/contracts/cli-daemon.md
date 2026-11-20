@@ -170,11 +170,17 @@ Vào: `{ kind, task_id }`. Ra:
   ],
   "reason": null,
   "needs_user": false,
+  "deputy_handles": false,
+  "deputy_stamp": "sha256:...",
   "worktree_path": null
 }
 ```
 
 - `steps` là `null` và `reason` là `not_frozen` khi chưa có policy đóng băng.
+- `deputy_handles` là `true` khi việc lẽ ra cần người dùng đang do deputy xử lý; khi đó `needs_user` là `false`.
+  Deputy bàn giao thì `needs_user` trở lại `true`.
+- `deputy_stamp` giống trường cùng tên của `task_logs`. TUI đọc lại `task_progress` khi stamp của nó khác stamp của
+  trang log, độc lập với `task_show`. TUI chấp nhận daemon cũ thiếu hai trường này.
 - `worktree_path` chỉ khác `null` khi wait là `worktree_changed`, để giao diện chỉ vị trí worktree (US4 số 4).
 
 ## `question_show`

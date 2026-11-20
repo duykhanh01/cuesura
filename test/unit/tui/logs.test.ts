@@ -23,7 +23,12 @@ import {
   toggleOutput,
   togglePane,
 } from '../../../src/tui/model/logs.ts';
-import { DEPUTY_HOLDS, DEPUTY_RETRY, DEPUTY_WAITS } from '../../../src/domain/deputy.ts';
+import {
+  DEPUTY_HOLDS,
+  DEPUTY_RETRY,
+  DEPUTY_SKIPS,
+  DEPUTY_WAITS,
+} from '../../../src/domain/deputy.ts';
 import { sanitize, uiText } from '../../../src/tui/terminal/safe-text.ts';
 
 // T047: the rules of the log's state, without a terminal. These only guard against regressions; US2 is judged
@@ -849,6 +854,42 @@ describe('a log whose deputy output waits its turn', () => {
     });
     expect(entry?.text).toBe(
       "Waiting for the previous worker's output, which cannot be read right now — earlier spool is unavailable: EIO",
+    );
+  });
+
+  it('the skip notice stays in the latest step once the deputy run it heads takes over', () => {
+    const DEPUTY = '00000000-0000-7000-8000-000000000901';
+    const notice: Rec = {
+      seq: 7,
+      cursor: 6,
+      operation_id: 'op',
+      attempt_id: DEPUTY,
+      gap: { records: 0, reason: sanitize(`${DEPUTY_SKIPS}: earlier spool is corrupt: bad line`) },
+    };
+    const coder = applyLogPage(start(), forward(0), page([record(5), record(6)], 6), 0);
+    // The deputy has written nothing yet: the notice is told without moving the cursor, once.
+    const waiting = applyLogPage(coder, forward(6), page([notice], 6), 1_000);
+    const again = applyLogPage(waiting, forward(6), page([notice], 6), 2_000);
+    expect(again.buffer.filter((e) => e.gap)).toHaveLength(1);
+    const deputy = applyLogPage(
+      again,
+      forward(6),
+      page([notice, record(7, 'deputy line 1', DEPUTY, 'deputy')], 7),
+      3_000,
+    );
+    expect(deputy.buffer.map((e) => (e.gap ? 'notice' : e.text))).toEqual([
+      'notice',
+      expect.stringContaining('deputy line 1'),
+    ]);
+  });
+
+  it('a worker spool corrupt for good says its rest is skipped, not that the log is down for now', () => {
+    const entry = toEntry({
+      ...waiting(10, 10),
+      gap: { records: 0, reason: sanitize(`${DEPUTY_SKIPS}: earlier spool is corrupt: bad line`) },
+    });
+    expect(entry?.text).toBe(
+      "The rest of the previous worker's output cannot be read and is skipped — earlier spool is corrupt: bad line",
     );
   });
 });

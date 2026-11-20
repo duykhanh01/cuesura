@@ -94,8 +94,21 @@ output của operation đăng ký sau đó. Cursor không bị xê dịch vì:
 - lần chạy chỉ có vị trí khi các operation đăng ký trước nó đã xong (operation như `stop_attempt` dùng chung run
   directory của attempt nó dừng không bị tính, giống ingester). Chỉ khi run directory của operation đã kết thúc
   không còn (ingester báo `no_run_dir` và không thử lại; tombstone của retention để spool rỗng) thì phần đã commit của
-  nó thành gap và lần chạy giữ nguyên vị trí. Spool chỉ đọc lỗi (I/O, hỏng) thì daemon còn thử ingest lại, nên lần
-  chạy deputy chờ;
+  nó thành gap và lần chạy giữ nguyên vị trí. Spool của operation đã kết thúc có bản ghi hỏng (`corrupt_record`)
+  cũng không chặn: ingester đọc lại cùng lô từ cùng cursor và luôn lỗi như nhau, nên không còn gì để commit. Phần đọc
+  được giữa cursor đã commit và bản ghi hỏng được xếp ngay sau phần đã commit của operation. Sau đó là một thông báo
+  0 bản ghi (`DEPUTY_SKIPS`), gắn `attempt_id` của lần chạy deputy, không đẩy cursor và không tính vào giới hạn trang,
+  rồi tới output của lần chạy. Lỗi I/O, `cursor_not_found` và spool không còn segment nào mà không có tombstone
+  (segment có thể được trả lại) vẫn làm lần chạy deputy chờ;
+- bảng `operation_log_published` (migration 011) giữ số bản ghi của mỗi operation mà `task_logs` đã cấp vị trí, kể cả
+  live tail chưa commit. Chỉ ghi số đã thật sự cấp, tức các vị trí tới `next_cursor` của trang, nên trang không cấp
+  vị trí mới nào không ghi gì. Trước một lần chạy deputy, operation không còn được commit thêm (run directory mất,
+  tombstone, spool hỏng) giữ phần đã cấp: phần còn đọc được, rồi gap đúng kích thước cho phần không đọc được. Khi
+  operation đó là output cuối của nhóm, mọi bản ghi còn đọc được trước bản ghi hỏng cũng được xếp vào;
+- khi trang cấp một vị trí sau operation mà log đã đi qua không chờ, cột `sealed` cố định số chỗ của nó. Nếu spool
+  được sửa hay trả lại và operation commit thêm vượt số đó, phần vượt được xếp theo seq của event `OutputIngested`
+  so với `after_seq` của các lần chạy, như output của một operation đăng ký lúc đó, nên không chen vào các vị trí
+  đã cấp và không dời chỗ khi có thêm lượt deputy;
 - trong một lần chạy, bản ghi đứng theo `seq` bền của spool chứ không theo thứ tự đọc được: mất một segment để lại
   gap đúng chỗ đó, các bản ghi sau giữ vị trí;
 - output phía sau một lần chạy còn đang chạy phải chờ;
