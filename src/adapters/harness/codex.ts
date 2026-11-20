@@ -19,6 +19,7 @@
  * permissions stay those of a new session. The resumed run emits `thread.started` with the same id.
  */
 import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { UuidSchema } from '../../shared/brand.ts';
 import { hashCanonical } from '../../shared/hash.ts';
 import type { Usage } from '../../domain/trigger.ts';
@@ -322,14 +323,18 @@ function nativeWriteDenied(check: NativeWriteCheck): boolean {
       '--',
       ...command,
     ]);
-  if (inSandbox('/usr/bin/true').status !== 0) return false;
-  const write = inSandbox('/usr/bin/touch', check.marker);
-  return (
-    write.status !== 0 &&
-    write.status !== null &&
-    osDeniedWrite(write.output, check.marker) &&
-    !existsSync(check.marker)
-  );
+  const denied = (path: string): boolean => {
+    const write = inSandbox('/usr/bin/touch', path);
+    return (
+      write.status !== 0 &&
+      write.status !== null &&
+      osDeniedWrite(write.output, path) &&
+      !existsSync(path)
+    );
+  };
+  if (inSandbox('/usr/bin/true').status !== 0 || !denied(check.marker)) return false;
+  // Read-only refuses its own worktree too; that is what tells it from workspace-write.
+  return check.role !== 'reviewer' || denied(join(check.worktree, '.cusr-read-only-probe'));
 }
 
 export const codexAdapter: VendorAdapter = {

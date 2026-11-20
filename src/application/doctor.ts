@@ -638,7 +638,7 @@ export async function runDoctor(
       a < b ? -1 : 1,
     )) {
       if (tools.requires.length === 0) continue;
-      const fix = `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`;
+      const fix = `install it under /usr, or run cusr-runner setup-harness --force with its directory in --toolchain`;
       const probe = await missingTools(host, tools.dirs, tools.requires);
       checks.push(
         !probe.ok

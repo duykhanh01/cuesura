@@ -48,7 +48,7 @@ function setup() {
     tools: null,
     force: false,
   };
-  const path = join(input.dataDir, 'harnesses', 'codex', 'pin.json');
+  const path = join(input.dataDir, 'harnesses', 'codex', 'record.json');
   return { dir, binary, tools, rule, input, path };
 }
 
@@ -57,7 +57,13 @@ describe('cusr-runner write-pin', () => {
     const { binary, tools, rule, input, path } = setup();
     const r = writePin(input);
     expect(r.ok, JSON.stringify(r)).toBe(true);
-    const pin = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    const record = JSON.parse(readFileSync(path, 'utf8')) as {
+      pin: Record<string, unknown>;
+      manifest: unknown;
+    };
+    // A pin written alone waits for its manifest.
+    expect(record.manifest).toBeNull();
+    const pin = record.pin;
     expect(pin).toMatchObject({
       vendor: 'codex',
       binary: {

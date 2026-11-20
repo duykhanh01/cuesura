@@ -198,6 +198,8 @@ export function validateResult(input: {
   readonly facts: VendorFacts;
   readonly source: ResultSource;
   readonly file: FileRead | null;
+  /** What the CLI said when it exited because it could not start (see `STARTUP_TEXT`). */
+  readonly startup_error?: string | null;
 }): Validated {
   const { expected: e, exit, facts } = input;
   checkExpected(e);
@@ -252,7 +254,9 @@ export function validateResult(input: {
   if (byOutcome !== undefined) return failure(byOutcome, `runner outcome ${exit.outcome}`, true);
   if (exit.exit_code !== 0)
     // A schema-valid answer from a failed process is never accepted.
-    return failure('process_failed', `exit ${String(exit.exit_code)}`, true);
+    return input.startup_error
+      ? failure('capability_missing', input.startup_error, true)
+      : failure('process_failed', `exit ${String(exit.exit_code)}`, true);
 
   let raw: string;
   let value: unknown;

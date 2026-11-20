@@ -44,6 +44,7 @@ import {
   hostInnerMode,
   nativeResultFits,
   nativeSandboxEnabled,
+  STARTUP_TEXT,
 } from '../adapters/harness/vendor.ts';
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
@@ -541,7 +542,7 @@ export class RunnerHarness implements HarnessPort {
             o.pin,
             o.manifest,
             profile,
-            observed.value.binary.digest,
+            observed.value.binary,
             o.data_dir,
             o.native_check,
           );
@@ -847,6 +848,7 @@ export class RunnerHarness implements HarnessPort {
       facts,
       source: st.result_source,
       file,
+      startup_error: startupFailure(stderr),
     });
     const violations = writeZoneViolations(
       st.before,
@@ -951,19 +953,6 @@ export class RunnerHarness implements HarnessPort {
       invoked,
     });
     const notRun = notStarted(exit);
-    const exited = (): HarnessOutcome => {
-      const stderr = readStderr(run);
-      const said = stderrFailure(stderr);
-      if (said !== null) return failure(said.kind, said.detail);
-      const tail = stderr.trim().split('\n').slice(-5).join('\n');
-      return failure(
-        'process_failed',
-        `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})${tail === '' ? '' : `: ${tail}`}`.slice(
-          0,
-          DETAIL_MAX,
-        ),
-      );
-    };
     const outcome: HarnessOutcome =
       violations.length > 0
         ? failure('boundary_violation', violations.join('; '))
@@ -975,7 +964,10 @@ export class RunnerHarness implements HarnessPort {
               ? failure('timeout', INTERACTIVE_STALLED)
               : exit.outcome === 'timeout' || exit.outcome === 'cancelled'
                 ? failure(exit.outcome, `runner outcome ${exit.outcome}`)
-                : exited();
+                : failure(
+                    'process_failed',
+                    `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})`,
+                  );
     return this.#store(run, st, outcome, redactAuth);
   }
 
@@ -1356,6 +1348,12 @@ function stderrFailure(stderr: string): VendorFacts['failure'] {
   const tail = stderr.trim().split('\n').slice(-5).join('\n').slice(-DETAIL_MAX);
   const kind = classifyFailure(tail, null);
   return kind === 'vendor_error' ? null : { kind, detail: tail, reset_at: null };
+}
+
+/** The stderr tail when it says the CLI could not start at all, which no retry fixes; null otherwise. */
+function startupFailure(stderr: string): string | null {
+  const tail = stderr.trim().split('\n').slice(-5).join('\n').slice(-DETAIL_MAX);
+  return STARTUP_TEXT.test(tail) ? tail : null;
 }
 
 /** The redacted stderr tail; a missing or non-regular file reads as empty. */

@@ -3,9 +3,9 @@
  * CPU is. The spawned root is the harness whatever it does to its arguments; a child forked with the
  * harness's arguments becomes a tool once it execs, even into the same executable.
  */
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readlinkSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, expect, it } from 'vitest';
 import { RUN_FILES, RunDir } from '../../../src/runner/files.ts';
 import { execOperation } from '../../../src/runner/lifecycle.ts';
@@ -16,8 +16,6 @@ const dirs: string[] = [];
 afterEach(() => {
   for (const d of dirs.splice(0)) rmSync(d, { recursive: true, force: true });
 });
-
-let last: RunDir | null = null;
 
 async function run(argv: string[], wallMs: number) {
   const data = mkdtempSync(join(tmpdir(), 'cusr-native-progress-'));
@@ -49,7 +47,6 @@ async function run(argv: string[], wallMs: number) {
       interactive: true,
     }),
   );
-  last = dir;
   const r = await execOperation(dir, { sample_ms: 50, onStop: () => () => undefined });
   if (r.state !== 'finished') throw new Error(r.state);
   return r.exit;
@@ -69,11 +66,11 @@ it('keeps a tool forked with the harness arguments that then execs the same prog
   expect(exit).toMatchObject({ outcome: 'exited', exit_code: 0 });
 });
 
-it('keeps what a native session said on stderr as it failed to start, and still shows it', async () => {
-  const fail = "process.stderr.write('Please run /login\\n'); process.exit(1);";
-  const exit = await run([process.execPath, '-e', fail, '--', '# first message'], 4_000);
-  expect(exit).toMatchObject({ outcome: 'exited', exit_code: 1 });
-  expect(readFileSync(last?.resolve(RUN_FILES.stderr) ?? '', 'utf8')).toContain(
-    'Please run /login',
-  );
+it('leaves a native session the runner terminal for stderr too, so a TTY stays a TTY', async () => {
+  const out = join(mkdtempSync(join(tmpdir(), 'cusr-native-fd-')), 'fd2');
+  dirs.push(dirname(out));
+  const probe = `require('fs').writeFileSync(${JSON.stringify(out)}, require('fs').readlinkSync('/proc/self/fd/2'))`;
+  const exit = await run([process.execPath, '-e', probe, '--', '# first message'], 4_000);
+  expect(exit).toMatchObject({ outcome: 'exited', exit_code: 0 });
+  expect(readFileSync(out, 'utf8')).toBe(readlinkSync('/proc/self/fd/2'));
 });

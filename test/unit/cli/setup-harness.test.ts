@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   record: vi.fn(),
   commitRecord: vi.fn(),
   commitManifest: vi.fn(),
+  readPin: vi.fn(),
 }));
 vi.mock('../../../src/cli/program.ts', async (original) => ({
   ...(await original<typeof import('../../../src/cli/program.ts')>()),
@@ -27,6 +28,7 @@ vi.mock('../../../src/runner/harness-records.ts', async (original) => ({
   recordManifest: mocks.record,
   commitRecord: mocks.commitRecord,
   commitManifest: mocks.commitManifest,
+  readPin: mocks.readPin,
 }));
 await import('../../../src/cli/cusr-runner.ts');
 const command = mocks.commands.find((c) => c.name === 'setup-harness');
@@ -138,13 +140,16 @@ describe('setup-harness composition', () => {
   });
 
   it('keeps the recorded pin with --from record-manifest', async () => {
+    const recorded = { ...candidate, max_turns: 7 };
+    mocks.readPin.mockReturnValue({ ok: true, value: recorded });
     expect((await run({ from: 'record-manifest' })).code).toBe(ExitCode.ok);
     expect(mocks.write).not.toHaveBeenCalled();
-    expect(mocks.record).toHaveBeenCalledWith(
-      expect.not.objectContaining({ pin: expect.anything() as unknown }),
+    // The manifest is made for the recorded pin and written with that same pin.
+    expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ pin: recorded }));
+    expect(mocks.commitRecord).toHaveBeenCalledWith(
+      expect.objectContaining({ force: true }),
+      expect.objectContaining({ pin: recorded }),
     );
-    expect(mocks.commitRecord).not.toHaveBeenCalled();
-    expect(mocks.commitManifest).toHaveBeenCalledOnce();
   });
 
   it('refuses the removed proof step', async () => {

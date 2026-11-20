@@ -567,6 +567,21 @@ describe('run outcomes', () => {
     });
   });
 
+  it('a CLI that says it cannot start its sandbox is capability_missing, not a retried exit', async () => {
+    const e = env('claude', 's0-claude-coder-1793172185', 'sandbox_broken');
+    expect(await harness(e).run(input('claude', 'coder'), signal())).toMatchObject({
+      kind: 'failure',
+      failure: 'capability_missing',
+      detail: expect.stringContaining('sandbox could not be initialized') as string,
+    });
+    // Any other failed exit stays the generic, retried one.
+    const other = env('claude', 's0-claude-coder-1793172185', 'exit1');
+    expect(await harness(other).run(input('claude', 'coder'), signal())).toMatchObject({
+      kind: 'failure',
+      failure: 'process_failed',
+    });
+  });
+
   it('codex without its output file is missing_output, not the agent message', async () => {
     const e = env('codex', 's0-codex-coder-1793178479', 'no_output');
     const out = await harness(e).run(input('codex', 'coder'), signal());

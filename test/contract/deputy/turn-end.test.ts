@@ -366,35 +366,35 @@ describe('a stalled interactive run goes on headless in the same session and tur
     return { d, t, harness, deputy };
   };
 
-  it('a native session whose login was refused goes to the owner, not on headless', async () => {
-    // The runner reads the session's stderr, so the refusal arrives as `auth`.
+  it('a native session that ended for no known reason is a counted infra failure; its headless retry reads why', async () => {
+    // A terminal keeps its stderr, so a native exit says nothing more than its code.
     const { d, t, harness, deputy } = begin([
-      { kind: 'failure', failure: 'auth', detail: 'Please run /login' },
-    ]);
-    await deputy.round();
-    await deputy.idle();
-    expect(harness.calls).toHaveLength(1);
-    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
-      state: 'handed_off',
-      handoff_reason: 'auth',
-    });
-  });
-
-  it('a native session that ended for no known reason is a counted infra failure, not a free relaunch', async () => {
-    const { d, t, deputy } = begin([
       {
         kind: 'failure',
         failure: 'process_failed',
         session_ref: null,
         detail: 'session ended without a turn end (exited 1)',
       },
+      {
+        kind: 'failure',
+        failure: 'capability_missing',
+        detail: 'sandbox could not be initialized',
+      },
     ]);
     await deputy.round();
     await deputy.idle();
-    expect(d.store.deputy.runningTurn(t.id)).toMatchObject({
-      state: 'retry_wait',
-      infra_failures: 1,
+    const waiting = d.store.deputy.runningTurn(t.id);
+    expect(waiting).toMatchObject({ state: 'retry_wait', infra_failures: 1 });
+    d.now = Math.max(d.now, waiting?.retry_at ?? d.now);
+    await deputy.round();
+    await deputy.idle();
+    expect(harness.calls[1]?.interactive).toBeFalsy();
+    // A startup failure the runner identifies is the owner's, not one more retry.
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'capability',
     });
+    expect(harness.calls).toHaveLength(2);
   });
 
   it('resumes at once, headless, without counting an infra failure', async () => {

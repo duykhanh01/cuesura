@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { RuntimeConfig } from '../config/normalize.ts';
 import type { VendorPin } from '../adapters/harness/vendor.ts';
 import { ok } from '../shared/result.ts';
@@ -116,7 +116,7 @@ const recordManifest = {
     { flags: '--data-dir <dir>', description: 'Daemon data directory' },
     {
       flags: '--harness <name>',
-      description: 'Harness with a recorded pin.json',
+      description: 'Harness with a recorded pin',
     },
     {
       flags: '--evidence <file>',
@@ -174,7 +174,7 @@ function homeFiles(value: string | undefined): { credential: string; to: string 
 /** Owner step, never run by the daemon: writes a harness pin from this host. */
 const writePin = {
   name: 'write-pin',
-  description: 'Record a harness binary and host tools in pin.json',
+  description: 'Record a harness binary and host tools as its pin',
   options: [
     { flags: '--config <file>', description: 'User configuration file' },
     { flags: '--data-dir <dir>', description: 'Daemon data directory' },
@@ -364,14 +364,14 @@ const setupHarness: CliCommand = {
       if (!cfg.ok) return reject('config_invalid', cfg.error, ExitCode.usage);
       const records = await import('../runner/harness-records.ts');
       const target = { dataDir: cfg.value.dataDir, harness };
-      const pinExists = existsSync(join(records.recordDir(target.dataDir, harness), 'pin.json'));
+      const pinExists = records.hasRecord(target.dataDir, harness);
       let candidate: VendorPin | undefined;
       if (from === 'write-pin') {
         step = 'write-pin';
         if (pinExists && !dryRun && values['force'] === undefined)
           return reject(
             'pin_refused',
-            `${join(records.recordDir(target.dataDir, harness), 'pin.json')} exists; pass --force to replace it`,
+            `${records.recordDir(target.dataDir, harness)} has a record; pass --force to replace it`,
             ExitCode.failure,
           );
         let output = '';
@@ -403,9 +403,13 @@ const setupHarness: CliCommand = {
         }
       }
       step = 'record-manifest';
+      // The manifest is made for this one pin, and written with it.
+      const pin =
+        candidate === undefined ? records.readPin(target.dataDir, harness) : ok(candidate);
+      if (!pin.ok) return reject('manifest_refused', pin.error, ExitCode.failure);
       const manifest = records.recordManifest({
         ...target,
-        ...(candidate === undefined ? {} : { pin: candidate }),
+        pin: pin.value,
         configPath: config,
         runtime: cfg.value.runtime,
         now: Date.now(),
@@ -414,14 +418,11 @@ const setupHarness: CliCommand = {
       if (!manifest.ok) return reject('manifest_refused', manifest.error, ExitCode.failure);
       if (!dryRun) {
         step = 'commit';
-        if (candidate === undefined) records.commitManifest(target, manifest.value);
-        else {
-          const committed = records.commitRecord(
-            { ...target, force: values['force'] !== undefined },
-            { pin: candidate, manifest: manifest.value },
-          );
-          if (!committed.ok) return reject('commit_failed', committed.error, ExitCode.failure);
-        }
+        const committed = records.commitRecord(
+          { ...target, force: candidate === undefined || values['force'] !== undefined },
+          { pin: pin.value, manifest: manifest.value },
+        );
+        if (!committed.ok) return reject('commit_failed', committed.error, ExitCode.failure);
       }
       const data = {
         harness,

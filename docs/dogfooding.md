@@ -223,7 +223,7 @@ Thứ daemon đọc lại trực tiếp và thứ cần restart:
 | Đọc lại trực tiếp, không cần restart | Cần restart `cusrd` |
 | --- | --- |
 | Config người dùng (role, model, profile, kể cả role `deputy`), đọc khi xác nhận task mới và mỗi lượt deputy | `runtime.tool_paths`, `runtime.credential_refs`, `runtime.terminal` |
-| `cusr.yaml` của dự án, đọc ở base khi xem `task options` và khi bắt đầu task | Pin và manifest harness (`harnesses/<h>/pin.json`, `manifest.json`): daemon nạp lúc khởi động |
+| `cusr.yaml` của dự án, đọc ở base khi xem `task options` và khi bắt đầu task | Pin và manifest harness (`harnesses/<h>/record.json`; bản cài cũ: `pin.json`, `manifest.json`): daemon nạp lúc khởi động |
 | `yolo`, đọc trước khi daemon xét merge | Binary harness và release `cusrd` |
 
 Sau `setup-harness` hoặc `record-manifest`, manifest mới chỉ nằm trên đĩa cho tới khi restart:
@@ -254,7 +254,7 @@ pin thì chạy đủ tham số như khi cài đặt, thêm `--force`. `--allow-
 Script lấy code từ `repo/`, không từ repo phát triển.
 
 `doctor` và `check-records` báo `manifest:*` khi pin hoặc settings của release đang chạy khác lúc ghi manifest, hoặc lệnh của pin không chạy được: ghi lại manifest (hoặc cài lại lệnh) trước khi chạy task. Nâng cấp CLI tại chỗ không cần. Không sửa tay
-`manifest.json`.
+`record.json` (hay `manifest.json` của bản cài cũ).
 
 Mỗi lần ghi lại sinh manifest mới với hash mới. Task chưa bắt đầu chạy nhận manifest mới khi bắt đầu.
 Task đã bắt đầu giữ hash manifest trong snapshot. Manifest mới vẫn đáp ứng yêu cầu task đã chốt (schema

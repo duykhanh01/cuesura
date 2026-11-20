@@ -5,7 +5,7 @@
  * drives (due timers, PR observation, drain, retention).
  *
  * This is what lets the daemon call a real agent, and the gate for that is the harness record: a harness
- * runs only with an owner `pin.json` and a `manifest.json` that still holds on this host, and each attempt
+ * runs only with an owner pin and manifest (`harnesses/<name>/record.json`) that still hold on this host, and each attempt
  * checks them again. Records are read at daemon start, so a new one takes a restart; the check before each
  * request and attempt is against the disk, so a changed binary stops new work at once. What an attempt
  * runs with (credential references, stop bounds, stall limit) comes from the task's frozen snapshot.

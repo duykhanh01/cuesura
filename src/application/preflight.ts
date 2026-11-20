@@ -484,7 +484,7 @@ async function checkTools(
             ? `harness '${h}' sandbox cannot run ${probe.missing.join(', ')} from its PATH (${tools.dirs.join(':')})`
             : `harness '${h}' sandbox could not be checked: ${probe.detail}`,
           {
-            fix: `install it under /usr, or add its directory to toolchain in harnesses/${h}/pin.json and prove the harness again`,
+            fix: `install it under /usr, or run cusr-runner setup-harness --force with its directory in --toolchain`,
           },
         ),
       );

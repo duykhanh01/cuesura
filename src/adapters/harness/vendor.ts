@@ -355,6 +355,9 @@ const RATE_LIMITED_TEXT = /\b429\b|rate.?limit|too many requests/i;
 // An expired or revoked login is a person's fix, never a retry: each retry fails the same way.
 const AUTH_TEXT =
   /\b40[13]\b|unauthori[sz]ed|forbidden|not logged in|invalid api key|failed to authenticate|authentication[ _](?:failed|error|required)|oauth (?:session|token)|(?:session|token) (?:has )?expired|could not be refreshed|refresh token|invalid_grant|please (?:run \/login|log ?in|sign in)/i;
+/** A CLI that says it cannot start its sandbox or itself: the owner's fix, never an infra retry. */
+export const STARTUP_TEXT =
+  /sandbox\b[^\n]{0,40}\b(?:could not|cannot|can't|failed to|unable to)\b[^\n]{0,20}\b(?:be )?(?:initiali[sz]ed?|start(?:ed)?|created?)|sandbox\b[^\n]{0,20}\b(?:is )?(?:unavailable|not available|not supported)|\bbwrap: [^\n]*(?:operation not permitted|permission denied|no permissions)|cannot execute binary file|exec format error/i;
 const OVERLOADED_TEXT =
   /\b(?:50[0234]|529)\b|overloaded|at capacity|server is busy|temporarily unavailable|service unavailable|internal server error|bad gateway|gateway time-?out/i;
 

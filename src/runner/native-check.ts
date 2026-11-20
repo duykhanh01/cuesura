@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { codexAdapter } from '../adapters/harness/codex.ts';
 import { binaryPath, hostInnerMode, type VendorPin } from '../adapters/harness/vendor.ts';
 import type { Role } from '../adapters/harness/result-schema.ts';
-import { environmentHash } from '../application/capabilities.ts';
+import { binaryDigest, environmentHash } from '../application/capabilities.ts';
 import type { CapabilityManifest } from '../domain/runtime.ts';
 import type { Hash } from '../shared/brand.ts';
 import { hostExecutionPath } from './sandbox.ts';
@@ -27,14 +27,20 @@ export function checkedProfiles(pin: VendorPin): ('coder' | 'reviewer')[] {
   );
 }
 
+/** The file a command path resolved to when it was observed, and the digest of its bytes then. */
+export type ObservedBinary = { readonly realpath: string; readonly digest: Hash };
+
 /**
  * Runs the vendor's native sandbox on this host with no model: a harmless command must pass and a write
- * outside the worktree must be refused by the OS.
+ * outside the worktree must be refused by the OS. It runs the observed file itself, not the command path,
+ * and counts only if that file still has the observed bytes afterwards: a target swapped meanwhile was not
+ * what ran.
  */
 export function nativeWriteRefused(
   pin: VendorPin,
   profile: 'coder' | 'reviewer',
   dataDir: string,
+  binary: ObservedBinary,
 ): boolean {
   // Under the data dir, not /tmp: a workspace sandbox may leave the system temp directory writable.
   const dir = join(dataDir, 'worktrees', `sandbox-check-${randomUUID()}`);
@@ -47,13 +53,13 @@ export function nativeWriteRefused(
     // Positive control: this UID can write there outside the sandbox.
     writeFileSync(marker, '');
     rmSync(marker);
-    return codexAdapter.nativeWriteDenied({
+    const denied = codexAdapter.nativeWriteDenied({
       role: profile,
       worktree,
       marker,
       stdout: [],
       runPinned: (argv) => {
-        const r = spawnSync(binaryPath(pin), argv, {
+        const r = spawnSync(binary.realpath, argv, {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'pipe'],
           timeout: 30_000,
@@ -67,8 +73,17 @@ export function nativeWriteRefused(
         return { status: r.status, output: `${r.stdout}${r.stderr}` };
       },
     });
+    return denied && sameBytes(binary);
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+function sameBytes(binary: ObservedBinary): boolean {
+  try {
+    return binaryDigest(binary.realpath) === binary.digest;
+  } catch {
+    return false;
   }
 }
 
@@ -81,33 +96,35 @@ const verdicts = new Map<string, boolean>();
 export function nativeCheck(
   pin: VendorPin,
   profile: 'coder' | 'reviewer',
-  digest: Hash,
+  binary: ObservedBinary,
   dataDir: string,
 ): boolean {
-  const key = `${binaryPath(pin)}|${digest}|${profile}|${environmentHash(pin)}`;
+  const key = `${binary.realpath}|${binary.digest}|${profile}|${environmentHash(pin)}`;
   const hit = verdicts.get(key);
   if (hit !== undefined) return hit;
-  const refused = nativeWriteRefused(pin, profile, dataDir);
+  const refused = nativeWriteRefused(pin, profile, dataDir, binary);
   // A failure may be passing (a timeout, a full disk): it is checked again on the next launch.
   if (refused) verdicts.set(key, refused);
   return refused;
 }
 
 /**
- * Why `profile` of the binary now at `digest` may not run, or null. Setup's verdict counts only for the
- * bytes it checked; an upgraded CLI is checked again before it runs.
+ * Why `profile` of the observed binary may not run, or null. Setup's verdict counts only for the bytes it
+ * checked; an upgraded CLI is checked again before it runs.
  */
 export function sandboxProblem(
   pin: VendorPin,
   manifest: Pick<CapabilityManifest, 'binary' | 'native_result'>,
   profile: 'coder' | 'reviewer',
-  digest: Hash,
+  binary: ObservedBinary,
   dataDir: string,
   check: typeof nativeCheck = nativeCheck,
 ): string | null {
   const checkedAtSetup =
-    profile === 'coder' && manifest.binary.digest === digest && manifest.native_result === 'passed';
-  return checkedAtSetup || check(pin, profile, digest, dataDir)
+    profile === 'coder' &&
+    manifest.binary.digest === binary.digest &&
+    manifest.native_result === 'passed';
+  return checkedAtSetup || check(pin, profile, binary, dataDir)
     ? null
-    : `${pin.vendor} ${profile === 'reviewer' ? 'read-only' : 'workspace'} sandbox of ${binaryPath(pin)} did not refuse a write outside the worktree; fix the sandbox (cusr doctor) or set up a working CLI with cusr-runner setup-harness --force`;
+    : `${pin.vendor} ${profile === 'reviewer' ? 'read-only' : 'workspace'} sandbox of ${binaryPath(pin)} did not refuse a write it must refuse; fix the sandbox (cusr doctor) or set up a working CLI with cusr-runner setup-harness --force`;
 }

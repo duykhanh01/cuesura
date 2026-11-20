@@ -1,10 +1,12 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   realpathSync,
   rmSync,
   symlinkSync,
@@ -21,24 +23,28 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
-type Sandbox = 'refuse' | 'allow' | 'allow-read-only';
+type Sandbox = 'refuse' | 'allow' | 'allow-read-only' | 'read-only-writes-worktree';
 
 /**
- * `codex sandbox` stand-in: `refuse` makes the OS deny the outside write, `allow` lets it through, and
- * `allow-read-only` lets it through only in the read-only profile.
+ * `codex sandbox` stand-in: `refuse` makes the OS deny every write, `allow` lets it through,
+ * `allow-read-only` lets it through only in the read-only profile, and `read-only-writes-worktree` lets the
+ * read-only profile write in its worktree, as workspace-write does. `before` runs ahead of each write.
  */
-const vendor = (modelCalled: string, sandbox: Sandbox, version: string) => `#!/bin/sh
+const vendor = (modelCalled: string, sandbox: Sandbox, version: string, before = '') => `#!/bin/sh
 if [ "$1" = "--version" ]; then echo ${version}; exit 0; fi
 if [ "$1" = "sandbox" ]; then
   profile="$3"
+  wt="$5"
   while [ "$1" != "--" ]; do shift; done; shift
   if [ "$1" = "/usr/bin/true" ]; then exit 0; fi
+  ${before}
   ${
-    sandbox === 'refuse'
-      ? ''
-      : sandbox === 'allow'
-        ? `"$@"; exit $?`
-        : `if [ "$profile" = ":read-only" ]; then "$@"; exit $?; fi`
+    {
+      refuse: '',
+      allow: `"$@"; exit $?`,
+      'allow-read-only': `if [ "$profile" = ":read-only" ]; then "$@"; exit $?; fi`,
+      'read-only-writes-worktree': `case "$2" in "$wt"/*) "$@"; exit $?;; esac`,
+    }[sandbox]
   }
   echo "touch: cannot touch '$2': Permission denied" >&2; exit 1
 fi
@@ -56,9 +62,9 @@ function setup(harnesses: readonly string[] = ['codex', 'claude']) {
     `version: 1\nharnesses:\n${harnesses.map((h) => `  ${h}: { cmd: ${h}, auth: subscription, pool: p }\n`).join('')}pools: { p: 1 }\nruntime:\n  data_dir: ${data}\n`,
   );
   const modelCalled = join(dir, 'model-called');
-  const binary = (name: string, sandbox: Sandbox, version = 'vendor-1') => {
+  const binary = (name: string, sandbox: Sandbox, version = 'vendor-1', before = '') => {
     const path = join(dir, name);
-    writeFileSync(path, vendor(modelCalled, sandbox, version), { mode: 0o755 });
+    writeFileSync(path, vendor(modelCalled, sandbox, version, before), { mode: 0o755 });
     return path;
   };
   const records = join(data, 'harnesses', 'codex');
@@ -79,7 +85,13 @@ function setup(harnesses: readonly string[] = ['codex', 'claude']) {
   };
   const run = (...args: string[]) => runner('setup-harness', '--harness', 'codex', ...args);
   const check = () => runner('check-records');
-  const read = (file: string) => readFileSync(join(records, file), 'utf8');
+  const read = (file = 'record.json') => readFileSync(join(records, file), 'utf8');
+  /** The pin and manifest as recorded, together. */
+  const record = (harness = 'codex') =>
+    JSON.parse(readFileSync(join(data, 'harnesses', harness, 'record.json'), 'utf8')) as {
+      pin: { binary: Record<string, unknown>; permission_mode: string };
+      manifest: Record<string, unknown> & { capabilities: Record<string, string> };
+    };
   /** A stable command path, as a package manager installs one, pointing at `target`. */
   const command = join(dir, 'bin', 'codex');
   const point = (target: string) => {
@@ -87,7 +99,20 @@ function setup(harnesses: readonly string[] = ['codex', 'claude']) {
     rmSync(command, { force: true });
     symlinkSync(target, command);
   };
-  return { dir, data, records, modelCalled, binary, run, runner, check, read, command, point };
+  return {
+    dir,
+    data,
+    records,
+    modelCalled,
+    binary,
+    run,
+    runner,
+    check,
+    read,
+    record,
+    command,
+    point,
+  };
 }
 
 const refusal = (message: string) => ({
@@ -103,13 +128,13 @@ describe('setup-harness CLI without model calls', () => {
       code: 0,
       body: { ok: true, data: { native_result: 'passed', pin_exists: false } },
     });
-    expect(existsSync(join(h.records, 'pin.json'))).toBe(false);
+    expect(existsSync(h.records)).toBe(false);
 
     expect(h.run('--vendor', 'codex', '--binary', bin)).toMatchObject({
       code: 0,
       body: { ok: true, data: { harness: 'codex', native_result: 'passed' } },
     });
-    const manifest = JSON.parse(h.read('manifest.json')) as {
+    const manifest = h.record().manifest as {
       fixture_refs: string[];
       role_schemas: Record<string, string>;
       capabilities: Record<string, string>;
@@ -130,7 +155,7 @@ describe('setup-harness CLI without model calls', () => {
       cost_reporting: 'unknown',
       resume: 'unknown',
     });
-    expect((JSON.parse(h.read('pin.json')) as { binary: { path: string } }).binary.path).toBe(bin);
+    expect(h.record().pin.binary['path']).toBe(bin);
     expect(h.run('--from', 'record-manifest')).toMatchObject({ code: 0 });
     expect(existsSync(h.modelCalled)).toBe(false);
   });
@@ -140,8 +165,7 @@ describe('setup-harness CLI without model calls', () => {
     expect(h.run('--vendor', 'codex', '--binary', h.binary('codex', 'refuse'))).toMatchObject({
       code: 0,
     });
-    const pin = h.read('pin.json');
-    const manifest = h.read('manifest.json');
+    const before = h.read();
     expect(
       h.run('--vendor', 'codex', '--binary', h.binary('leaky', 'allow'), '--force'),
     ).toMatchObject({
@@ -155,8 +179,7 @@ describe('setup-harness CLI without model calls', () => {
         },
       },
     });
-    expect(h.read('pin.json')).toBe(pin);
-    expect(h.read('manifest.json')).toBe(manifest);
+    expect(h.read()).toBe(before);
     expect(existsSync(h.modelCalled)).toBe(false);
   });
 
@@ -186,10 +209,10 @@ describe('setup-harness CLI without model calls', () => {
       code: 0,
       body: { ok: true, data: { harness: 'claude', native_result: 'not_tried' } },
     });
-    const manifest = JSON.parse(
-      readFileSync(join(h.data, 'harnesses', 'claude', 'manifest.json'), 'utf8'),
-    ) as { selected_inner_mode: string; native_result: string };
-    expect(manifest).toMatchObject({ selected_inner_mode: 'native', native_result: 'not_tried' });
+    expect(h.record('claude').manifest).toMatchObject({
+      selected_inner_mode: 'native',
+      native_result: 'not_tried',
+    });
     expect(existsSync(h.modelCalled)).toBe(false);
   });
 
@@ -197,12 +220,12 @@ describe('setup-harness CLI without model calls', () => {
     const h = setup();
     const bin = h.binary('codex', 'refuse');
     expect(h.run('--vendor', 'codex', '--binary', bin)).toMatchObject({ code: 0 });
-    const manifest = h.read('manifest.json');
+    const before = h.read();
     expect(h.run('--vendor', 'codex', '--binary', bin)).toMatchObject({
       code: 1,
       body: { ok: false, error: { code: 'pin_refused', details: { step: 'write-pin' } } },
     });
-    expect(h.read('manifest.json')).toBe(manifest);
+    expect(h.read()).toBe(before);
   });
 
   it('returns the error of a binary that is not installed', () => {
@@ -232,7 +255,7 @@ describe('setup-harness CLI without model calls', () => {
 
     h.point(h.binary('codex-3', 'allow', 'vendor-3'));
     expect(h.check()).toMatchObject(refusal('workspace sandbox of'));
-    expect(h.check()).toMatchObject(refusal('did not refuse a write outside the worktree'));
+    expect(h.check()).toMatchObject(refusal('did not refuse a write it must refuse'));
     expect(existsSync(h.modelCalled)).toBe(false);
   });
 
@@ -251,7 +274,7 @@ describe('setup-harness CLI without model calls', () => {
         },
       },
     });
-    expect(existsSync(join(h.records, 'pin.json'))).toBe(false);
+    expect(existsSync(join(h.records, 'record.json'))).toBe(false);
 
     const ok = setup(['codex']);
     ok.point(ok.binary('codex-1', 'refuse'));
@@ -260,6 +283,28 @@ describe('setup-harness CLI without model calls', () => {
     ).toMatchObject({ code: 0, body: { data: { native_result: 'not_tried' } } });
     ok.point(ok.binary('codex-2', 'allow-read-only', 'vendor-2'));
     expect(ok.check()).toMatchObject(refusal('read-only sandbox of'));
+  });
+
+  it('refuses a read-only sandbox that writes in its own worktree, even for a full-access pin', () => {
+    const h = setup(['codex']);
+    const bin = h.binary('codex', 'read-only-writes-worktree');
+    expect(
+      h.run('--vendor', 'codex', '--binary', bin, '--permission-mode', 'full-access'),
+    ).toMatchObject(refusal('read-only sandbox of'));
+    expect(existsSync(join(h.records, 'record.json'))).toBe(false);
+    expect(existsSync(join(h.records, 'record.json'))).toBe(false);
+  });
+
+  it('refuses a check whose command was pointed at other bytes while it ran', () => {
+    const h = setup(['codex']);
+    const broken = join(h.dir, 'broken');
+    writeFileSync(broken, '#!/bin/sh\nexit 43\n', { mode: 0o755 });
+    // The probed CLI moves the command to an unprobed one on its last write, as an upgrade might.
+    h.point(h.binary('codex-1', 'refuse', 'vendor-1', `ln -sfn '${broken}' '${h.command}'`));
+    expect(h.run('--vendor', 'codex', '--binary', h.command)).toMatchObject(
+      refusal('changed while it was checked'),
+    );
+    expect(existsSync(join(h.records, 'record.json'))).toBe(false);
   });
 
   it('does not take evidence of the old bytes for an upgraded binary', () => {
@@ -276,28 +321,31 @@ describe('setup-harness CLI without model calls', () => {
     );
   });
 
-  it('keeps pin and manifest a pair when writing them fails half way, and names the step', () => {
+  it('keeps the whole old record when the new one cannot be written, and names the step', () => {
     const h = setup(['codex']);
     expect(h.run('--vendor', 'codex', '--binary', h.binary('codex', 'refuse'))).toMatchObject({
       code: 0,
     });
-    // The manifest cannot be replaced; the pin can.
-    rmSync(join(h.records, 'manifest.json'));
-    mkdirSync(join(h.records, 'manifest.json', 'blocked'), { recursive: true });
-    const full = ['--vendor', 'codex', '--binary', h.binary('codex', 'refuse'), '--force'];
-    expect(h.run(...full, '--permission-mode', 'full-access')).toMatchObject({
-      code: 1,
-      body: { ok: false, error: { code: 'commit_failed', details: { step: 'commit' } } },
-    });
-    // Readers take the new pair from the commit record, never the new pin with an old manifest.
-    expect(h.check()).toMatchObject({ code: 0 });
-    rmSync(join(h.records, 'manifest.json'), { recursive: true });
-    expect(h.runner('record-manifest', '--harness', 'codex')).toMatchObject({ code: 0 });
-    expect(existsSync(join(h.records, 'record.next.json'))).toBe(false);
-    expect(JSON.parse(h.read('pin.json'))).toMatchObject({ permission_mode: 'full-access' });
-    expect(JSON.parse(h.read('manifest.json'))).toMatchObject({
-      selected_inner_mode: 'full_access',
-    });
+    const before = h.read();
+    chmodSync(h.records, 0o500);
+    try {
+      const full = ['--vendor', 'codex', '--binary', h.binary('codex', 'refuse'), '--force'];
+      expect(h.run(...full, '--permission-mode', 'full-access')).toMatchObject({
+        code: 1,
+        body: {
+          ok: false,
+          error: {
+            code: 'commit_failed',
+            message: expect.stringContaining('the record on disk is unchanged') as string,
+            details: { step: 'commit' },
+          },
+        },
+      });
+    } finally {
+      chmodSync(h.records, 0o700);
+    }
+    expect(h.read()).toBe(before);
+    expect(readdirSync(h.records)).toEqual(['record.json']);
     expect(h.check()).toMatchObject({ code: 0 });
   });
 
@@ -306,9 +354,12 @@ describe('setup-harness CLI without model calls', () => {
     const old = h.binary('codex-1', 'refuse');
     h.point(old);
     expect(h.run('--vendor', 'codex', '--binary', h.command)).toMatchObject({ code: 0 });
-    const pin = JSON.parse(h.read('pin.json')) as { binary: Record<string, unknown> };
+    // As an earlier release left it: two files, and a pin without the command path.
+    const { pin, manifest } = h.record();
     delete pin.binary['path'];
     writeFileSync(join(h.records, 'pin.json'), JSON.stringify(pin), { mode: 0o600 });
+    writeFileSync(join(h.records, 'manifest.json'), JSON.stringify(manifest), { mode: 0o600 });
+    rmSync(join(h.records, 'record.json'));
     expect(h.check()).toMatchObject({ code: 0 });
 
     h.point(h.binary('codex-2', 'refuse', 'vendor-2'));
@@ -321,6 +372,7 @@ describe('setup-harness CLI without model calls', () => {
     expect(h.run('--vendor', 'codex', '--binary', h.command, '--force')).toMatchObject({
       code: 0,
     });
+    expect(h.record().pin.binary['path']).toBe(h.command);
     expect(h.check()).toMatchObject({ code: 0 });
   });
 
