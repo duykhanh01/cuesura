@@ -1507,7 +1507,7 @@ describe('yolo merge', () => {
   );
 
   /** A check run made by workflow run `id + 1000`, itself made at `made` (see `workflowsOf`). */
-  const run = (id: number, name: string, conclusion: string, made: string) => ({
+  const run = (id: number, name: string, conclusion: string, made: string, wf = id + 1000) => ({
     id,
     name,
     head_sha: A,
@@ -1515,11 +1515,13 @@ describe('yolo merge', () => {
     conclusion,
     started_at: made,
     completed_at: made,
-    details_url: `https://github.com/acme/app/actions/runs/${id + 1000}/job/${id}`,
+    details_url: `https://github.com/acme/app/actions/runs/${wf}/job/${id}`,
     app: { id: 15368 },
   });
   const workflowsOf = (runs: ReturnType<typeof run>[]) =>
-    Object.fromEntries(runs.map((r) => [r.id + 1000, r.started_at]));
+    Object.fromEntries(
+      runs.map((r) => [Number(/runs\/(\d+)\//.exec(r.details_url)?.[1]), r.started_at]),
+    );
 
   // PR #36 of a dogfood repo: turned ready by a person, so the task held no ready time, while the
   // skipped runs of the draft were the only ones on the head.
@@ -1553,7 +1555,68 @@ describe('yolo merge', () => {
     expect(await advanceTaskPr(deps(d, ready.port), t.id)).toBe('merged');
   });
 
-  it('turned ready a second time: skips of the second draft are no pass; those of the new ready run are', async () => {
+  // Issue #362: the draft's skipped workflow run is dated after the ready event; the ready run has not
+  // produced its checks yet. Nothing may be sent until they pass.
+  it('a required skip after a draft stops the merge, however its run looks, until the required checks succeed', async () => {
+    const d = setup();
+    const t = buildTask();
+    green(d, t);
+    const events = [{ event: 'ready_for_review', created_at: '2026-11-18T01:17:20Z' }];
+    const late = '2026-11-18T01:17:21Z';
+    const lateSkips = [run(1, 'build', 'skipped', late), run(2, 'test', 'skipped', late)];
+    const stages = [
+      lateSkips,
+      // Successes of an earlier turn of the same head, the ready run not yet visible.
+      [
+        run(1, 'build', 'success', '2026-11-17T23:19:24Z'),
+        run(2, 'test', 'success', '2026-11-17T23:19:24Z'),
+      ],
+      [
+        ...lateSkips,
+        { ...run(3, 'changes', 'success', '2026-11-18T01:17:24Z'), status: 'in_progress' },
+      ],
+      // A succeeded sibling of the same workflow run attributes nothing.
+      [
+        run(1, 'build', 'skipped', late, 77),
+        run(2, 'test', 'skipped', late, 77),
+        run(3, 'changes', 'success', late, 77),
+      ],
+      // A success beside an unfinished older run of the check, in both orders.
+      [
+        run(5, 'build', 'success', late),
+        { ...run(4, 'build', 'success', late), status: 'in_progress' },
+        run(6, 'test', 'success', late),
+      ],
+      [
+        run(4, 'build', 'success', late),
+        { ...run(5, 'build', 'success', late), status: 'in_progress' },
+        run(6, 'test', 'success', late),
+      ],
+    ];
+    for (const runs of stages) {
+      const waiting = github({
+        checkRuns: { check_runs: runs },
+        events,
+        workflows: workflowsOf(runs),
+      });
+      expect(await advanceTaskPr(deps(d, waiting.port), t.id)).toBe('not_ready');
+      expect(puts(waiting.sent)).toEqual([]);
+      expect(approvals(d, t)).toEqual([]);
+    }
+    const readyRuns = [
+      ...lateSkips,
+      run(4, 'build', 'success', '2026-11-18T01:30:00Z'),
+      run(5, 'test', 'success', '2026-11-18T01:30:00Z'),
+    ];
+    const done = github({
+      checkRuns: { check_runs: readyRuns },
+      events,
+      workflows: workflowsOf(readyRuns),
+    });
+    expect(await advanceTaskPr(deps(d, done.port), t.id)).toBe('merged');
+  });
+
+  it('turned ready a second time: no skip after the second draft passes, whichever run made it', async () => {
     const d = setup();
     const t = buildTask();
     green(d, t);
@@ -1575,15 +1638,17 @@ describe('yolo merge', () => {
     expect(approvals(d, t)).toEqual([]);
     const docsRuns = [
       ...secondDraft,
-      run(3, 'build', 'skipped', '2026-11-18T01:17:30Z'),
-      run(4, 'test', 'skipped', '2026-11-18T01:17:30Z'),
+      run(3, 'build', 'skipped', '2026-11-18T01:17:30Z', 77),
+      run(4, 'test', 'skipped', '2026-11-18T01:17:30Z', 77),
+      run(5, 'changes', 'success', '2026-11-18T01:17:30Z', 77),
     ];
     const docsOnly = github({
       checkRuns: { check_runs: docsRuns },
       events,
       workflows: workflowsOf(docsRuns),
     });
-    expect(await advanceTaskPr(deps(d, docsOnly.port), t.id)).toBe('merged');
+    expect(await advanceTaskPr(deps(d, docsOnly.port), t.id)).toBe('not_ready');
+    expect(approvals(d, t)).toEqual([]);
   });
 
   it.each(['stale', 'cancelled', 'timed_out', 'action_required', 'startup_failure'])(

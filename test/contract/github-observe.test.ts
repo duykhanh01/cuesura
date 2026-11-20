@@ -426,19 +426,21 @@ describe('skipped runs of a draft PR', () => {
     required_checks: ['ci-ok'],
   };
   /** A check run made by workflow run `id + 1000`, itself made at `made`. */
-  const run = (id: number, name: string, conclusion: string, made: string) => ({
+  const run = (id: number, name: string, conclusion: string, made: string, wf = id + 1000) => ({
     id,
     name,
     status: 'completed',
     conclusion,
     started_at: made,
     completed_at: made,
-    details_url: `https://github.com/acme/app/actions/runs/${id + 1000}/job/${id}`,
+    details_url: `https://github.com/acme/app/actions/runs/${wf}/job/${id}`,
     head_sha: HEAD,
     app: { id: 15368 },
     made,
+    wf,
   });
-  const ciOk = (id: number, conclusion: string, made: string) => run(id, 'ci-ok', conclusion, made);
+  const ciOk = (id: number, conclusion: string, made: string, wf?: number) =>
+    run(id, 'ci-ok', conclusion, made, wf);
   const EVENTS = 'GET repos/acme/app/issues/7/events?per_page=100&page=1';
   const PULL = 'GET repos/acme/app/pulls/7';
   const ready = (...at: string[]) => at.map((t) => ({ event: 'ready_for_review', created_at: t }));
@@ -459,8 +461,8 @@ describe('skipped runs of a draft PR', () => {
     [EVENTS]: events,
     ...Object.fromEntries(
       runs.map((r) => [
-        `GET repos/acme/app/actions/runs/${r.id + 1000}`,
-        [{ status: 200, body: { id: r.id + 1000, head_sha: HEAD, created_at: r.made } }],
+        `GET repos/acme/app/actions/runs/${r.wf}`,
+        [{ status: 200, body: { id: r.wf, head_sha: HEAD, created_at: r.made } }],
       ]),
     ),
   });
@@ -495,21 +497,67 @@ describe('skipped runs of a draft PR', () => {
   it('a PR turned ready without the task: the ready event dates the draft runs, and the new run counts', async () => {
     const events = ok(ready('2026-11-18T01:17:20Z'));
     const draftRun = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
-    expect(verdict(await observe(script(false, [draftRun], events)).obs)).toMatchObject({
-      kind: 'incomplete',
-      missing: ['ci-ok'],
-    });
+    expect(verdict(await observe(script(false, [draftRun], events)).obs).kind).toBe('incomplete');
     const fresh = [draftRun, ciOk(2, 'success', '2026-11-18T01:17:30Z')];
     expect(verdict(await observe(script(false, fresh, events)).obs)).toEqual({ kind: 'pass' });
+  });
+
+  it('#362: a required skip after a draft is no pass; only the aggregate job’s own success passes', async () => {
+    const events = ok(ready('2026-11-18T01:17:20Z'));
+    const lateSkip = ciOk(1, 'skipped', '2026-11-18T01:17:21Z');
+    const lone = await observe(script(false, [lateSkip], events)).obs;
+    expect(verdict(lone).kind).not.toBe('pass');
+    expect(lone).toMatchObject({ checks: { checks: [{ name: 'ci-ok', state: 'pending' }] } });
+    // A succeeded sibling of the same workflow run, or a ready run queued before, with or after it.
+    const sibling = run(2, 'changes', 'success', '2026-11-18T01:17:21Z', 1001);
+    for (const made of ['2026-11-18T01:17:19Z', '2026-11-18T01:17:21Z', '2026-11-18T01:17:24Z']) {
+      const queued = { ...run(2, 'changes', 'success', made), status: 'in_progress' };
+      for (const other of [sibling, queued]) {
+        const obs = await observe(script(false, [lateSkip, other], events)).obs;
+        expect(verdict(obs).kind).not.toBe('pass');
+      }
+    }
+    // The aggregate success of the ready run is current: the wait ends. Hidden by a higher ID: it waits.
+    const done = ciOk(2, 'success', '2026-11-18T01:17:40Z');
+    expect(verdict(await observe(script(false, [lateSkip, done], events)).obs)).toEqual({
+      kind: 'pass',
+    });
+    const hidden = ciOk(0, 'success', '2026-11-18T01:17:40Z');
+    expect(verdict(await observe(script(false, [lateSkip, hidden], events)).obs).kind).not.toBe(
+      'pass',
+    );
+  });
+
+  it('#362: a success from before the ready event is no pass; one after it is, with a repeated ready too', async () => {
+    const draftWon = ciOk(1, 'success', '2026-11-17T23:19:24Z');
+    const once = ok(ready('2026-11-18T01:17:20Z'));
+    const lone = await observe(script(false, [draftWon], once)).obs;
+    expect(verdict(lone).kind).not.toBe('pass');
+    expect(lone).toMatchObject({ checks: { checks: [{ name: 'ci-ok', state: 'pending' }] } });
+    // Turned ready twice on one head: the first turn's success is no evidence for the second.
+    const twice = ok(ready('2026-11-17T10:00:00Z', '2026-11-18T01:17:20Z'));
+    const firstTurn = ciOk(1, 'success', '2026-11-17T10:05:00Z');
+    expect(verdict(await observe(script(false, [firstTurn], twice)).obs).kind).not.toBe('pass');
+    const fresh = ciOk(2, 'success', '2026-11-18T01:17:40Z');
+    expect(verdict(await observe(script(false, [firstTurn, fresh], twice)).obs)).toEqual({
+      kind: 'pass',
+    });
+    // A competing generation of an unrecognized state waits too.
+    const odd = { ...ciOk(0, 'success', '2026-11-18T01:17:30Z'), status: 'mystery' };
+    expect(verdict(await observe(script(false, [odd, fresh], twice)).obs).kind).not.toBe('pass');
   });
 
   it('turned ready a second time: the latest ready event decides, not the first', async () => {
     const events = ok(ready('2026-11-17T10:00:00Z', '2026-11-18T01:17:20Z'));
     const second = ciOk(1, 'skipped', '2026-11-17T23:19:24Z');
     expect(verdict(await observe(script(false, [second], events)).obs).kind).toBe('incomplete');
-    // A skip of a run the second ready event made (a docs-only change) passes.
-    const after = [second, ciOk(2, 'skipped', '2026-11-18T01:17:25Z')];
-    expect(verdict(await observe(script(false, after, events)).obs)).toEqual({ kind: 'pass' });
+    // A skip after the second ready event is no pass either, with a job of its own run that ran or not.
+    const after = [
+      second,
+      ciOk(2, 'skipped', '2026-11-18T01:17:25Z', 77),
+      run(3, 'changes', 'success', '2026-11-18T01:17:25Z', 77),
+    ];
+    expect(verdict(await observe(script(false, after, events)).obs).kind).toBe('incomplete');
   });
 
   it('a skip of a PR that never was a draft still passes (docs-only)', async () => {
@@ -521,7 +569,7 @@ describe('skipped runs of a draft PR', () => {
     expect(o.count('/actions/runs/')).toBe(0);
   });
 
-  it('events are read only when the verdict rests on a skip of a required check', async () => {
+  it('events are read only when the verdict would pass', async () => {
     const optional = observe(
       script(false, [
         ciOk(1, 'success', '2026-11-17T23:19:24Z'),
@@ -529,7 +577,7 @@ describe('skipped runs of a draft PR', () => {
       ]),
     );
     expect(verdict(await optional.obs)).toEqual({ kind: 'pass' });
-    expect(optional.count('/events')).toBe(0);
+    expect(optional.count('/events')).toBe(1);
     // A required skip next to a failure cannot pass anyway.
     const failed = observe(
       script(false, [
