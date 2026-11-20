@@ -2,7 +2,8 @@
  * Why a native session ended before its turn did, told without its terminal and without a model. The terminal
  * keeps the CLI's stdout and stderr (a TTY stays a TTY), so the runner looks where the CLI writes on its own: the
  * error records of its session files in the run's private home and, for a Claude sandbox, whether bubblewrap can
- * make its namespaces on this host.
+ * make its namespaces on this host. A resumed session's home starts with the earlier attempt's records, so only
+ * what was appended after the launch's marks counts.
  */
 import { spawnSync } from 'node:child_process';
 import {
@@ -15,7 +16,7 @@ import {
   readSync,
   readdirSync,
 } from 'node:fs';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { classifyFailure, DETAIL_MAX, STARTUP_TEXT } from '../adapters/harness/vendor.ts';
 import { hostExecutionPath } from './sandbox.ts';
 
@@ -45,13 +46,32 @@ function jsonlFiles(dir: string, out: string[] = []): string[] {
   return out;
 }
 
-function tail(path: string): string {
+/** A session file already in the home at launch, by its path under the home. */
+export type SessionMark = { readonly path: string; readonly ino: number; readonly size: number };
+
+const sessionRoot = (vendor: string, home: string): string =>
+  vendor === 'claude' ? join(home, '.claude', 'projects') : join(home, '.codex', 'sessions');
+
+/** Taken before the spawn, after a resumed session was copied in. */
+export function sessionMarks(vendor: string, home: string): SessionMark[] {
+  return jsonlFiles(sessionRoot(vendor, home)).flatMap((f) => {
+    const st = lstatSync(f, { throwIfNoEntry: false });
+    return st === undefined ? [] : [{ path: relative(home, f), ino: st.ino, size: st.size }];
+  });
+}
+
+/** What this launch appended to a file; null when its history cannot be told apart. */
+function tail(path: string, mark: SessionMark | undefined): string | null {
   const fd = openSync(path, 'r');
   try {
-    const size = fstatSync(fd).size;
-    const length = Math.min(size, TAIL_BYTES);
-    const buf = Buffer.alloc(length);
-    readSync(fd, buf, 0, length, size - length);
+    const st = fstatSync(fd);
+    const from = mark === undefined ? 0 : mark.size;
+    // Replaced or truncated since the launch: earlier records may be anywhere in it.
+    if (mark !== undefined && (st.ino !== mark.ino || st.size < mark.size)) return null;
+    const start = Math.max(from, st.size - TAIL_BYTES);
+    const buf = Buffer.alloc(st.size - start);
+    readSync(fd, buf, 0, buf.length, start);
+    // A cut at the tail limit leaves a partial first line, which JSON.parse drops.
     return buf.toString('utf8');
   } finally {
     closeSync(fd);
@@ -90,12 +110,11 @@ function errorText(line: string): string | null {
   return null;
 }
 
-function sessionErrors(vendor: string, home: string): string[] {
-  const root =
-    vendor === 'claude' ? join(home, '.claude', 'projects') : join(home, '.codex', 'sessions');
-  return jsonlFiles(root).flatMap((f) => {
+function sessionErrors(vendor: string, home: string, marks: readonly SessionMark[]): string[] {
+  const at = new Map(marks.map((m) => [m.path, m]));
+  return jsonlFiles(sessionRoot(vendor, home)).flatMap((f) => {
     try {
-      return tail(f)
+      return (tail(f, at.get(relative(home, f))) ?? '')
         .split('\n')
         .flatMap((l) => errorText(l) ?? []);
     } catch {
@@ -126,11 +145,16 @@ function bwrapRefusal(toolchain: readonly string[]): string | null {
 export function startupDiagnosis(o: {
   readonly vendor: string;
   readonly home: string;
+  /** The session files present before the spawn; null when they were not taken, and no file is read. */
+  readonly marks: readonly SessionMark[] | null;
   /** The session runs in the vendor's native sandbox. */
   readonly sandboxed: boolean;
   readonly toolchain: readonly string[];
 }): StartupCause | null {
-  const said = sessionErrors(o.vendor, o.home).slice(-5).join('\n').slice(-DETAIL_MAX);
+  const said = (o.marks === null ? [] : sessionErrors(o.vendor, o.home, o.marks))
+    .slice(-5)
+    .join('\n')
+    .slice(-DETAIL_MAX);
   if (said !== '') {
     if (STARTUP_TEXT.test(said)) return { kind: 'capability_missing', detail: said };
     if (classifyFailure(said, null) === 'auth') return { kind: 'auth', detail: said };

@@ -49,7 +49,7 @@ import {
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
 import { checkedProfile, nativeCheck, sandboxProblem } from './native-check.ts';
-import { startupDiagnosis } from './startup-diagnosis.ts';
+import { sessionMarks, startupDiagnosis } from './startup-diagnosis.ts';
 import {
   observeHarness,
   verifyManifest,
@@ -225,6 +225,16 @@ const LaunchStateSchema = z.strictObject({
   collect_before: z.array(z.string()),
   /** A native session: it ends at its Stop hook, not with a result. */
   interactive: z.strictObject({ session_ref: z.string().nullable() }).optional(),
+  /** Session files already in the home at the spawn, a resumed session's among them. */
+  session_marks: z
+    .array(
+      z.strictObject({
+        path: z.string().min(1),
+        ino: z.number().int().nonnegative(),
+        size: z.number().int().nonnegative(),
+      }),
+    )
+    .optional(),
   auth: z.strictObject({
     home: z.string().min(1),
     files: z.array(z.string()),
@@ -606,7 +616,12 @@ export class RunnerHarness implements HarnessPort {
         before,
         preexisted,
         collect_before: [...collectBefore],
-        ...(native === null ? {} : { interactive: { session_ref: native.session_ref } }),
+        ...(native === null
+          ? {}
+          : {
+              interactive: { session_ref: native.session_ref },
+              session_marks: sessionMarks(o.pin.vendor, installed.home),
+            }),
         auth: {
           home: installed.home,
           files: [...installed.files],
@@ -959,6 +974,7 @@ export class RunnerHarness implements HarnessPort {
       const cause = startupDiagnosis({
         vendor: o.pin.vendor,
         home: st.auth.home,
+        marks: st.session_marks ?? null,
         sandboxed:
           st.inner_mode === 'native' && nativeSandboxEnabled(o.pin, boundaryRole(input.role)),
         toolchain: o.pin.toolchain,
