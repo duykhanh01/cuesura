@@ -392,7 +392,7 @@ describe('setup-harness CLI without model calls', () => {
       chmodSync(h.records, 0o700);
     }
     expect(h.read()).toBe(before);
-    expect(readdirSync(h.records)).toEqual(['record.json']);
+    expect(readdirSync(h.records).sort()).toEqual(['record.json', 'record.lock']);
     expect(h.check()).toMatchObject({ code: 0 });
   });
 

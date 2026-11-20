@@ -749,8 +749,9 @@ quyền thật ([người gọi và quyền](#người-gọi-và-quyền)).
 
 `cusrd` chỉ gọi một harness khi có đủ pin và manifest của owner trong `<DATA_DIR>/harnesses/<tên harness>/record.json`.
 Hai phần nằm chung một file, thay bằng một lần rename, nên người đọc (daemon, `doctor`, `check-records`) luôn thấy
-trọn một thế hệ, không bao giờ trộn. Người ghi lần lượt từng người qua khóa `record.lock` (khóa của tiến trình đã
-chết được lấy lại); điều kiện ghi được xét lại ngay trong khóa. Không có `--force` thì chỉ ghi được khi chưa có bản ghi.
+trọn một thế hệ, không bao giờ trộn. Người ghi lần lượt từng người qua `flock` (util-linux) trên `record.lock`: khóa
+gắn với fd tiến trình ghi giữ mở, nhả khi đóng fd hoặc tiến trình chết, và file khóa không bao giờ bị xóa. Chờ quá
+10 giây thì lệnh báo khóa đang bị giữ và không ghi gì. Điều kiện ghi được xét lại ngay trong khóa. Không có `--force` thì chỉ ghi được khi chưa có bản ghi.
 `record-manifest` và `setup-harness --from record-manifest` chỉ ghi manifest cho đúng pin chúng đã đọc: pin bị một
 setup khác thay trong lúc kiểm thì lệnh từ chối (`changed while its manifest was made`), không đặt lại pin cũ. Bản cài từ release
 trước còn `pin.json` và `manifest.json`: vẫn đọc được cho tới lần ghi đầu tiên, sau đó bị bỏ qua (không sửa tay).

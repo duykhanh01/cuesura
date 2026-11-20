@@ -11,14 +11,17 @@
  * that error. With an evidence file, it takes capabilities only from evidence that names what it showed: the
  * binary and, under `attested`, the settings, environment, host policy and layouts of the run.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import {
   accessSync,
+  closeSync,
   constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -60,6 +63,7 @@ import { HashSchema, type Hash } from '../shared/brand.ts';
 import { hashCanonical } from '../shared/hash.ts';
 import { err, ok, type Result } from '../shared/result.ts';
 import { attemptLayoutInputs } from './invocation.ts';
+import { FLOCK, LOCK_CONFLICT_EXIT } from './operation-lock.ts';
 import {
   checkedProfile,
   checkedProfiles,
@@ -187,47 +191,52 @@ export function loadHarnessRecord(dataDir: string, harness: string): Result<Harn
 }
 
 const LOCK_FILE = 'record.lock';
-const LOCK_WAIT_MS = 10_000;
-const pause = (ms: number): void =>
-  void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const LOCK_WAIT_S = 10;
 
-/** A lock whose writer died (its pid is gone) is no one's; an empty one is a writer that died opening it. */
-function abandoned(lock: string): boolean {
-  try {
-    const pid = Number(readFileSync(lock, 'utf8'));
-    if (!Number.isInteger(pid) || pid <= 0)
-      return Date.now() - statSync(lock).mtimeMs > LOCK_WAIT_MS;
-    process.kill(pid, 0);
-    return false;
-  } catch (e) {
-    return (e as NodeJS.ErrnoException).code === 'ESRCH';
-  }
-}
-
-/** Runs `f` as the only writer of this record: what it checks still holds when it publishes. */
+/**
+ * Runs `f` as the only writer of this record: what it checks still holds when it publishes. The lock is
+ * util-linux flock on an fd this process keeps open: flock locks the open file description, so it holds
+ * after the flock child exits and goes when the fd is closed or this process dies. The file is never removed,
+ * so no writer can take a lock another one holds.
+ */
 function withRecordLock<T>(dir: string, f: () => Result<T, string>): Result<T, string> {
   const lock = join(dir, LOCK_FILE);
-  const until = Date.now() + LOCK_WAIT_MS;
+  let fd: number;
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
-    for (;;) {
-      try {
-        writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
-        break;
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
-        if (abandoned(lock)) rmSync(lock, { force: true });
-        else if (Date.now() > until) return err(`${lock} is held by another writer; try again`);
-        else pause(50);
-      }
-    }
+    fd = openSync(lock, constants.O_RDWR | constants.O_CREAT | constants.O_NOFOLLOW, 0o600);
   } catch (e) {
-    return err(`cannot lock ${lock}: ${String(e)}; the record on disk is unchanged`);
+    return err(`cannot open ${lock}: ${String(e)}; the record on disk is unchanged`);
   }
   try {
+    const st = fstatSync(fd);
+    if (
+      !st.isFile() ||
+      (st.mode & 0o022) !== 0 ||
+      (typeof process.getuid === 'function' && st.uid !== process.getuid())
+    )
+      return err(
+        `${lock} is not a private regular file of this user; the record on disk is unchanged`,
+      );
+    const r = spawnSync(
+      FLOCK,
+      ['-x', '-w', String(LOCK_WAIT_S), '-E', String(LOCK_CONFLICT_EXIT), '3'],
+      {
+        stdio: ['ignore', 'ignore', 'pipe', fd],
+        encoding: 'utf8',
+      },
+    );
+    if (r.error !== undefined)
+      return err(`cannot lock ${lock}: ${r.error.message} (needs util-linux ${FLOCK})`);
+    if (r.status === LOCK_CONFLICT_EXIT)
+      return err(`${lock} is held by another writer for over ${LOCK_WAIT_S}s; try again`);
+    if (r.status !== 0)
+      return err(
+        `cannot lock ${lock}: flock exited ${String(r.status ?? r.signal)}: ${r.stderr.trim()}`,
+      );
     return f();
   } finally {
-    rmSync(lock, { force: true });
+    closeSync(fd);
   }
 }
 

@@ -3,7 +3,7 @@
  * publish one at a time. Interleavings are forced with a hook on the file calls the real record functions make;
  * concurrent CLI commands are in setup-harness.test.ts.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -135,13 +135,18 @@ describe('one generation for readers and writers', () => {
     expect(modes(load())).toEqual(['full-access', 'full_access']);
   });
 
-  it('publishes under the record lock, and the next start accepts what it wrote', async () => {
+  /** Whether another open of the lock file could take the lock now. */
+  const free = () =>
+    spawnSync('/usr/bin/flock', ['-x', '-n', join(records, 'record.lock'), 'true']).status === 0;
+
+  it('publishes holding the record lock, and the next start accepts what it wrote', async () => {
     write('record.json', A);
-    // Another writer would wait here: the check and the rename are one critical section.
-    hook.beforeRename = () => expect(fs.existsSync(join(records, 'record.lock'))).toBe(true);
+    hook.beforeRename = () => expect(free()).toBe(false);
     expect(commitRecord(target, B).ok).toBe(true);
+    expect(free()).toBe(true);
     expect(modes(load())).toEqual(['full-access', 'full_access']);
-    expect(fs.readdirSync(records)).toEqual(['record.json']);
+    // The lock file stays: removing it could let two writers lock two different files.
+    expect(fs.readdirSync(records).sort()).toEqual(['record.json', 'record.lock']);
     const cfg = await loadDaemonConfig({ config, dataDir: undefined });
     if (!cfg.ok) throw new Error(cfg.error);
     expect(
@@ -149,10 +154,47 @@ describe('one generation for readers and writers', () => {
     ).toEqual([]);
   });
 
-  it('takes over the lock of a writer that died holding it', () => {
+  it('waits for another writer holding the lock, then publishes', async () => {
     write('record.json', A);
-    write('record.lock', 2 ** 22 + 12_345);
+    write('record.lock', '');
+    const held = join(dir, 'held');
+    fs.rmSync(held, { force: true });
+    // Another process holds the lock for a while, as a writer in its critical section does.
+    const other = spawn('/usr/bin/flock', [
+      '-x',
+      join(records, 'record.lock'),
+      'sh',
+      '-c',
+      `touch '${held}'; sleep 1.5`,
+    ]);
+    const gone = new Promise((r) => other.on('close', r));
+    while (!fs.existsSync(held)) await new Promise((r) => setTimeout(r, 20));
+    const t = Date.now();
     expect(commitRecord(target, B).ok).toBe(true);
+    expect(Date.now() - t).toBeGreaterThan(1_000);
+    await gone;
+    expect(modes(load())).toEqual(['full-access', 'full_access']);
+  });
+
+  it('takes the lock at once after a holder died without releasing it', () => {
+    write('record.json', A);
+    write('record.lock', '');
+    // The holder locks through an fd it keeps, then is killed: the kernel drops the lock with the process.
+    const holder = spawnSync(
+      process.execPath,
+      [
+        '-e',
+        `const fs = require('fs'); const fd = fs.openSync(${JSON.stringify(join(records, 'record.lock'))}, 'r+');
+         const r = require('child_process').spawnSync('/usr/bin/flock', ['-x', '-n', '3'], { stdio: ['ignore', 'ignore', 'ignore', fd] });
+         if (r.status !== 0) process.exit(9);
+         process.kill(process.pid, 'SIGKILL');`,
+      ],
+      { stdio: 'ignore' },
+    );
+    expect(holder.signal).toBe('SIGKILL');
+    const t = Date.now();
+    expect(commitRecord(target, B).ok).toBe(true);
+    expect(Date.now() - t).toBeLessThan(1_000);
     expect(modes(load())).toEqual(['full-access', 'full_access']);
   });
 
