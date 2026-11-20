@@ -60,6 +60,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   mocks.load.mockResolvedValue({ ok: true, value: { dataDir: '/data', runtime: {} } });
   mocks.write.mockReturnValue({ ok: true, value: candidate });
+  mocks.commitManifest.mockReturnValue({ ok: true, value: {} });
   mocks.record.mockReturnValue({
     ok: true,
     value: { manifest_hash: 'manifest', native_result: 'not_tried' },
@@ -146,10 +147,13 @@ describe('setup-harness composition', () => {
     expect(mocks.write).not.toHaveBeenCalled();
     // The manifest is made for the recorded pin and written with that same pin.
     expect(mocks.record).toHaveBeenCalledWith(expect.objectContaining({ pin: recorded }));
-    expect(mocks.commitRecord).toHaveBeenCalledWith(
-      expect.objectContaining({ force: true }),
-      expect.objectContaining({ pin: recorded }),
+    // Written only if the pin is still that one when it is published.
+    expect(mocks.commitManifest).toHaveBeenCalledWith(
+      expect.anything(),
+      recorded,
+      expect.objectContaining({ manifest_hash: 'manifest' }),
     );
+    expect(mocks.commitRecord).not.toHaveBeenCalled();
   });
 
   it('refuses the removed proof step', async () => {

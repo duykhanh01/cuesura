@@ -9,7 +9,7 @@ import { call } from '../../../src/cli/tasks.ts';
 import type { CanonicalTask } from '../../../src/domain/task.ts';
 import { buildTask, uuidOf } from '../../support/builders.ts';
 import type { SeededDaemon } from '../../support/daemon-task.ts';
-import { deputyDaemon } from '../../support/deputy.ts';
+import { deputyDaemon, FAKE_DEPUTY } from '../../support/deputy.ts';
 import { createGrantStart, proposeAndConfirm, selectionFor } from '../../support/runtime.ts';
 import { PREPARE_DATA } from '../../support/scenario.ts';
 import type { StoreDriver } from '../../support/store-driver.ts';
@@ -112,36 +112,41 @@ describe('launch failures of a task an assistant added, with a deputy (T1-R03/R0
     ]);
   });
 
-  it("tells the session that added a task its deputy's own harness failure, after a restart", async () => {
-    vi.stubEnv('CUSR_ACTOR', 'assistant');
-    const login = { kind: 'failure', failure: 'auth', detail: 'Please run /login' } as const;
-    const dd = deputyDaemon([login, login]);
-    const { sd } = dd;
-    live.push(sd);
-    const t = fromA(72_002);
-    const other = buildTask({ id: uuidOf(72_003) });
-    sd.seed((d) => {
-      for (const x of [t, other]) {
-        createGrantStart(d, x, 'direct-pr', { limits: { max_wall_ms: 48 * 3_600_000 } });
-        const failed = { ...PREPARE_DATA, setup: { ran: true, passed: false } };
-        for (let i = 0; i < 12 && d.task(x.id).wait?.detail.code !== 'backoff_exhausted'; i++) {
-          d.complete(x.id, d.pendingOne(x.id, 'prepare').id, 'succeeded', failed);
-          d.now += 300_000;
-          d.fire();
+  it.each([null, 0])(
+    "tells the session that added a task its deputy's own harness failure, after a restart (infra_retries %s)",
+    async (retries) => {
+      vi.stubEnv('CUSR_ACTOR', 'assistant');
+      const login = { kind: 'failure', failure: 'auth', detail: 'Please run /login' } as const;
+      const dd = deputyDaemon([login, login], {
+        setting: { ...FAKE_DEPUTY, infra_retries: retries },
+      });
+      const { sd } = dd;
+      live.push(sd);
+      const t = fromA(72_002);
+      const other = buildTask({ id: uuidOf(72_003) });
+      sd.seed((d) => {
+        for (const x of [t, other]) {
+          createGrantStart(d, x, 'direct-pr', { limits: { max_wall_ms: 48 * 3_600_000 } });
+          const failed = { ...PREPARE_DATA, setup: { ran: true, passed: false } };
+          for (let i = 0; i < 12 && d.task(x.id).wait?.detail.code !== 'backoff_exhausted'; i++) {
+            d.complete(x.id, d.pendingOne(x.id, 'prepare').id, 'succeeded', failed);
+            d.now += 300_000;
+            d.fire();
+          }
         }
-      }
-    });
-    await sd.start();
-    await registerAThenB(sd);
-    // Before its turn the deputy holds the incident: nobody is told yet.
-    expect(await origin(sd, 's-A')).toEqual([]);
-    await dd.deputy().round();
-    await dd.deputy().idle();
-    await sd.stop();
-    await sd.start();
-    // Only A's task; the other one's handoff is the holder's news, not A's.
-    expect(await origin(sd, 's-A')).toMatchObject([
-      { task_id: t.id, code: 'backoff_exhausted', launch: 'harness_auth' },
-    ]);
-  });
+      });
+      await sd.start();
+      await registerAThenB(sd);
+      // Before its turn the deputy holds the incident: nobody is told yet.
+      expect(await origin(sd, 's-A')).toEqual([]);
+      await dd.deputy().round();
+      await dd.deputy().idle();
+      await sd.stop();
+      await sd.start();
+      // Only A's task; the other one's handoff is the holder's news, not A's.
+      expect(await origin(sd, 's-A')).toMatchObject([
+        { task_id: t.id, code: 'backoff_exhausted', launch: 'harness_auth' },
+      ]);
+    },
+  );
 });

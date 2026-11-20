@@ -186,25 +186,85 @@ export function loadHarnessRecord(dataDir: string, harness: string): Result<Harn
   return manifest.ok ? ok({ pin: pin.value, manifest: manifest.value }) : manifest;
 }
 
-/** Replaces the whole record by one rename. */
+const LOCK_FILE = 'record.lock';
+const LOCK_WAIT_MS = 10_000;
+const pause = (ms: number): void =>
+  void Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+/** A lock whose writer died (its pid is gone) is no one's; an empty one is a writer that died opening it. */
+function abandoned(lock: string): boolean {
+  try {
+    const pid = Number(readFileSync(lock, 'utf8'));
+    if (!Number.isInteger(pid) || pid <= 0)
+      return Date.now() - statSync(lock).mtimeMs > LOCK_WAIT_MS;
+    process.kill(pid, 0);
+    return false;
+  } catch (e) {
+    return (e as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
+
+/** Runs `f` as the only writer of this record: what it checks still holds when it publishes. */
+function withRecordLock<T>(dir: string, f: () => Result<T, string>): Result<T, string> {
+  const lock = join(dir, LOCK_FILE);
+  const until = Date.now() + LOCK_WAIT_MS;
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    for (;;) {
+      try {
+        writeFileSync(lock, String(process.pid), { flag: 'wx', mode: 0o600 });
+        break;
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+        if (abandoned(lock)) rmSync(lock, { force: true });
+        else if (Date.now() > until) return err(`${lock} is held by another writer; try again`);
+        else pause(50);
+      }
+    }
+  } catch (e) {
+    return err(`cannot lock ${lock}: ${String(e)}; the record on disk is unchanged`);
+  }
+  try {
+    return f();
+  } finally {
+    rmSync(lock, { force: true });
+  }
+}
+
+/**
+ * Replaces the whole record by one rename, under the record lock. `refuse` sees the record as it is then and
+ * says why this write must not happen, or null.
+ */
 function writeSnapshot(
   o: { readonly dataDir: string; readonly harness: string },
   snap: Snapshot,
+  refuse: (current: Result<VendorPin, string> | null) => string | null,
 ): Result<Snapshot, string> {
   const dir = recordDir(o.dataDir, o.harness);
-  const tmp = join(dir, `${RECORD_FILE}.${process.pid}.${randomUUID()}.tmp`);
-  try {
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writeFileSync(tmp, `${JSON.stringify(snap, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, join(dir, RECORD_FILE));
-    return ok(snap);
-  } catch (e) {
-    rmSync(tmp, { force: true });
-    return err(
-      `cannot write ${join(dir, RECORD_FILE)}: ${String(e)}; the record on disk is unchanged`,
-    );
-  }
+  return withRecordLock(dir, () => {
+    const why = refuse(hasRecord(o.dataDir, o.harness) ? readPin(o.dataDir, o.harness) : null);
+    if (why !== null) return err(why);
+    const tmp = join(dir, `${RECORD_FILE}.${process.pid}.${randomUUID()}.tmp`);
+    try {
+      writeFileSync(tmp, `${JSON.stringify(snap, null, 2)}\n`, { mode: 0o600 });
+      renameSync(tmp, join(dir, RECORD_FILE));
+      return ok(snap);
+    } catch (e) {
+      rmSync(tmp, { force: true });
+      return err(
+        `cannot write ${join(dir, RECORD_FILE)}: ${String(e)}; the record on disk is unchanged`,
+      );
+    }
+  });
 }
+
+/** Without --force, only a harness with no record yet may be written. */
+const absentUnlessForced =
+  (o: { readonly dataDir: string; readonly harness: string; readonly force: boolean }) =>
+  (current: Result<VendorPin, string> | null): string | null =>
+    !o.force && current !== null
+      ? `${recordDir(o.dataDir, o.harness)} has a record; pass --force to replace it`
+      : null;
 
 /** The settings this pin runs with; the same for every role, which only adds arguments. */
 function pinSettingsHash(pin: VendorPin): Result<Hash, string> {
@@ -541,7 +601,12 @@ export function commitManifest(
   pin: VendorPin,
   manifest: CapabilityManifest,
 ): Result<HarnessRecord, string> {
-  const r = writeSnapshot(o, { pin, manifest });
+  // Only for the pin it was made for: a pin replaced meanwhile (another setup) is never put back.
+  const r = writeSnapshot(o, { pin, manifest }, (current) =>
+    current?.ok === true && hashCanonical(current.value) === hashCanonical(pin)
+      ? null
+      : `the pin of ${o.harness} changed while its manifest was made; nothing was written, run record-manifest again`,
+  );
   return r.ok ? ok({ pin, manifest }) : r;
 }
 
@@ -550,9 +615,8 @@ export function commitRecord(
   o: { readonly dataDir: string; readonly harness: string; readonly force: boolean },
   record: HarnessRecord,
 ): Result<HarnessRecord, string> {
-  if (!o.force && hasRecord(o.dataDir, o.harness))
-    return err(`${recordDir(o.dataDir, o.harness)} has a record; pass --force to replace it`);
-  return commitManifest(o, record.pin, record.manifest);
+  const r = writeSnapshot(o, record, absentUnlessForced(o));
+  return r.ok ? ok(record) : r;
 }
 
 export type WritePinInput = {
@@ -691,9 +755,7 @@ export function commitPin(
   o: Pick<WritePinInput, 'dataDir' | 'harness' | 'force'>,
   pin: VendorPin,
 ): Result<VendorPin, string> {
-  if (!o.force && hasRecord(o.dataDir, o.harness))
-    return err(`${recordDir(o.dataDir, o.harness)} has a record; pass --force to replace it`);
   // Alone, a new pin has no manifest: the harness waits for `record-manifest`.
-  const r = writeSnapshot(o, { pin, manifest: null });
+  const r = writeSnapshot(o, { pin, manifest: null }, absentUnlessForced(o));
   return r.ok ? ok(pin) : r;
 }

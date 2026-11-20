@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -84,6 +84,25 @@ function setup(harnesses: readonly string[] = ['codex', 'claude']) {
     return { code: r.status, body: JSON.parse(r.stdout) as Envelope };
   };
   const run = (...args: string[]) => runner('setup-harness', '--harness', 'codex', ...args);
+  /** The same command in the background; it settles when the process exits. */
+  const started = (command: string, ...args: string[]) =>
+    new Promise<{ code: number | null; body: Envelope }>((done) => {
+      const child = spawn(
+        process.execPath,
+        [
+          fileURLToPath(new URL('../../../src/cli/cusr-runner.ts', import.meta.url)),
+          command,
+          '--json',
+          '--config',
+          config,
+          ...args,
+        ],
+        { stdio: ['ignore', 'pipe', 'ignore'] },
+      );
+      let out = '';
+      child.stdout.on('data', (b: Buffer) => (out += b.toString()));
+      child.on('close', (code) => done({ code, body: JSON.parse(out) as Envelope }));
+    });
   const check = () => runner('check-records');
   const read = (file = 'record.json') => readFileSync(join(records, file), 'utf8');
   /** The pin and manifest as recorded, together. */
@@ -92,6 +111,31 @@ function setup(harnesses: readonly string[] = ['codex', 'claude']) {
       pin: { binary: Record<string, unknown>; permission_mode: string };
       manifest: Record<string, unknown> & { capabilities: Record<string, string> };
     };
+  /**
+   * A CLI whose sandbox check stops at its first write until `release()`, once per `hold()`: another command
+   * can run in that window.
+   */
+  const gate = join(dir, 'gate');
+  const held = join(dir, 'held');
+  const go = join(dir, 'go');
+  const pausing = () =>
+    binary(
+      'codex',
+      'refuse',
+      'vendor-1',
+      `if mv '${gate}' '${gate}.taken' 2>/dev/null; then touch '${held}'; while [ ! -e '${go}' ]; do sleep 0.05; done; fi`,
+    );
+  const hold = () => {
+    rmSync(go, { force: true });
+    rmSync(held, { force: true });
+    writeFileSync(gate, '');
+    return {
+      reached: async () => {
+        while (!existsSync(held)) await new Promise((r) => setTimeout(r, 20));
+      },
+      release: () => writeFileSync(go, ''),
+    };
+  };
   /** A stable command path, as a package manager installs one, pointing at `target`. */
   const command = join(dir, 'bin', 'codex');
   const point = (target: string) => {
@@ -112,6 +156,9 @@ function setup(harnesses: readonly string[] = ['codex', 'claude']) {
     record,
     command,
     point,
+    started,
+    pausing,
+    hold,
   };
 }
 
@@ -347,6 +394,53 @@ describe('setup-harness CLI without model calls', () => {
     expect(h.read()).toBe(before);
     expect(readdirSync(h.records)).toEqual(['record.json']);
     expect(h.check()).toMatchObject({ code: 0 });
+  });
+
+  it.each([
+    ['record-manifest', ['--harness', 'codex']],
+    ['setup-harness', ['--harness', 'codex', '--from', 'record-manifest']],
+  ])(
+    'a %s refresh never puts back the pin another setup replaced meanwhile',
+    async (command, args) => {
+      const h = setup(['codex']);
+      const bin = h.pausing();
+      expect(
+        h.run('--vendor', 'codex', '--binary', bin, '--permission-mode', 'full-access'),
+      ).toMatchObject({ code: 0 });
+      const window = h.hold();
+      // The refresh read the full-access pin and is checking its sandbox.
+      const refresh = h.started(command, ...args);
+      await window.reached();
+      // Meanwhile the owner takes full access away.
+      expect(h.run('--vendor', 'codex', '--binary', bin, '--force')).toMatchObject({ code: 0 });
+      window.release();
+      expect(await refresh).toMatchObject(refusal('changed while its manifest was made'));
+      expect(h.record().pin.permission_mode).toBe('auto');
+      expect(h.record().manifest).toMatchObject({ selected_inner_mode: 'native' });
+      expect(h.check()).toMatchObject({ code: 0 });
+    },
+  );
+
+  it('lets only one of two setups without --force create the record', async () => {
+    const h = setup(['codex']);
+    const bin = h.pausing();
+    const window = h.hold();
+    const first = h.started(
+      'setup-harness',
+      '--harness',
+      'codex',
+      '--vendor',
+      'codex',
+      '--binary',
+      bin,
+    );
+    await window.reached();
+    expect(
+      h.run('--vendor', 'codex', '--binary', bin, '--permission-mode', 'full-access'),
+    ).toMatchObject({ code: 0 });
+    window.release();
+    expect(await first).toMatchObject(refusal('has a record'));
+    expect(h.record().pin.permission_mode).toBe('full-access');
   });
 
   it('asks a pin from before command paths to be set up once, and runs nothing in its place', () => {

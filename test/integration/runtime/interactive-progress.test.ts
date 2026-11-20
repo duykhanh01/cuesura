@@ -66,11 +66,12 @@ it('keeps a tool forked with the harness arguments that then execs the same prog
   expect(exit).toMatchObject({ outcome: 'exited', exit_code: 0 });
 });
 
-it('leaves a native session the runner terminal for stderr too, so a TTY stays a TTY', async () => {
-  const out = join(mkdtempSync(join(tmpdir(), 'cusr-native-fd-')), 'fd2');
+it('leaves a native session the runner terminal on every standard descriptor, so a TTY stays a TTY', async () => {
+  const out = join(mkdtempSync(join(tmpdir(), 'cusr-native-fd-')), 'fds');
   dirs.push(dirname(out));
-  const probe = `require('fs').writeFileSync(${JSON.stringify(out)}, require('fs').readlinkSync('/proc/self/fd/2'))`;
+  const fds = (n: number) => readlinkSync(`/proc/self/fd/${n}`);
+  const probe = `const fs = require('fs'); fs.writeFileSync(${JSON.stringify(out)}, JSON.stringify([0, 1, 2].map((n) => fs.readlinkSync('/proc/self/fd/' + n))))`;
   const exit = await run([process.execPath, '-e', probe, '--', '# first message'], 4_000);
   expect(exit).toMatchObject({ outcome: 'exited', exit_code: 0 });
-  expect(readFileSync(out, 'utf8')).toBe(readlinkSync('/proc/self/fd/2'));
+  expect(JSON.parse(readFileSync(out, 'utf8'))).toEqual([fds(0), fds(1), fds(2)]);
 });

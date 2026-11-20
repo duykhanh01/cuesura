@@ -1,7 +1,7 @@
 /**
- * T1-R06: pin and manifest are one record a reader sees whole, whatever a writer does meanwhile, and two
- * writers leave one of their records, never a mix. The interleavings are forced with a hook on the file
- * calls the real record functions make.
+ * T1-R06: pin and manifest are one record a reader sees whole, whatever a writer does meanwhile; writers
+ * publish one at a time. Interleavings are forced with a hook on the file calls the real record functions make;
+ * concurrent CLI commands are in setup-harness.test.ts.
  */
 import { spawnSync } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -135,18 +135,25 @@ describe('one generation for readers and writers', () => {
     expect(modes(load())).toEqual(['full-access', 'full_access']);
   });
 
-  it('a writer that finishes after another leaves its own record whole, and the next start accepts it', async () => {
+  it('publishes under the record lock, and the next start accepts what it wrote', async () => {
     write('record.json', A);
-    // Writer A has its record ready to rename when writer B writes and returns.
-    hook.beforeRename = () => expect(commitRecord(target, B).ok).toBe(true);
-    expect(commitRecord(target, A).ok).toBe(true);
-    expect(modes(load())).toEqual(['auto', 'native']);
+    // Another writer would wait here: the check and the rename are one critical section.
+    hook.beforeRename = () => expect(fs.existsSync(join(records, 'record.lock'))).toBe(true);
+    expect(commitRecord(target, B).ok).toBe(true);
+    expect(modes(load())).toEqual(['full-access', 'full_access']);
     expect(fs.readdirSync(records)).toEqual(['record.json']);
     const cfg = await loadDaemonConfig({ config, dataDir: undefined });
     if (!cfg.ok) throw new Error(cfg.error);
     expect(
       harnessRecordProblems({ dataDir: data, harnesses: ['codex'], runtime: cfg.value.runtime }),
     ).toEqual([]);
+  });
+
+  it('takes over the lock of a writer that died holding it', () => {
+    write('record.json', A);
+    write('record.lock', 2 ** 22 + 12_345);
+    expect(commitRecord(target, B).ok).toBe(true);
+    expect(modes(load())).toEqual(['full-access', 'full_access']);
   });
 
   it('a writer that crashed before its rename leaves the old record in force', () => {

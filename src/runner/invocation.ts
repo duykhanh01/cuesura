@@ -49,6 +49,7 @@ import {
 import { HashSchema } from '../shared/brand.ts';
 import { readLaunchMarker } from './operation-lock.ts';
 import { checkedProfile, nativeCheck, sandboxProblem } from './native-check.ts';
+import { startupDiagnosis } from './startup-diagnosis.ts';
 import {
   observeHarness,
   verifyManifest,
@@ -953,6 +954,22 @@ export class RunnerHarness implements HarnessPort {
       invoked,
     });
     const notRun = notStarted(exit);
+    // A login or sandbox that stopped the CLI is the owner's, with or without retries left (T1-R05).
+    const exited = (): HarnessOutcome => {
+      const cause = startupDiagnosis({
+        vendor: o.pin.vendor,
+        home: st.auth.home,
+        sandboxed:
+          st.inner_mode === 'native' && nativeSandboxEnabled(o.pin, boundaryRole(input.role)),
+        toolchain: o.pin.toolchain,
+      });
+      return cause !== null
+        ? failure(cause.kind, cause.detail)
+        : failure(
+            'process_failed',
+            `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})`,
+          );
+    };
     const outcome: HarnessOutcome =
       violations.length > 0
         ? failure('boundary_violation', violations.join('; '))
@@ -964,10 +981,7 @@ export class RunnerHarness implements HarnessPort {
               ? failure('timeout', INTERACTIVE_STALLED)
               : exit.outcome === 'timeout' || exit.outcome === 'cancelled'
                 ? failure(exit.outcome, `runner outcome ${exit.outcome}`)
-                : failure(
-                    'process_failed',
-                    `session ended without a turn end (${exit.outcome} ${String(exit.exit_code ?? exit.signal)})`,
-                  );
+                : exited();
     return this.#store(run, st, outcome, redactAuth);
   }
 

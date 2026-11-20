@@ -418,10 +418,13 @@ const setupHarness: CliCommand = {
       if (!manifest.ok) return reject('manifest_refused', manifest.error, ExitCode.failure);
       if (!dryRun) {
         step = 'commit';
-        const committed = records.commitRecord(
-          { ...target, force: candidate === undefined || values['force'] !== undefined },
-          { pin: pin.value, manifest: manifest.value },
-        );
+        const committed =
+          candidate === undefined
+            ? records.commitManifest(target, pin.value, manifest.value)
+            : records.commitRecord(
+                { ...target, force: values['force'] !== undefined },
+                { pin: pin.value, manifest: manifest.value },
+              );
         if (!committed.ok) return reject('commit_failed', committed.error, ExitCode.failure);
       }
       const data = {

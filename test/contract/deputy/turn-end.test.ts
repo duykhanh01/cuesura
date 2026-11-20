@@ -337,7 +337,7 @@ describe('a stalled interactive run goes on headless in the same session and tur
   const tmp = useTempDir('cusr-turn-end-daemon-');
   let ids = 97_000;
 
-  const begin = (steps: readonly FakeStep[]) => {
+  const begin = (steps: readonly FakeStep[], setting = FAKE_DEPUTY) => {
     const dir = tmp();
     const d = new StoreDriver(openFileStoreForTest(dbPath(dir)));
     const t = buildTask({ id: uuidOf(ids++) });
@@ -354,7 +354,7 @@ describe('a stalled interactive run goes on headless in the same session and tur
       clock: { now: () => d.now as EpochMs, monotonic: () => d.now },
       newId: () => uuidOf(ids++),
       harnesses: { fake: harness },
-      setting: () => Promise.resolve(FAKE_DEPUTY),
+      setting: () => Promise.resolve(setting),
       autonomous: () => Promise.resolve(false),
       cwd: '/cusr-data',
       worktreePath: (id) => `/cusr-data/worktrees/${id}`,
@@ -395,6 +395,51 @@ describe('a stalled interactive run goes on headless in the same session and tur
       handoff_reason: 'capability',
     });
     expect(harness.calls).toHaveLength(2);
+  });
+
+  it.each([
+    ['auth', 'Invalid API key · Please run /login', 'auth'],
+    [
+      'capability_missing',
+      'the Claude sandbox cannot start here: bwrap: Permission denied',
+      'capability',
+    ],
+  ] as const)(
+    'with no infra retry left, a native session the runner found stopped by %s goes to the owner with its cause',
+    async (failure, detail, reason) => {
+      // What the runner reports once it read the CLI's own session or probed bubblewrap (T1-R05).
+      const { d, t, harness, deputy } = begin([{ kind: 'failure', failure, detail }], {
+        ...FAKE_DEPUTY,
+        infra_retries: 0,
+      });
+      await deputy.round();
+      await deputy.idle();
+      expect(harness.calls).toHaveLength(1);
+      const turn = d.store.deputy.turnsOf({ task_id: t.id })[0];
+      expect(turn).toMatchObject({ state: 'handed_off', handoff_reason: reason });
+      expect(turn?.final_message).toContain(detail);
+    },
+  );
+
+  it('with no infra retry left, an unexplained native exit stops at the limit without another run', async () => {
+    const { d, t, harness, deputy } = begin(
+      [
+        {
+          kind: 'failure',
+          failure: 'process_failed',
+          session_ref: null,
+          detail: 'session ended without a turn end (exited 1)',
+        },
+      ],
+      { ...FAKE_DEPUTY, infra_retries: 0 },
+    );
+    await deputy.round();
+    await deputy.idle();
+    expect(harness.calls).toHaveLength(1);
+    expect(d.store.deputy.turnsOf({ task_id: t.id })[0]).toMatchObject({
+      state: 'handed_off',
+      handoff_reason: 'infra_cap',
+    });
   });
 
   it('resumes at once, headless, without counting an infra failure', async () => {

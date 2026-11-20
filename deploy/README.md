@@ -749,7 +749,10 @@ quyền thật ([người gọi và quyền](#người-gọi-và-quyền)).
 
 `cusrd` chỉ gọi một harness khi có đủ pin và manifest của owner trong `<DATA_DIR>/harnesses/<tên harness>/record.json`.
 Hai phần nằm chung một file, thay bằng một lần rename, nên người đọc (daemon, `doctor`, `check-records`) luôn thấy
-trọn một thế hệ và hai lần ghi cùng lúc để lại trọn bản ghi của lần ghi sau, không bao giờ trộn. Bản cài từ release
+trọn một thế hệ, không bao giờ trộn. Người ghi lần lượt từng người qua khóa `record.lock` (khóa của tiến trình đã
+chết được lấy lại); điều kiện ghi được xét lại ngay trong khóa. Không có `--force` thì chỉ ghi được khi chưa có bản ghi.
+`record-manifest` và `setup-harness --from record-manifest` chỉ ghi manifest cho đúng pin chúng đã đọc: pin bị một
+setup khác thay trong lúc kiểm thì lệnh từ chối (`changed while its manifest was made`), không đặt lại pin cũ. Bản cài từ release
 trước còn `pin.json` và `manifest.json`: vẫn đọc được cho tới lần ghi đầu tiên, sau đó bị bỏ qua (không sửa tay).
 
 - Pin theo `VendorPinSchema`: đường dẫn lệnh (`binary.path`, đúng như `--binary`), toolchain, env không
@@ -800,10 +803,12 @@ Lỗi không gọi được harness lộ ra ở lượt agent, không ở bướ
 - CLI thoát và stderr nói nó không khởi động được (sandbox không khởi tạo được, `bwrap` bị từ chối, binary sai
   định dạng): `capability_missing`, giao owner, không thử lại như lỗi hạ tầng. Lỗi thoát khác vẫn là
   `process_failed`, theo đường lỗi hạ tầng có đếm (`infra_retries`).
-- Phiên trong terminal (deputy interactive) giữ nguyên terminal cho cả stdout và stderr, nên CLI vẫn thấy TTY và
-  runner không đọc được lý do. Thoát trước Stop hook mà không bị treo là một lỗi hạ tầng có đếm; lượt thử lại chạy
-  headless nên đọc được stderr và phân loại như trên. Chỉ phiên bị treo (`timeout`) mới chạy tiếp headless ngay,
-  không đếm.
+- Phiên trong terminal (deputy interactive) giữ nguyên terminal cho stdin, stdout và stderr, nên CLI vẫn thấy TTY.
+  Thoát trước Stop hook thì runner tự tìm lý do mà không gọi model: bản ghi lỗi CLI tự ghi vào session của nó trong
+  home riêng (Claude: message lỗi API; Codex: sự kiện `error`), và với sandbox Claude, `bwrap` có tạo được namespace ở
+  host này không. Đăng nhập bị từ chối thành `auth`, sandbox không khởi động được thành `capability_missing`, kèm lý
+  do đã che bí mật, và giao owner ngay, kể cả khi `infra_retries: 0`. Không tìm ra lý do thì là lỗi hạ tầng có đếm.
+  Chỉ phiên bị treo (`timeout`) mới chạy tiếp headless ngay, không đếm.
 
 Các wait này thuộc owner, nên assistant đang giữ lease được đánh thức qua Stop hook hoặc `cusr assistant wait`.
 Session assistant đã thêm task (`cusr task add` gửi kèm session của nó) cũng được báo lỗi khởi chạy của chính
