@@ -14,7 +14,7 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
 
 - **Không có Primary AI chạy liên tục.** Một state machine thuần quyết định mọi bước, nên việc điều phối tốn 0 token.
 - **Agent là các lần gọi headless một lần cho mỗi bước:** Claude Code, Codex CLI, sau này có Pi.
-- **Trạng thái bền vững trong SQLite:** event log, outbox có idempotency key, và khôi phục sau crash mà không lặp lại side effect.
+- **Trạng thái bền vững trong SQLite:** event log, outbox có idempotency key, và khi khôi phục sau crash, daemon kiểm trạng thái thật của các thao tác Git/GitHub chưa chắc chắn trước khi thử lại, nên restart không mở PR thứ hai hay push hai lần.
 - **Dùng cho mọi project, không gắn ngôn ngữ:** gate, lệnh setup, bộ lọc log và tài nguyên riêng đều do từng repo khai báo trong `cusr.yaml`.
 
 ## Công cụ làm gì

@@ -28,14 +28,14 @@ and a fixer. Cuesura moves those concerns into code:
 - **Durable state in SQLite.** An append-only event log and an outbox with durable idempotency keys. After a
   crash, the daemon checks the real state of uncertain Git and GitHub writes before it retries them, so a
   restart does not open a second PR or push twice.
-- **Guarantees owned by code, not by the model.** Work goes to review and CI only after the gates pass, review
+- **Guarantees owned by code, not by the model.** Work goes to review and CI only after the required gates pass (or a person waives them), review
   loops have caps, every decision is recorded with its reason, and agents never merge.
 
 ## How a task flows
 
 ```mermaid
 flowchart LR
-  A[Task or goal] --> B[Confirm harness,<br/>model, effort, mode]
+  A[Task] --> B[Confirm harness,<br/>model, effort, mode]
   B --> C[Coder in<br/>own worktree]
   C --> D{Gates<br/>build/test}
   D -- red --> C
@@ -51,8 +51,9 @@ flowchart LR
 ```
 
 In `full-review` mode each review is posted on the draft PR, and the PR turns ready only after an approval.
-`direct-pr` skips the reviewer. When a task runs out of ways forward, it fails with its reason and leaves its
-work as a draft PR for a person to look at.
+`direct-pr` skips the reviewer. When a task runs out of ways forward, it fails with its reason; if its work
+is not published yet, Cuesura can open it as a draft PR for a person to look at. A goal (a feature split into
+several tasks) has its own plan confirmation, and its task PRs merge into a goal branch.
 
 When a task gets stuck (every retry used, a reviewer and a fixer pushing the same finding back and forth, a
 budget or deadline reached, a question about the spec), it goes to a wait. A **deputy** agent can then act for
@@ -140,8 +141,9 @@ pnpm test
 Longer suites run separately: `pnpm test:performance`, `pnpm test:reliability` (prints a seed on failure; pass it
 back with `--seed <seed>`), and `pnpm report:invariants` for the invariant report built from the latest runs.
 
-`pnpm build` writes the `cusr`, `cusrd` and `cusr-runner` entry points to `dist/cli/`; `pnpm link --global` puts
-them on your `PATH`. To install the daemon, set up projects and connect an assistant, follow
+`pnpm build` writes the `cusr`, `cusrd` and `cusr-runner` entry points to `dist/cli/`. Run them with
+`node dist/cli/cusr.js` and so on, or put small wrapper scripts named `cusr`, `cusrd` and `cusr-runner` on your
+`PATH`. To install the daemon, set up projects and connect an assistant, follow
 [deploy/README.md](deploy/README.md) and start from [deploy/config.example.yaml](deploy/config.example.yaml).
 A typical session:
 
@@ -151,7 +153,7 @@ cusr init                       # install cusr.yaml, PR template and assistant s
 cusr doctor --project my-app    # check the host, harnesses and project config
 cusr task add ...               # submit a task
 cusr inbox                      # see what is waiting for you
-cusr answer ...                 # reply to a question or approval
+cusr answer ...                 # reply to a question
 cusr                            # open the terminal UI
 ```
 
