@@ -22,35 +22,43 @@ and a fixer. Cuesura moves those concerns into code:
 
 - **No primary AI running all the time.** Orchestration is a pure state machine, so routine transitions cost
   zero tokens.
-- **One-shot agent calls per step.** Each step runs a headless Claude Code or Codex session in the task's own
-  git worktree. Fixes for gates, review and CI resume the coder's session instead of starting over.
-- **Durable state in SQLite.** An append-only event log, an outbox with idempotency keys, and crash recovery
-  that never repeats a side effect: no duplicate PR, push or comment after a restart.
-- **Guarantees owned by code, not by the model.** A PR is never opened before the gates pass, review loops have
-  caps, every decision is recorded with its reason, and agents never merge.
+- **Short agent runs per step.** Each step runs a headless Claude Code or Codex session in the task's own
+  git worktree. A fix for gates, review or CI resumes the earlier session when a compatible one exists, so it
+  does not start over.
+- **Durable state in SQLite.** An append-only event log and an outbox with durable idempotency keys. After a
+  crash, the daemon checks the real state of uncertain Git and GitHub writes before it retries them, so a
+  restart does not open a second PR or push twice.
+- **Guarantees owned by code, not by the model.** Work goes to review and CI only after the gates pass, review
+  loops have caps, every decision is recorded with its reason, and agents never merge.
 
 ## How a task flows
 
 ```mermaid
 flowchart LR
-  A[Task or goal] --> B[Confirm harness,<br/>model, effort]
+  A[Task or goal] --> B[Confirm harness,<br/>model, effort, mode]
   B --> C[Coder in<br/>own worktree]
   C --> D{Gates<br/>build/test}
   D -- red --> C
   D -- green --> E{Mode}
-  E -- full-review --> F[Reviewer]
-  F -- findings --> C
-  F -- approve --> G[Open PR]
-  E -- direct-pr --> G
-  G --> H{CI}
-  H -- red --> C
-  H -- green --> I[Wait for merge]
+  E -- full-review --> F[Draft PR]
+  F --> G[Reviewer]
+  G -- changes --> C
+  G -- approve --> H[PR ready]
+  E -- direct-pr --> H
+  H --> I{CI}
+  I -- red --> C
+  I -- green --> J[Merge: by a person,<br/>or by rules in yolo mode]
 ```
+
+In `full-review` mode each review is posted on the draft PR, and the PR turns ready only after an approval.
+`direct-pr` skips the reviewer. When a task runs out of ways forward, it fails with its reason and leaves its
+work as a draft PR for a person to look at.
 
 When a task gets stuck (every retry used, a reviewer and a fixer pushing the same finding back and forth, a
 budget or deadline reached, a question about the spec), it goes to a wait. A **deputy** agent can then act for
-the owner in a short, bounded turn, and code stops it from repeating an action without new evidence. Otherwise
-the owner answers through `cusr inbox`, a Telegram bot or the terminal UI.
+the owner in a bounded turn (headless, or interactive in an assistant session), and code stops it from repeating
+an action without new evidence. Otherwise the owner sees what waits with `cusr inbox` and replies with
+`cusr answer`, through a Telegram bot, or in the terminal UI.
 
 ## Features
 
@@ -66,7 +74,7 @@ the owner answers through `cusr inbox`, a Telegram bot or the terminal UI.
 Other parts worth a look:
 
 - **Projects in any language.** Gates, setup commands, log filters and resources are declared per repository in
-  `cusr.yaml`, with toolchain presets for Node, Python, Go, Rust and the JVM.
+  `cusr.yaml`; nothing in the engine is tied to one toolchain.
 - **Assistant integration.** `cusr --json` lets an external assistant (Claude Code, Codex) submit and drive
   tasks. A [skill](skills/cusr/SKILL.md) teaches it the commands, and a Claude Code hook wakes it when a task
   needs an answer.
@@ -76,11 +84,13 @@ Other parts worth a look:
 ## Status
 
 Built in about a month (from late October to late November 2026) through about 260 merged pull requests, most of
-them written by coding agents under the rules in [AGENTS.md](AGENTS.md). The code base has about 84k lines of
-TypeScript and 98k lines of tests (unit, contract, property-based, integration, reliability and smoke).
+them written by coding agents under the rules in [AGENTS.md](AGENTS.md). The code base has about 90k lines of
+TypeScript in `src/` and over 100k lines of tests in `test/` (unit, contract, property-based, integration,
+reliability and smoke), counting blank lines and comments.
 
-Feature 002 has run end to end on a sandbox repository with both Claude and Codex, including a daemon restart, red
-gates and a manual merge ([acceptance report](specs/002-task-to-green-pr/acceptance-report.md)). The repository
+Feature 002 has run end to end on two sandbox repositories, one Node and one Python, with Claude and Codex
+taking turns as coder and reviewer, including daemon kills, red gates and manual merges
+([final acceptance](specs/002-task-to-green-pr/acceptance-report.md#nghiệm-thu-cuối-feature-002-t131t134)). The repository
 is also developed with Cuesura itself ([dogfooding](docs/dogfooding.md)). Known limits: it runs on Linux only,
 it has not had a long soak test, and backup/restore has not been accepted yet.
 
@@ -110,6 +120,7 @@ Requirements:
   `systemd`; macOS is not supported.
 - Node at the version pinned in `.nvmrc` (24.22.1) and pnpm through Corepack.
 - `build-essential` and `python3` to build `better-sqlite3` when no prebuilt binary is available.
+- To run real tasks: Git, an authenticated `gh`, a systemd user manager, and Claude Code or Codex CLI logged in.
 
 ```bash
 corepack enable
@@ -129,14 +140,18 @@ pnpm test
 Longer suites run separately: `pnpm test:performance`, `pnpm test:reliability` (prints a seed on failure; pass it
 back with `--seed <seed>`), and `pnpm report:invariants` for the invariant report built from the latest runs.
 
-To install the daemon, set up projects and connect an assistant, follow [deploy/README.md](deploy/README.md) and
-start from [deploy/config.example.yaml](deploy/config.example.yaml). A typical session:
+`pnpm build` writes the `cusr`, `cusrd` and `cusr-runner` entry points to `dist/cli/`; `pnpm link --global` puts
+them on your `PATH`. To install the daemon, set up projects and connect an assistant, follow
+[deploy/README.md](deploy/README.md) and start from [deploy/config.example.yaml](deploy/config.example.yaml).
+A typical session:
 
 ```bash
+cusrd --config ~/.cusr/config.yaml --data-dir ~/.cusr   # start the daemon (or run it as a systemd service)
 cusr init                       # install cusr.yaml, PR template and assistant skill into a repository
 cusr doctor --project my-app    # check the host, harnesses and project config
 cusr task add ...               # submit a task
-cusr inbox                      # answer what is waiting for you
+cusr inbox                      # see what is waiting for you
+cusr answer ...                 # reply to a question or approval
 cusr                            # open the terminal UI
 ```
 
@@ -144,4 +159,4 @@ Stack: Node 24, TypeScript (strict), SQLite (`better-sqlite3`), Zod, Commander, 
 
 ## License
 
-[Apache License 2.0](LICENSE).
+[Apache License 2.0](LICENSE). Vendored third-party files keep their own licenses; see [NOTICE](NOTICE).
