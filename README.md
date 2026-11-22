@@ -1,112 +1,147 @@
 # Cuesura
 
+**English** · [Tiếng Việt](README.vi.md)
+
 > Every call has a cue. Every pause has a purpose.
->
-> Mỗi lần gọi đều có tín hiệu. Mỗi khoảng lặng đều có lý do.
 
-Cuesura là một **workflow engine tất định, hướng sự kiện, dành cho AI agent**. Tên ghép từ **Cue** (tín hiệu bắt đầu) và **Caesura** (khoảng ngắt có chủ đích trong âm nhạc hoặc thơ). Agent không hoạt động không có nghĩa hệ thống ngừng vận hành: mỗi lần chờ CI, người duyệt hoặc hạn mức đều có trạng thái, lý do và điều kiện tiếp tục. Biết khi nào không cần dùng AI cũng quan trọng như biết khi nào cần.
+Cuesura is a **deterministic, event-driven workflow engine for AI coding agents**. You give it a task or a
+whole feature, and it drives Claude Code and Codex CLI from the request to a green pull request: code, gates,
+review, fixes, PR, CI. A plain state machine decides every step. Models are called only for the work itself, or
+when a decision needs judgment.
 
-**Tên CLI: `cusr`** — rút gọn từ **CUeSuRa**. Ví dụ lệnh dự kiến: `cusr task add`, `cusr status`, `cusr inbox`.
+The name joins **Cue** (the signal to start) and **Caesura** (a deliberate pause in music or verse). When no
+agent is running, the system still knows why it is waiting (CI, a person, a quota) and what lets it continue.
 
-Use case đầu tiên là quy trình phát triển phần mềm: code → review → PR → CI → merge. Mục tiêu dài hạn là một nền tảng workflow tổng quát. Graph workflow là preset trong code (v1 có `software_dev@1`), người dùng chỉ chỉnh tham số như số lượt tối đa của từng bước; role, nguồn task và kênh liên lạc là dữ liệu và adapter, không gắn cứng vào việc viết code. Nâng cấp config cũ: [docs/config-upgrade.md](docs/config-upgrade.md).
+The CLI is `cusr` and the daemon is `cusrd`.
 
-- **Không có Primary AI chạy liên tục.** Một state machine thuần quyết định mọi bước, nên việc điều phối tốn 0 token.
-- **Agent là các lần gọi headless một lần cho mỗi bước:** Claude Code, Codex CLI, sau này có Pi.
-- **Trạng thái bền vững trong SQLite:** event log, outbox có idempotency key, và khôi phục sau crash mà không lặp lại side effect.
-- **Dùng cho mọi project, không gắn ngôn ngữ:** gate, lệnh setup, bộ lọc log và tài nguyên riêng đều do từng repo khai báo trong `cusr.yaml`. Có toolchain pack làm preset cho Node, Python, Go, Rust, JVM.
+## Why
 
-## Công cụ làm gì
+Coding agents are good at writing code and bad at being an orchestrator that runs overnight: a long session
+grows its context, forgets earlier decisions, repeats side effects after a crash, and loops between a reviewer
+and a fixer. Cuesura moves those concerns into code:
 
-1. **Nhận task từ nhiều kênh:** GitHub issue, CLI, AI assistant, sau này có form. Mọi task được chuẩn hoá về một format trong DB.
-2. **Triage và lập lịch:** xử lý dependency, chạy song song các task độc lập, tự dừng khi chạm hạn mức subscription.
-3. **Workflow cho mỗi task trong worktree riêng:**
-   - Code, rồi chạy gate (build/test).
-   - Trước khi chạy, bạn xác nhận harness, model, effort và chế độ: `direct-pr` hoặc `full-review`.
-   - Worker chuẩn bị commit message và nội dung PR theo PR template của repo (`pr_template` trong `cusr.yaml`, hoặc `pull_request_template.md` duy nhất ở gốc, `.github/` hay `docs/`), không có thì theo template mặc định của cusr; daemon tạo branch, commit và publish. `cusr init` hiện danh sách để chọn những gì cài vào repo, mặc định chọn hết, mỗi mục có mô tả. Mục `write-pr` gồm PR template của cusr và skill [`write-pr`](src/assets/write-pr/SKILL.md) mà template trỏ tới; repo đã có template riêng thì giữ nguyên template đó và chỉ cài skill. Mục `assistant` gồm skill `cusr` và hook Claude Code cho khóa assistant.
-   - `full-review` có reviewer riêng session, được chạy kiểm tra nhưng thay đổi không vào task, có thể cùng
-     vendor; `direct-pr` bỏ bước reviewer.
-   - `full-review` mở PR dạng draft, daemon đăng từng lượt review lên PR (format đổi được bằng `review_template` trong `cusr.yaml`), approve thì chuyển PR ready rồi mới chờ CI. `direct-pr` mở PR ready và chờ CI ngay.
-   - Sửa gate/review/CI ưu tiên resume worker đã code, trong giới hạn đã duyệt.
-   - Method mặc định là squash merge, đổi được bằng `merge.method` trong `cusr.yaml`; không bật yolo thì method chỉ là đề xuất cho người merge thủ công (`cusr show`).
-   - Merge an toàn. Mặc định bạn duyệt từng lần merge vào `main`. Chế độ yolo (chỉ bạn bật được, theo từng repo) cho phép code tự merge khi đủ điều kiện cứng. Agent không bao giờ quyết định merge.
-4. **Role và model cấu hình được,** đóng băng theo từng task, kèm thang nâng effort/model theo chữ ký lỗi.
-5. **Người quyết định:** task chờ khi cần bạn trả lời, và mọi câu trả lời đều được ghi lại.
-6. **Hỏi đáp bất đồng bộ** qua `cusr inbox`, Telegram bot, hoặc comment GitHub.
-7. **CLI `--json`** cho AI assistant bên ngoài truy vấn và điều khiển.
-8. **Đo lường:** token / task được chấp nhận, số lần chạy lãng phí, time to green, số lần bạn phải can thiệp, tỉ lệ khôi phục thành công.
+- **No primary AI running all the time.** Orchestration is a pure state machine, so routine transitions cost
+  zero tokens.
+- **One-shot agent calls per step.** Each step runs a headless Claude Code or Codex session in the task's own
+  git worktree. Fixes for gates, review and CI resume the coder's session instead of starting over.
+- **Durable state in SQLite.** An append-only event log, an outbox with idempotency keys, and crash recovery
+  that never repeats a side effect: no duplicate PR, push or comment after a restart.
+- **Guarantees owned by code, not by the model.** A PR is never opened before the gates pass, review loops have
+  caps, every decision is recorded with its reason, and agents never merge.
 
-## Trạng thái
+## How a task flows
 
-Feature 002 (task tới PR xanh, người dùng tự merge) đã chạy thật trên repo sandbox với Claude và Codex, gồm restart daemon, gate đỏ và merge thủ công; xem [nghiệm thu cuối](specs/002-task-to-green-pr/acceptance-report.md#nghiệm-thu-cuối-feature-002-t131t134). Giới hạn: một task chạy tại một thời điểm, giao task qua CLI, chưa soak test, chưa nghiệm thu backup/restore, và mới kiểm trên repo sandbox nhỏ với model nhẹ.
+```mermaid
+flowchart LR
+  A[Task or goal] --> B[Confirm harness,<br/>model, effort]
+  B --> C[Coder in<br/>own worktree]
+  C --> D{Gates<br/>build/test}
+  D -- red --> C
+  D -- green --> E{Mode}
+  E -- full-review --> F[Reviewer]
+  F -- findings --> C
+  F -- approve --> G[Open PR]
+  E -- direct-pr --> G
+  G --> H{CI}
+  H -- red --> C
+  H -- green --> I[Wait for merge]
+```
 
-[SPEC.md](SPEC.md) là đặc tả tổng quan của dự án: phạm vi v1, mô hình miền, workflow, hợp đồng vận hành và tiêu chí nghiệm thu. [docs/architecture.md](docs/architecture.md) lưu đánh giá Build vs Buy, lập luận kiến trúc và kế hoạch ban đầu.
+When a task gets stuck (every retry used, a reviewer and a fixer pushing the same finding back and forth, a
+budget or deadline reached, a question about the spec), it goes to a wait. A **deputy** agent can then act for
+the owner in a short, bounded turn, and code stops it from repeating an action without new evidence. Otherwise
+the owner answers through `cusr inbox`, a Telegram bot or the terminal UI.
 
-Baseline: Node 24 LTS, TypeScript strict, SQLite (`better-sqlite3`), Zod 4, Commander, `yaml`, Vitest và fast-check. Build bằng `tsc`, quản lý package bằng pnpm, lint bằng ESLint + typescript-eslint, format bằng Oxfmt. Chạy trên Ubuntu/WSL2; xem [quyết định kỹ thuật](SPEC.md#17-baseline-kỹ-thuật).
+## Features
 
-## Agent sử dụng Cuesura
+| Feature | Spec |
+| --- | --- |
+| 001 Deterministic core: engine, event log, outbox, crash recovery | [spec](specs/001-deterministic-core/spec.md) |
+| 002 Task to green PR: worktrees, gates, review, PR, CI, manual or rule-based merge | [spec](specs/002-task-to-green-pr/spec.md) |
+| 003 Telegram channel for questions and approvals | [spec](specs/003-telegram-channel/spec.md) |
+| 004 Terminal UI: task board, details, logs, questions, task form | [spec](specs/004-terminal-tui/spec.md) |
+| 006 Account pool: several subscriptions per harness, cooldown when a quota runs out | [spec](specs/006-account-pool/spec.md) |
+| 007 Deputy and goals: an agent that decides for the owner at waits, multi-task goals on a goal branch | [spec](specs/007-deputy/spec.md) |
 
-[Gói skill `cusr`](skills/cusr/SKILL.md) hướng dẫn lệnh và điều kiện sử dụng CLI `cusr`.
-Mục `assistant` của `cusr init` cài toàn bộ `skills/cusr` vào `.claude/skills/cusr` và `.agents/skills/cusr`
-của repo, rồi thêm hook đánh thức của Claude Code vào `.claude/settings.local.json`
-([chi tiết](deploy/README.md#đánh-thức-assistant-bằng-stop-hook)). Commit file skill, không commit file settings.
-Skill dành cho **assistant caller** (Codex hoặc Claude Code). Worker đọc được skill đã commit trong repo đích,
-nhưng không được dùng nó.
-Gói chỉ gồm file thường, không cần symlink hay source/spec của Cuesura. CLI đã cài và thông tin kết nối
-được người vận hành cung cấp riêng; agent tự khai `CUSR_ACTOR=assistant` nên chỉ có quyền `read/operate`,
-tự duyệt escalation; duyệt nhận PR có sẵn thì người dùng tự làm. Không cần tạo token nào ([người gọi và quyền](deploy/README.md#người-gọi-và-quyền)).
+Other parts worth a look:
 
-Repo này cũng tự phát triển bằng Cuesura: xem [quy trình dogfood](docs/dogfooding.md).
+- **Projects in any language.** Gates, setup commands, log filters and resources are declared per repository in
+  `cusr.yaml`, with toolchain presets for Node, Python, Go, Rust and the JVM.
+- **Assistant integration.** `cusr --json` lets an external assistant (Claude Code, Codex) submit and drive
+  tasks. A [skill](skills/cusr/SKILL.md) teaches it the commands, and a Claude Code hook wakes it when a task
+  needs an answer.
+- **Morning report.** `cusr report` summarizes, per project, what finished, what waits for you and what the
+  deputy decided since a given time.
 
-## Giao diện terminal
+## Status
 
-Chạy `cusr` không kèm lệnh trong terminal tương tác để mở giao diện: bảng task, chi tiết, log, câu hỏi và form tạo task
-([hợp đồng](specs/004-terminal-tui/contracts/tui.md)). Ngoài terminal, kèm `--json`, hoặc khi `TERM=dumb`/không đặt `TERM`,
-lệnh vẫn báo lỗi thiếu lệnh (exit 2). Các lệnh chỉ đọc giao diện dùng, như `cusr project list` và `cusr task board`, chạy được
-riêng với `--json`. Giới hạn khi dùng qua SSH và `reset` sau `SIGKILL`: xem [deploy/README.md](deploy/README.md#giao-diện-terminal-qua-ssh).
+Built in about a month (from late October to late November 2026) through about 260 merged pull requests, most of
+them written by coding agents under the rules in [AGENTS.md](AGENTS.md). The code base has about 84k lines of
+TypeScript and 98k lines of tests (unit, contract, property-based, integration, reliability and smoke).
 
-## Phát triển
+Feature 002 has run end to end on a sandbox repository with both Claude and Codex, including a daemon restart, red
+gates and a manual merge ([acceptance report](specs/002-task-to-green-pr/acceptance-report.md)). The repository
+is also developed with Cuesura itself ([dogfooding](docs/dogfooding.md)). Known limits: it runs on Linux only,
+it has not had a long soak test, and backup/restore has not been accepted yet.
 
-Feature đang làm là lõi điều phối tất định ([specs/001-deterministic-core](specs/001-deterministic-core/spec.md)). Hướng dẫn kiểm chứng đầy đủ, kèm kết quả mong đợi của từng lệnh, ở [quickstart.md](specs/001-deterministic-core/quickstart.md).
+This is a personal project, not a supported product.
 
-Điều kiện môi trường:
+## Documentation
 
-- Linux hoặc WSL2/Ubuntu, repo nằm trên filesystem Linux (không phải `/mnt/c`): crash test dựa vào `SIGKILL` và khoá file của Linux.
-- Node đúng bản pin trong `.nvmrc` (24.22.1), pnpm qua Corepack.
-- `build-essential` và `python3` để build `better-sqlite3` khi không có prebuilt.
+Most design documents (SPEC, feature specs, ADRs, commit messages and issues) are written in Vietnamese, the
+working language of the project. Code and code comments are in English.
+
+| Path | Content |
+| --- | --- |
+| [SPEC.md](SPEC.md) | Overall specification: v1 scope, domain model, workflow, operating contracts |
+| [GLOSSARY.md](GLOSSARY.md) | Domain terms |
+| [docs/architecture.md](docs/architecture.md) | Build-vs-buy review and survey of other orchestrators |
+| [docs/adr/](docs/adr/) | Architecture decision records |
+| [specs/](specs/) | Feature specs, plans, contracts and acceptance reports |
+| [deploy/README.md](deploy/README.md) | Install and operating guide |
+| `src/` | Engine, daemon, CLI, runner, adapters, terminal UI |
+| `test/` | Unit, contract, property, integration, reliability, performance and smoke tests |
+
+## Running it
+
+Requirements:
+
+- Linux (Ubuntu, or WSL2 with the repository on the Linux filesystem, not `/mnt/c`). Agents run under
+  `systemd`; macOS is not supported.
+- Node at the version pinned in `.nvmrc` (24.22.1) and pnpm through Corepack.
+- `build-essential` and `python3` to build `better-sqlite3` when no prebuilt binary is available.
 
 ```bash
 corepack enable
 pnpm install --frozen-lockfile
+pnpm build
 ```
 
-Cổng chất lượng, mỗi lệnh là một kiểm tra riêng:
+Quality checks:
 
 ```bash
 pnpm typecheck
 pnpm lint
+pnpm format:check
 pnpm test
-pnpm build
 ```
 
-Khi đang phát triển, `pnpm test:changed` chỉ chạy các test phụ thuộc vào file đã đổi so với `origin/main`; `pnpm test` đầy đủ do CI chạy cho mọi PR.
+Longer suites run separately: `pnpm test:performance`, `pnpm test:reliability` (prints a seed on failure; pass it
+back with `--seed <seed>`), and `pnpm report:invariants` for the invariant report built from the latest runs.
 
-Các phép đo thời gian thực chạy riêng để không kéo dài lượt test thường. Trước khi merge PR chạm TUI hoặc cấu hình, và trước mỗi release, chạy:
+To install the daemon, set up projects and connect an assistant, follow [deploy/README.md](deploy/README.md) and
+start from [deploy/config.example.yaml](deploy/config.example.yaml). A typical session:
 
 ```bash
-pnpm test:performance
+cusr init                       # install cusr.yaml, PR template and assistant skill into a repository
+cusr doctor --project my-app    # check the host, harnesses and project config
+cusr task add ...               # submit a task
+cusr inbox                      # answer what is waiting for you
+cusr                            # open the terminal UI
 ```
 
-Lệnh này giữ phép đo median cấu hình 500 dòng, màn hình 100 task, 20 mẫu cập nhật trạng thái và phiên idle 30 giây; chạy từng file tuần tự.
+Stack: Node 24, TypeScript (strict), SQLite (`better-sqlite3`), Zod, Commander, Vitest and fast-check.
 
-Nhóm reliability chạy riêng vì tốn thời gian (10.000 chuỗi tín hiệu qua kho in-memory, 200 lần `SIGKILL` trên file SQLite thật). Khi fail, output in `seed`; truyền lại để tái hiện:
+## License
 
-```bash
-pnpm test:reliability
-pnpm test:reliability --seed <seed>
-```
-
-Báo cáo bất biến I01–I12 dựng từ kết quả của lần `pnpm test` và `pnpm test:reliability` gần nhất; thoát lỗi khi thiếu kết quả hoặc có bộ bị skip/fail:
-
-```bash
-pnpm report:invariants
-```
+[Apache License 2.0](LICENSE).
