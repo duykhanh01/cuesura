@@ -8,19 +8,19 @@
 
 Cuesura là một **workflow engine tất định, hướng sự kiện, dành cho AI agent**. Tên ghép từ **Cue** (tín hiệu bắt đầu) và **Caesura** (khoảng ngắt có chủ đích trong âm nhạc hoặc thơ). Agent không hoạt động không có nghĩa hệ thống ngừng vận hành: mỗi lần chờ CI, người duyệt hoặc hạn mức đều có trạng thái, lý do và điều kiện tiếp tục. Biết khi nào không cần dùng AI cũng quan trọng như biết khi nào cần.
 
-**Tên CLI: `cusr`** — rút gọn từ **CUeSuRa**. Ví dụ lệnh dự kiến: `cusr task add`, `cusr status`, `cusr inbox`.
+**Tên CLI: `cusr`** — rút gọn từ **CUeSuRa**. Một số lệnh: `cusr task add`, `cusr status`, `cusr inbox`, `cusr answer`, `cusr report`; chạy `cusr` không kèm lệnh để mở giao diện terminal.
 
 Use case đầu tiên là quy trình phát triển phần mềm: code → review → PR → CI → merge. Mục tiêu dài hạn là một nền tảng workflow tổng quát. Graph workflow là preset trong code (v1 có `software_dev@1`), người dùng chỉ chỉnh tham số như số lượt tối đa của từng bước; role, nguồn task và kênh liên lạc là dữ liệu và adapter, không gắn cứng vào việc viết code. Nâng cấp config cũ: [docs/config-upgrade.md](docs/config-upgrade.md).
 
 - **Không có Primary AI chạy liên tục.** Một state machine thuần quyết định mọi bước, nên việc điều phối tốn 0 token.
-- **Agent là các lần gọi headless một lần cho mỗi bước:** Claude Code, Codex CLI, sau này có Pi.
+- **Agent là các lần gọi headless một lần cho mỗi bước:** Claude Code và Codex CLI.
 - **Trạng thái bền vững trong SQLite:** event log, outbox có idempotency key, và khi khôi phục sau crash, daemon kiểm trạng thái thật của các thao tác Git/GitHub chưa chắc chắn trước khi thử lại, nên restart không mở PR thứ hai hay push hai lần.
 - **Dùng cho mọi project, không gắn ngôn ngữ:** gate, lệnh setup, bộ lọc log và tài nguyên riêng đều do từng repo khai báo trong `cusr.yaml`.
 
 ## Công cụ làm gì
 
-1. **Nhận task từ nhiều kênh:** GitHub issue, CLI, AI assistant, sau này có form. Mọi task được chuẩn hoá về một format trong DB.
-2. **Triage và lập lịch:** xử lý dependency, chạy song song các task độc lập, tự dừng khi chạm hạn mức subscription.
+1. **Nhận task** qua CLI, form trong giao diện terminal hoặc AI assistant (`cusr --json`); giao cả một feature thành goal nhiều task. Mọi task được chuẩn hoá về một format trong DB.
+2. **Triage và lập lịch:** xử lý dependency, chạy song song các task độc lập, harness báo chạm rate limit thì task chờ tới giờ reset thay vì fail.
 3. **Workflow cho mỗi task trong worktree riêng:**
    - Code, rồi chạy gate (build/test).
    - Trước khi chạy, bạn xác nhận harness, model, effort và chế độ: `direct-pr` hoặc `full-review`.
@@ -33,13 +33,24 @@ Use case đầu tiên là quy trình phát triển phần mềm: code → review
    - Merge an toàn. Mặc định bạn duyệt từng lần merge vào `main`. Chế độ yolo (chỉ bạn bật được, theo từng repo) cho phép code tự merge khi đủ điều kiện cứng. Agent không bao giờ quyết định merge.
 4. **Role và model cấu hình được,** đóng băng theo từng task, kèm thang nâng effort/model theo chữ ký lỗi.
 5. **Người quyết định:** task chờ khi cần bạn trả lời, và mọi câu trả lời đều được ghi lại.
-6. **Hỏi đáp bất đồng bộ** qua `cusr inbox`, Telegram bot, hoặc comment GitHub.
+6. **Hỏi đáp bất đồng bộ:** xem việc chờ bằng `cusr inbox`, trả lời bằng `cusr answer` hoặc trong giao diện terminal. Ở các điểm chờ, deputy có thể quyết thay bạn trong giới hạn đã duyệt.
 7. **CLI `--json`** cho AI assistant bên ngoài truy vấn và điều khiển.
-8. **Đo lường:** token / task được chấp nhận, số lần chạy lãng phí, time to green, số lần bạn phải can thiệp, tỉ lệ khôi phục thành công.
+8. **Báo cáo:** `cusr report` tóm tắt theo project việc đã xong, việc đang chờ bạn và quyết định của deputy từ một mốc thời gian.
 
 ## Trạng thái
 
-Feature 002 (task tới PR xanh, người dùng tự merge) đã chạy thật trên repo sandbox với Claude và Codex, gồm restart daemon, gate đỏ và merge thủ công; xem [nghiệm thu cuối](specs/002-task-to-green-pr/acceptance-report.md#nghiệm-thu-cuối-feature-002-t131t134). Giới hạn: một task chạy tại một thời điểm, giao task qua CLI, chưa soak test, chưa nghiệm thu backup/restore, và mới kiểm trên repo sandbox nhỏ với model nhẹ.
+Dự án làm trong khoảng một tháng (cuối tháng 10 tới cuối tháng 11/2026), khoảng 260 PR đã merge, phần lớn do coding agent viết theo quy tắc trong [AGENTS.md](AGENTS.md).
+
+| Feature | Trạng thái | Spec |
+| --- | --- | --- |
+| 001 Lõi tất định: engine, event log, outbox, khôi phục sau crash | Đã làm | [spec](specs/001-deterministic-core/spec.md) |
+| 002 Task tới PR xanh: worktree, gate, review, PR, CI, merge thủ công hoặc theo luật | Đã làm, đã nghiệm thu | [spec](specs/002-task-to-green-pr/spec.md) |
+| 004 Giao diện terminal: bảng task, chi tiết, log, câu hỏi, form tạo task | Đã làm | [spec](specs/004-terminal-tui/spec.md) |
+| 007 Deputy và goal: agent quyết thay chủ dự án ở điểm chờ, goal nhiều task trên nhánh goal | Đã làm | [spec](specs/007-deputy/spec.md) |
+| 003 Kênh Telegram cho câu hỏi và duyệt | Mới có spec | [spec](specs/003-telegram-channel/spec.md) |
+| 006 Nhiều tài khoản cho mỗi harness, đổi tài khoản khi hết hạn mức | Mới có spec | [spec](specs/006-account-pool/spec.md) |
+
+Feature 002 đã chạy thật trên hai repo sandbox (Node và Python), Claude và Codex đổi vai coder và reviewer, gồm kill daemon, gate đỏ và merge thủ công; xem [nghiệm thu cuối](specs/002-task-to-green-pr/acceptance-report.md#nghiệm-thu-cuối-feature-002-t131t134). Giới hạn: chỉ chạy trên Linux, chưa soak test dài, chưa nghiệm thu backup/restore.
 
 [SPEC.md](SPEC.md) là đặc tả tổng quan của dự án: phạm vi v1, mô hình miền, workflow, hợp đồng vận hành và tiêu chí nghiệm thu. [docs/architecture.md](docs/architecture.md) lưu đánh giá Build vs Buy, lập luận kiến trúc và kế hoạch ban đầu.
 
@@ -68,7 +79,7 @@ riêng với `--json`. Giới hạn khi dùng qua SSH và `reset` sau `SIGKILL`:
 
 ## Phát triển
 
-Feature đang làm là lõi điều phối tất định ([specs/001-deterministic-core](specs/001-deterministic-core/spec.md)). Hướng dẫn kiểm chứng đầy đủ, kèm kết quả mong đợi của từng lệnh, ở [quickstart.md](specs/001-deterministic-core/quickstart.md).
+Cài daemon, cấu hình project và nối assistant: xem [deploy/README.md](deploy/README.md). Mỗi feature có `quickstart.md` riêng trong `specs/` để kiểm chứng, ví dụ [lõi tất định](specs/001-deterministic-core/quickstart.md).
 
 Điều kiện môi trường:
 

@@ -59,18 +59,20 @@ When a task gets stuck (every retry used, a reviewer and a fixer pushing the sam
 budget or deadline reached, a question about the spec), it goes to a wait. A **deputy** agent can then act for
 the owner in a bounded turn (headless, or interactive in an assistant session), and code stops it from repeating
 an action without new evidence. Otherwise the owner sees what waits with `cusr inbox` and replies with
-`cusr answer`, through a Telegram bot, or in the terminal UI.
+`cusr answer`, or in the terminal UI.
 
 ## Features
 
-| Feature | Spec |
-| --- | --- |
-| 001 Deterministic core: engine, event log, outbox, crash recovery | [spec](specs/001-deterministic-core/spec.md) |
-| 002 Task to green PR: worktrees, gates, review, PR, CI, manual or rule-based merge | [spec](specs/002-task-to-green-pr/spec.md) |
-| 003 Telegram channel for questions and approvals | [spec](specs/003-telegram-channel/spec.md) |
-| 004 Terminal UI: task board, details, logs, questions, task form | [spec](specs/004-terminal-tui/spec.md) |
-| 006 Account pool: several subscriptions per harness, cooldown when a quota runs out | [spec](specs/006-account-pool/spec.md) |
-| 007 Deputy and goals: an agent that decides for the owner at waits, multi-task goals on a goal branch | [spec](specs/007-deputy/spec.md) |
+| Feature | State | Spec |
+| --- | --- | --- |
+| 001 Deterministic core: engine, event log, outbox, crash recovery | Built | [spec](specs/001-deterministic-core/spec.md) |
+| 002 Task to green PR: worktrees, gates, review, PR, CI, manual or rule-based merge | Built, accepted | [spec](specs/002-task-to-green-pr/spec.md) |
+| 004 Terminal UI: task board, details, logs, questions, task form | Built | [spec](specs/004-terminal-tui/spec.md) |
+| 007 Deputy and goals: an agent that decides for the owner at waits, multi-task goals on a goal branch | Built | [spec](specs/007-deputy/spec.md) |
+| 003 Telegram channel for questions and approvals | Spec only | [spec](specs/003-telegram-channel/spec.md) |
+| 006 Account pool: several subscriptions per harness, switching when a quota runs out | Spec only | [spec](specs/006-account-pool/spec.md) |
+
+When a harness reports a rate limit, the task waits for the reset time instead of failing.
 
 Other parts worth a look:
 
