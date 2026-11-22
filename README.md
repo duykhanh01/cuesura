@@ -28,8 +28,9 @@ and a fixer. Cuesura moves those concerns into code:
 - **Durable state in SQLite.** An append-only event log and an outbox with durable idempotency keys. After a
   crash, the daemon checks the real state of uncertain Git and GitHub writes before it retries them, so a
   restart does not open a second PR or push twice.
-- **Guarantees owned by code, not by the model.** Work goes to review and CI only after the required gates pass (or a person waives them), review
-  loops have caps, every decision is recorded with its reason, and agents never merge.
+- **Guarantees owned by code, not by the model.** Work goes to review and CI only after the required gates pass
+  (or a person waives them), review loops have caps, every decision is recorded with its reason, and agents
+  never merge.
 
 ## How a task flows
 
